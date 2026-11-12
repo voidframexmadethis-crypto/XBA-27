@@ -12,7 +12,6 @@ import {
   saveAthleteProfile,
 } from "@/lib/athleteProfile";
 import { loadAudioSettings } from "@/lib/audioManager";
-import { loadAudioSettings } from "@/lib/audioManager";
 
 interface DraftCutsceneModalProps {
   isOpen: boolean;
