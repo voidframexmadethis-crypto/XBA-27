@@ -1,0 +1,6 @@
+{
+  "name": "Hoops Moves – 3D Basketball Skills",
+  "description": "Master your handles and hit the game-winner in this realistic 3D basketball simulation. Practice crossovers, dunks, and clutch jump shots.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hoops Moves</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#0b0d12;color:#fff;font-family:system-ui,-apple-system,sans-serif;user-select:none}
+  #hud{position:absolute;top:12px;left:16px;right:16px;display:flex;justify-content:space-between;font-size:30px;font-weight:800;text-shadow:0 2px 6px #000;pointer-events:none}
+  #clock{color:#ffd166}
+  #msg{position:absolute;top:22%;left:0;right:0;text-align:center;font-size:40px;font-weight:900;text-shadow:0 4px 12px #000;opacity:0;transition:opacity .25s;pointer-events:none}
+  #label{position:absolute;top:calc(22% + 58px);left:0;right:0;text-align:center;font-size:18px;font-weight:800;letter-spacing:3px;text-shadow:0 2px 6px #000;opacity:0;transition:opacity .3s;pointer-events:none}
+  #meter{position:absolute;bottom:110px;left:50%;transform:translateX(-50%);width:min(60vw,320px);height:16px;border:2px solid #fff;border-radius:9px;background:rgba(0,0,0,.5);overflow:hidden;display:none}
+  #fill{height:100%;width:0;background:linear-gradient(90deg,#ef476f,#ffd166 40%,#06d6a0 50%,#ffd166 60%,#ef476f)}
+  #sweet{position:absolute;left:50%;top:0;bottom:0;width:2px;background:#fff}
+  #help{position:absolute;bottom:6px;left:0;right:0;text-align:center;font-size:12px;line-height:1.6;opacity:.6;pointer-events:none;text-shadow:0 1px 4px #000;padding:0 10px}
+</style>
+</head>
+<body>
+<div id="hud"><div id="score">0</div><div id="clock">24</div></div>
+<div id="msg"></div>
+<div id="label"></div>
+<div id="meter"><div id="fill"></div><div id="sweet"></div></div>
+<div id="help">
+Controller: L-Stick move · RT sprint · A jump shot (hold, release at center of meter) · B pass · X crossover · Y layup (RT+Y dunk up close) · LB spin · LT shield · D-pad: up pump, down pull-back, left/right hop<br>
+Combos: RB+A step-back · LT+A fadeaway · LB+X between legs · RB+X behind the back · LT+X hesitation · LB+Y euro step<br>
+Keyboard: WASD move · Shift sprint · Space shot · K pass · U crossover · I layup/dunk · Q spin · E step-back · R behind back · T between legs · G hesitation · F pump · Z shield · Arrows: up pump, down pull-back, left/right hop
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ================= Startup check =================
+const msgEl = document.getElementById('msg');
+if (typeof THREE === 'undefined') {
+  msgEl.textContent = 'Could not load Three.js. Check your internet connection and reload.';
+  msgEl.style.fontSize = '20px';
+  msgEl.style.opacity = 1;
+  throw new Error('Three.js missing');
+}
+
+// ================= Constants & helpers =================
+const HOOP_X = -12.6, RIM_Y = 3.05, RIM_R = 0.23, BOARD_X = -13.07, BALL_R = 0.12, G = 9.8;
+const clamp = THREE.MathUtils.clamp;
+const rnd = s => (Math.random() * 2 - 1) * s;
+const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
+
+// ================= Renderer / scene / camera =================
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b0d12);
+scene.fog = new THREE.Fog(0x0b0d12, 35, 80);
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 200);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 0.9));
+const sun = new THREE.DirectionalLight(0xffffff, 1.1);
+sun.position.set(-6, 22, 10);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -18, right: 18, top: 12, bottom: -12, far: 70 });
+sun.shadow.camera.updateProjectionMatrix();
+scene.add(sun);
+
+// ================= Court =================
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(28, 15),
+  new THREE.MeshStandardMaterial({ color: 0xc68b59, roughness: 0.6 })
+);
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+function line(w, d, x, z) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), lineMat);
+  m.rotation.x = -Math.PI / 2;
+  m.position.set(x, 0.012, z);
+  scene.add(m);
+}
+function ring(r1, r2, x, z, a, len) {
+  const m = new THREE.Mesh(new THREE.RingGeometry(r1, r2, 48, 1, a, len), lineMat);
+  m.rotation.x = -Math.PI / 2;
+  m.position.set(x, 0.012, z);
+  scene.add(m);
+}
+line(28, 0.1, 0, 7.5); line(28, 0.1, 0, -7.5);
+line(0.1, 15, 14, 0);  line(0.1, 15, -14, 0);
+line(0.1, 15, 0, 0);
+ring(1.75, 1.85, 0, 0, 0, Math.PI * 2);
+line(4.2, 0.05, -11.9, 2.45); line(4.2, 0.05, -11.9, -2.45);
+line(0.05, 4.9, -9.8, 0);
+ring(7.2, 7.28, HOOP_X, 0, -Math.PI / 2, Math.PI);
+line(4.14, 0.05, -11.93, 6.7); line(4.14, 0.05, -11.93, -6.7);
+
+// ================= Hoop =================
+const board = new THREE.Mesh(
+  new THREE.BoxGeometry(0.06, 1.05, 1.8),
+  new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 })
+);
+board.position.set(-13.1, 3.45, 0);
+board.castShadow = true;
+scene.add(board);
+
+const rim = new THREE.Mesh(
+  new THREE.TorusGeometry(RIM_R, 0.02, 12, 32),
+  new THREE.MeshStandardMaterial({ color: 0xff6a00, metalness: 0.3, roughness: 0.4 })
+);
+rim.rotation.x = Math.PI / 2;
+rim.position.set(HOOP_X, RIM_Y, 0);
+scene.add(rim);
+
+const pole = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.06, 0.06, 3.5),
+  new THREE.MeshStandardMaterial({ color: 0x888888 })
+);
+pole.position.set(-13.7, 1.75, 0);
+pole.castShadow = true;
+scene.add(pole);
+
+const netPts = [];
+for (let i = 0; i < 12; i++) {
+  const a = (i / 12) * Math.PI * 2;
+  netPts.push(
+    V(HOOP_X + Math.cos(a) * RIM_R, RIM_Y, Math.sin(a) * RIM_R),
+    V(HOOP_X + Math.cos(a) * 0.08, RIM_Y - 0.45, Math.sin(a) * 0.08)
+  );
+}
+scene.add(new THREE.LineSegments(
+  new THREE.BufferGeometry().setFromPoints(netPts),
+  new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 })
+));
+
+// ================= Humans (jointed rigs) =================
+function makeHuman(color) {
+  const root = new THREE.Group();
+  scene.add(root);
+  const mat = (c, r = 0.6) => new THREE.MeshStandardMaterial({ color: c, roughness: r });
+  const jersey = mat(color), skin = mat(0x8d5524, 0.7), shorts = mat(0x161616), shoe = mat(0xf5f5f5, 0.4);
+  const box = (w, h, d, m, parent, x, y, z) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    parent.add(mesh);
+    return mesh;
+  };
+
+  const pelvis = new THREE.Group();
+  pelvis.position.y = 0.95;
+  root.add(pelvis);
+  box(0.46, 0.3, 0.28, shorts, pelvis, 0, 0, 0);
+
+  const torso = new THREE.Group();
+  pelvis.add(torso);
+  box(0.5, 0.62, 0.28, jersey, torso, 0, 0.31, 0);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 12), skin);
+  head.position.y = 0.8;
+  head.castShadow = true;
+  torso.add(head);
+
+  const legs = {}, arms = {}, hands = {};
+  for (const [key, side] of [['R', -1], ['L', 1]]) {
+    const hip = new THREE.Group();
+    hip.position.set(side * 0.13, -0.05, 0);
+    pelvis.add(hip);
+    box(0.19, 0.44, 0.2, shorts, hip, 0, -0.22, 0);
+    const knee = new THREE.Group();
+    knee.position.y = -0.44;
+    hip.add(knee);
+    box(0.16, 0.44, 0.18, skin, knee, 0, -0.22, 0);
+    box(0.2, 0.08, 0.3, shoe, knee, 0, -0.46, 0.05);
+    legs[key] = { hip, knee };
+  }
+  for (const [key, side] of [['R', -1], ['L', 1]]) {
+    const sh = new THREE.Group();
+    sh.position.set(side * 0.32, 0.55, 0);
+    torso.add(sh);
+    box(0.14, 0.36, 0.14, jersey, sh, 0, -0.18, 0);
+    const el = new THREE.Group();
+    el.position.y = -0.36;
+    sh.add(el);
+    box(0.12, 0.34, 0.12, skin, el, 0, -0.17, 0);
+    const hand = new THREE.Group();
+    hand.position.y = -0.34;
+    el.add(hand);
+    box(0.14, 0.1, 0.16, skin, hand, 0, -0.04, 0.03);
+    arms[key] = { sh, el };
+    hands[key] = hand;
+  }
+  return { root, pelvis, torso, legs, arms, hands };
+}
+
+function makeEntity(color, x, z, isUser) {
+  const H = makeHuman(color);
+  H.root.position.set(x, 0, z);
+  return Object.assign(H, {
+    isUser: !!isUser,
+    vel: V(), h: 0, vy: 0,
+    hand: 'R', dribPhase: 0, runPhase: 0, spin: 0, faceYaw: 0,
+    act: null, holdT: 0, shield: false,
+    cur: { shR: -0.25, elR: -0.5, shL: -0.25, elL: -0.5, hipR: 0, kneeR: 0.05, hipL: 0, kneeL: 0.05, lean: 0, crouch: 0 }
+  });
+}
+
+const ME   = makeEntity(0xc8102e, -4, 0, true);     // you
+const MATE = makeEntity(0xf2b705, -7.4, -5.6, false); // teammate
+const DEF  = makeEntity(0x1d428a, -6.6, 0.6, false);  // defender
+const ENT  = [ME, MATE, DEF];
+
+// ================= Ball =================
+function ballTexture() {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#e8651a'; g.fillRect(0, 0, 512, 256);
+  g.strokeStyle = '#161616'; g.lineWidth = 8;
+  g.beginPath(); g.moveTo(0, 128); g.lineTo(512, 128); g.stroke();
+  g.beginPath(); g.moveTo(256, 0); g.lineTo(256, 256); g.stroke();
+  g.beginPath(); g.arc(0, 128, 140, -1.1, 1.1); g.stroke();
+  g.beginPath(); g.arc(512, 128, 140, Math.PI - 1.1, Math.PI + 1.1); g.stroke();
+  return new THREE.CanvasTexture(c);
+}
+const ball = new THREE.Mesh(
+  new THREE.SphereGeometry(BALL_R, 32, 20),
+  new THREE.MeshStandardMaterial({ map: ballTexture(), roughness: 0.5 })
+);
+ball.castShadow = true;
+scene.add(ball);
+
+// ================= Game state =================
+let owner = ME;             // who has the ball (or null)
+let ballMode = 'dribble';   // 'dribble' | 'held' | 'flight' | 'loose' | 'dead'
+let flight = null;          // current shot or pass
+let score = 0, shotClock = 24, deadT = 0, looseT = 0;
+let lbUsed = false, rbUsed = false;
+const ballVel = V();
+
+// ================= UI =================
+const scoreEl = document.getElementById('score');
+const clockEl = document.getElementById('clock');
+const labelEl = document.getElementById('label');
+const meterEl = document.getElementById('meter');
+const fillEl  = document.getElementById('fill');
+let msgT, lblT;
+function showMsg(t, c = '#fff') {
+  msgEl.textContent = t;
+  msgEl.style.color = c;
+  msgEl.style.opacity = 1;
+  clearTimeout(msgT);
+  msgT = setTimeout(() => (msgEl.style.opacity = 0), 1100);
+}
+function label(t) {
+  labelEl.textContent = t;
+  labelEl.style.opacity = 1;
+  clearTimeout(lblT);
+  lblT = setTimeout(() => (labelEl.style.opacity = 0), 900);
+}
+
+// ================= Input (gamepad + keyboard) =================
+const keys = {};
+addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+  if (!e.repeat) Squeak.unlock();
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+addEventListener('pointerdown', () => Squeak.unlock());
+
+function readInput() {
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  let gp = null;
+  for (const g of pads) { if (g && g.connected) { gp = g; break; } }
+  const b = i => !!(gp && gp.buttons[i] && gp.buttons[i].pressed);
+  const ax = i => { if (!gp) return 0; const v = gp.axes[i] || 0; return Math.abs(v) < 0.15 ? 0 : v; };
+  const k = c => !!keys[c];
+  const shift = k('ShiftLeft') || k('ShiftRight');
+  return {
+    A: b(0) || k('Space'),
+    B: b(1) || k('KeyK'),
+    X: b(2) || k('KeyU'),
+    Y: b(3) || k('KeyI'),
+    LB: b(4) || k('KeyQ'),
+    RB: b(5) || k('KeyE'),
+    LT: b(6) || k('KeyZ'),
+    RT: b(7) || shift || k('KeyC'),
+    up: b(12) || k('ArrowUp') || k('KeyF'),
+    down: b(13) || k('ArrowDown'),
+    left: b(14) || k('ArrowLeft'),
+    right: b(15) || k('ArrowRight'),
+    R: k('KeyR'), T: k('KeyT'), G: k('KeyG'),
+    mx: clamp(ax(0) + (k('KeyD') ? 1 : 0) - (k('KeyA') ? 1 : 0), -1, 1),
+    my: clamp(ax(1) + (k('KeyS') ? 1 : 0) - (k('KeyW') ? 1 : 0), -1, 1)
+  };
+}
+let prev = {};
+let cur = readInput();
+const edge = n => !!cur[n] && !prev[n];
+const relE = n => !cur[n] && !!prev[n];
+
+// ================= Geometry helpers =================
+function fwd(P) {
+  const v = V(HOOP_X - P.root.position.x, 0, -P.root.position.z);
+  return v.lengthSq() < 1e-6 ? V(-1, 0, 0) : v.normalize();
+}
+function rightOf(P) { const f = fwd(P); return V(-f.z, 0, f.x); }
+function hDist(P) { return Math.hypot(P.root.position.x - HOOP_X, P.root.position.z); }
+function defDist(P) {
+  return Math.hypot(P.root.position.x - DEF.root.position.x, P.root.position.z - DEF.root.position.z);
+}
+function torsoPos(P) { return V(P.root.position.x, P.h + 1.2, P.root.position.z); }
+function handPos(P) { return P.hands[P.hand].getWorldPosition(V()); }
+function triangle(x) { const p = ((x % 2) + 2) % 2; return p < 1 ? p : 2 - p; }
+function euroSide(P) {
+  const d = DEF.root.position.clone().sub(P.root.position);
+  return rightOf(P).dot(d) >= 0 ? -1 : 1;
+}
+
+// ================= Movement =================
+function applyVel(P, want, dt) {
+  if (P.act && P.act.lock) want = V();
+  P.vel.lerp(want, 1 - Math.exp(-9 * dt));
+  P.root.position.x = clamp(P.root.position.x + P.vel.x * dt, -13.6, 13.6);
+  P.root.position.z = clamp(P.root.position.z + P.vel.z * dt, -6.9, 6.9);
+}
+function aiSteer(P, tx, tz, sp, dt) {
+  const dx = tx - P.root.position.x, dz = tz - P.root.position.z, d = Math.hypot(dx, dz);
+  const s = Math.min(sp, d * 2.5);
+  applyVel(P, d > 0.01 ? V(dx / d * s, 0, dz / d * s) : V(), dt);
+}
+function physEntity(P, dt) {
+  if (P.h > 0 || P.vy > 0) {
+    P.vy -= G * dt;
+    P.h += P.vy * dt;
+    if (P.h <= 0) { P.h = 0; P.vy = 0; }
+  }
+}
+
+// ================= Actions =================
+function tickAct(P, dt) {
+  const a = P.act;
+  if (!a) return;
+  a.t += dt * (a.slow || 1);
+  if (a.update) a.update(a, P);
+  if (P.act !== a) return;
+  if (a.t >= a.dur) {
+    if (a.end) a.end(a, P);
+    if (P.act === a) P.act = null;
+  }
+}
+function jumpAct(P, name, dur) {
+  if (P.act || P.h > 0.05) return;
+  P.vy = 3.4;
+  P.act = { kind: 'jump', name, t: 0, dur, lock: false,
+    pose: (u, T) => { T.shL = T.shR = -2.5; T.elL = T.elR = -1.4; } };
+}
+function dribbleAct(P, name, dur, extra = {}) {
+  if (P.act || owner !== P) return null;
+  P.act = Object.assign({ kind: 'dribble', name, t: 0, dur, lock: false }, extra);
+  if (P.isUser) label(name);
+  return P.act;
+}
+
+// Dribble moves
+function crossover(P) {
+  const dir = P.hand === 'R' ? -1 : 1;
+  const a = dribbleAct(P, 'CROSSOVER', 0.4);
+  if (!a) return;
+  P.vel.addScaledVector(rightOf(P), dir * 3.6);
+  a.pose = (u, T) => { T.lean = 0.15; T.crouch = 0.12; };
+  a.off = u => rightOf(P).multiplyScalar(dir * 0.35 * Math.sin(u * Math.PI));
+  a.update = () => { if (!a.sw && a.t >= 0.2) { a.sw = true; P.hand = P.hand === 'R' ? 'L' : 'R'; } };
+}
+function behindBack(P) {
+  const a = dribbleAct(P, 'BEHIND THE BACK', 0.5);
+  if (!a) return;
+  const k = P.hand;
+  a.pose = (u, T) => {
+    if (u > 0.15 && u < 0.8) { T['sh' + k] = 0.7; T['el' + k] = -0.4; }
+    T.lean = 0.08;
+  };
+  a.off = u => fwd(P).multiplyScalar(-0.45 * Math.sin(u * Math.PI));
+  a.update = () => { if (!a.sw && a.t >= 0.3) { a.sw = true; P.hand = P.hand === 'R' ? 'L' : 'R'; } };
+}
+function betweenLegs(P) {
+  const dir = P.hand === 'R' ? -1 : 1;
+  const a = dribbleAct(P, 'BETWEEN THE LEGS', 0.5);
+  if (!a) return;
+  P.vel.addScaledVector(rightOf(P), dir * 1.2);
+  a.pose = (u, T) => { T.lean = 0.45; T.crouch = 0.25; T.kneeR = 0.45; T.kneeL = 0.45; };
+  a.off = u => {
+    const s = Math.sin(u * Math.PI);
+    return rightOf(P).multiplyScalar(dir * 0.5 * s).add(V(0, -0.35 * s, 0));
+  };
+  a.update = () => { if (!a.sw && a.t >= 0.25) { a.sw = true; P.hand = P.hand === 'R' ? 'L' : 'R'; } };
+}
+function spinMove(P) {
+  const a = dribbleAct(P, 'SPIN MOVE', 0.6);
+  if (!a) return;
+  P.vel.addScaledVector(fwd(P), 2.6);
+  a.pose = (u, T) => { T.shL = -1.2; T.elL = -1.5; T.lean = 0.1; };
+  a.update = () => { P.spin = clamp(a.t / a.dur, 0, 1) * Math.PI * 2; };
+  a.end = () => { P.spin = 0; };
+}
+function hesitation(P) {
+  const a = dribbleAct(P, 'HESITATION', 0.5, { slow: 0.4 });
+  if (!a) return;
+  P.vel.multiplyScalar(0.3);
+  a.pose = (u, T) => { T.lean = -0.1; T.crouch = 0.05; };
+}
+function pullBack(P) {
+  const a = dribbleAct(P, 'PULL-BACK', 0.4);
+  if (!a) return;
+  P.vel.addScaledVector(fwd(P), -3.2);
+  a.pose = (u, T) => { T.lean = -0.1; };
+}
+function pump(P) {
+  const a = dribbleAct(P, 'PUMP FAKE', 0.5);
+  if (!a) return;
+  a.pose = (u, T) => { if (u > 0.15 && u < 0.75) { T.shL = T.shR = -2.4; T.elL = T.elR = -1.6; } };
+  if (defDist(P) < 2.6 && Math.random() < 0.6) jumpAct(DEF, 'CONTEST', 0.5);
+}
+function hop(P, dir) {
+  if (P.act || P.h > 0.05) return;
+  P.vy = 3.4;
+  P.vel.addScaledVector(rightOf(P), dir * 3);
+  P.act = { kind: 'hop', name: dir > 0 ? 'HOP RIGHT' : 'HOP LEFT', t: 0, dur: 0.5, lock: false,
+    pose: (u, T) => { T.hipL = T.hipR = -0.4; T.kneeL = T.kneeR = 0.6; } };
+  if (P.isUser) label(P.act.name);
+}
+function jumpPlayer(P) {
+  if (!P.act && P.h < 0.05) P.vy = 4.2;
+}
+
+// Passing
+function passBall(P) {
+  if (P !== ME || owner !== P || P.act) return;
+  const from = handPos(P);
+  const to = torsoPos(MATE).add(V(rnd(0.1), 0, rnd(0.1)));
+  const a = dribbleAct(P, 'PASS', 0.3);
+  if (!a) return;
+  a.pose = (u, T) => { T.shR = -1.6; T.elR = -1.9; T.shL = -1.2; T.elL = -1.6; };
+  fire(P, from, to, 0.22 + from.distanceTo(to) * 0.09, 'pass', { passTo: MATE });
+}
+
+// Shooting
+function startShot(P, o = {}) {
+  if (P.act || P.h > 0.05) return null;
+  if (!o.auto && owner !== P) return null;
+  const a = {
+    kind: 'shot', name: o.name || 'JUMP SHOT', t: 0, dur: o.dur || 1.25,
+    lock: !o.move, released: false,
+    fade: !!o.fade, step: !!o.step, layup: !!o.layup, dunk: !!o.dunk,
+    euro: !!o.euro, auto: !!o.auto, c: 0.5
+  };
+  if (o.auto) a.c = 0.5 + rnd(0.35);
+
+  a.pose = (u, T) => {
+    const k = P.hand, other = k === 'R' ? 'L' : 'R';
+    if (a.dunk) { T.shR = T.shL = -3.0; T.elR = T.elL = -0.5; T.lean = -0.1; return; }
+    if (a.layup) {
+      T['sh' + k] = -2.2; T['el' + k] = -1.9;
+      T['sh' + other] = -0.8; T['el' + other] = -1.2;
+      T.lean = 0.1; return;
+    }
+    if (!a.released) {
+      T['sh' + k] = -2.5; T['el' + k] = -1.9;
+      T['sh' + other] = -1.4; T['el' + other] = -1.6;
+    } else {
+      T['sh' + k] = -2.9; T['el' + k] = -0.2;
+      T['sh' + other] = -0.3; T['el' + other] = -0.6;
+    }
+    T.lean = a.fade ? -0.15 : 0.05;
+  };
+  a.update = () => {
+    if (a.released) return;
+    if (a.layup && a.t >= 0.34) return releaseShot(P, a, false);
+    if (a.dunk && a.t >= 0.3) return releaseShot(P, a, false);
+    if (a.auto && a.t >= 0.4) return releaseShot(P, a, false);
+    if (P.isUser && !a.auto && !a.layup && !a.dunk) a.c = triangle(a.t / 0.55);
+  };
+  a.end = () => { if (!a.released) releaseShot(P, a, true); };
+
+  P.act = a;
+  ballMode = 'held';
+  P.vy = a.dunk ? 5.4 : a.layup ? 4.8 : a.fade ? 4.0 : 4.6;
+  if (o.back) P.vel.addScaledVector(fwd(P), -1.6);
+  if (a.fade) P.vel.addScaledVector(fwd(P), -2.2);
+  if (a.layup || a.dunk) P.vel.addScaledVector(fwd(P), a.dunk ? 1.0 : 1.6);
+  if (a.euro) P.vel.addScaledVector(rightOf(P), euroSide(P) * 2.4);
+  if (P.isUser) label(a.name);
+  if (P !== DEF && DEF.act === null && defDist(P) < 2.0 && Math.random() < 0.55) {
+    jumpAct(DEF, 'CONTEST', 0.5);
+  }
+  return a;
+}
+
+function aimAt(P, spread, over) {
+  const f = fwd(P);
+  return V(HOOP_X + f.x * over + rnd(spread), RIM_Y + rnd(spread * 0.4), f.z * over + rnd(spread));
+}
+
+function releaseShot(P, a, forced) {
+  if (a.released) return;
+  a.released = true;
+  const d = hDist(P);
+  const contest = P !== DEF && defDist(P) < 1.8 ? 1 : 0;
+  const e = Math.abs(a.c - 0.5);
+  let spread, over = 0, FT, pts = d > 7.24 ? 3 : 2;
+
+  if (a.dunk) {
+    spread = 0.03 + (forced ? 0.2 : 0);
+    FT = 0.42; pts = 2;
+  } else if (a.layup) {
+    spread = 0.1 + contest * 0.25 + (a.euro ? 0.12 : 0) + (forced ? 0.3 : 0);
+    FT = 0.5 + d * 0.03; pts = 2;
+  } else {
+    spread = 0.05 + e * 0.85 + contest * 0.22 + (a.fade ? 0.08 : 0) + (a.step ? 0.06 : 0)
+           + (forced ? 0.3 : 0) + (a.auto ? 0.12 : 0);
+    over = (a.c - 0.5) * 2.2;
+    FT = (a.fade ? 0.95 : 0.8) + d * 0.045;
+  }
+  const perfect = !a.dunk && !a.layup && !forced && !a.auto && e < 0.06 && !contest;
+  const from = handPos(P);
+  fire(P, from, aimAt(P, spread, over), FT, 'shot',
+    { perfect, dunk: a.dunk, layup: a.layup, pts });
+}
+
+// Ballistic launch so the ball reaches "aim" after FT seconds
+function fire(P, from, aim, FT, type, ex = {}) {
+  flight = {
+    kind: type, shooter: P, passTo: ex.passTo || null, pts: ex.pts || 0,
+    perfect: !!ex.perfect, dunk: !!ex.dunk, layup: !!ex.layup, t: 0, T: FT, rim: 0
+  };
+  ball.position.copy(from);
+  ballVel.set(
+    (aim.x - from.x) / FT,
+    (aim.y - from.y) / FT + 0.5 * G * FT,
+    (aim.z - from.z) / FT
+  );
+  owner = null;
+  ballMode = 'flight';
+  if (type === 'shot') shotClock = 24;
+}
+
+// ================= Ball physics =================
+function missShot() {
+  const f = flight;
+  flight = null;
+  ballMode = 'loose';
+  looseT = 0;
+  showMsg(f && f.rim > 0 ? 'IN & OUT' : 'MISS', '#ef476f');
+}
+function scoreShot() {
+  const f = flight;
+  flight = null;
+  score += f.pts;
+  const txt = f.dunk ? 'SLAM DUNK' : f.layup ? 'LAYUP' : f.rim > 0 ? 'IN OFF THE RIM' : f.perfect ? 'PERFECT!' : 'SWISH';
+  showMsg(txt + '  +' + f.pts, '#06d6a0');
+  ballMode = 'dead';
+  deadT = 1.4;
+  ballVel.x *= 0.1; ballVel.z *= 0.1;
+  ballVel.y = Math.min(ballVel.y, 0);
+  shotClock = 24;
+}
+function catchBall(P) {
+  flight = null;
+  owner = P;
+  ballMode = 'dribble';
+  ballVel.set(0, 0, 0);
+  P.dribPhase = 0;
+  P.holdT = 0;
+  if (P.isUser) label('GOT IT');
+}
+
+function stepBall(h) {
+  const p = ball.position;
+  const prevY = p.y;
+  ballVel.y -= G * h;
+  p.addScaledVector(ballVel, h);
+
+  // Backboard
+  if (ballVel.x < 0 && p.x < BOARD_X + BALL_R && p.y > 2.9 && p.y < 4 && Math.abs(p.z) < 0.9) {
+    p.x = BOARD_X + BALL_R;
+    ballVel.x *= -0.45;
+  }
+
+  // Rim (only for shots, checked on the way down)
+  if (flight && flight.kind !== 'pass' && prevY > RIM_Y && p.y <= RIM_Y && ballVel.y < 0) {
+    const dx = p.x - HOOP_X, dz = p.z;
+    const d = Math.hypot(dx, dz) || 1e-4;
+    if (d < RIM_R - 0.04) {
+      scoreShot();
+    } else if (d < RIM_R + BALL_R * 0.6 && flight.rim < 3) {
+      flight.rim++;
+      p.y = RIM_Y + 0.02;
+      ballVel.y = 1.4 + Math.random() * 0.6;
+      ballVel.x = ballVel.x * 0.3 + dx / d * 1.1;
+      ballVel.z = ballVel.z * 0.3 + dz / d * 1.1;
+    }
+  }
+
+  // Floor
+  if (p.y < BALL_R) {
+    p.y = BALL_R;
+    if (ballVel.y < -1.2) {
+      ballVel.y *= -0.55;
+      ballVel.x *= 0.8;
+      ballVel.z *= 0.8;
+      if (flight && flight.kind === 'shot') missShot();
+    } else {
+      ballVel.y = 0;
+    }
+    const fr = Math.exp(-2.5 * h);
+    ballVel.x *= fr;
+    ballVel.z *= fr;
+  }
+
+  // Out of bounds
+  if (Math.abs(p.z) > 9 || Math.abs(p.x) > 15.5) {
+    flight = null;
+    ballMode = 'loose';
+    looseT = 0;
+    ballVel.set(0, 0, 0);
+    p.set(clamp(p.x, -14, 14), BALL_R, clamp(p.z, -8.5, 8.5));
+  }
+}
+
+function updateBall(dt) {
+  if (ballMode === 'dribble' && owner) {
+    const P = owner;
+    const hp = handPos(P);
+    const rate = P.vel.length() > 1 ? 9 : 6;
+    P.dribPhase += dt * rate * (P.act && P.act.slow ? P.act.slow : 1);
+    const bounce = Math.abs(Math.cos(P.dribPhase));
+    ball.position.set(hp.x, BALL_R + Math.max(0, hp.y - BALL_R) * bounce, hp.z);
+    if (P.act && P.act.off) {
+      ball.position.add(P.act.off(clamp(P.act.t / P.act.dur, 0, 1)));
+    }
+    if (ball.position.y < BALL_R) ball.position.y = BALL_R;
+  } else if (ballMode === 'held' && owner) {
+    const hp = handPos(owner);
+    ball.position.set(hp.x, hp.y + 0.03, hp.z);
+  } else {
+    for (let i = 0; i < 4; i++) stepBall(dt / 4);
+    if (ballMode === 'dead') {
+      deadT -= dt;
+      if (deadT <= 0) {
+        owner = ME;
+        ballMode = 'dribble';
+        ballVel.set(0, 0, 0);
+      }
+    }
+  }
+}
+
+function checkFlight(dt) {
+  if (!flight) return;
+  flight.t += dt;
+  if (flight.kind === 'pass') {
+    const tgt = flight.passTo;
+    if (ball.position.distanceTo(torsoPos(tgt)) < 0.55) { catchBall(tgt); return; }
+    if (tgt !== DEF && ball.position.distanceTo(torsoPos(DEF)) < 0.6) {
+      catchBall(DEF);
+      showMsg('INTERCEPTED!', '#ef476f');
+      return;
+    }
+    if (flight.t > flight.T + 0.8) { flight = null; ballMode = 'loose'; looseT = 0; }
+  } else {
+    if (DEF.act && DEF.act.name === 'CONTEST' && ball.position.distanceTo(torsoPos(DEF)) < 0.75) {
+      flight = null;
+      ballMode = 'loose';
+      looseT = 0;
+      ballVel.set(rnd(1), 2.5, rnd(2));
+      showMsg('BLOCKED!', '#ef476f');
+      return;
+    }
+    if (flight.t > 5) { flight = null; ballMode = 'loose'; looseT = 0; }
+  }
+}
+
+// Pickups, steals and the shot clock
+function ballEvents(dt) {
+  if (ballMode === 'loose') {
+    looseT += dt;
+    if (ball.position.y < 0.4 && Math.hypot(ballVel.x, ballVel.z) < 1.6) {
+      let best = null, bd = looseT > 4 ? 99 : 1.1;
+      for (const P of ENT) {
+        const d = Math.hypot(P.root.position.x - ball.position.x, P.root.position.z - ball.position.z);
+        if (d < bd) { bd = d; best = P; }
+      }
+      if (best) {
+        owner = best;
+        ballMode = 'dribble';
+        ballVel.set(0, 0, 0);
+        looseT = 0;
+        best.holdT = 0;
+        if (best.isUser) label('BALL!');
+      }
+    }
+  } else {
+    looseT = 0;
+  }
+
+  // Defender strip
+  if (ballMode === 'dribble' && owner === ME && !ME.act && defDist(ME) < 0.95 && Math.random() < dt * 0.25) {
+    const away = V(DEF.root.position.x - ME.root.position.x, 0, DEF.root.position.z - ME.root.position.z).normalize();
+    owner = null;
+    ballMode = 'loose';
+    ballVel.set(away.x * 1.6 + rnd(0.6), 2.2, away.z * 1.6 + rnd(0.6));
+    showMsg('STRIP!', '#ef476f');
+  }
+
+  // Shot clock
+  shotClock -= dt;
+  if (shotClock <= 0) {
+    shotClock = 24;
+    if (owner && owner !== DEF) {
+      owner = DEF;
+      ballMode = 'dribble';
+      DEF.holdT = 0;
+      showMsg('SHOT CLOCK VIOLATION', '#ffd166');
+    }
+  }
+}
+
+// ================= Input -> ME =================
+function handleUser(dt) {
+  const P = ME;
+  const f = fwd(P), r = rightOf(P);
+  let ix = cur.mx, iz = -cur.my;
+  const l = Math.hypot(ix, iz);
+  if (l > 1) { ix /= l; iz /= l; }
+
+  const shield = cur.LT && !P.act;
+  P.shield = !!shield;
+  const sprint = cur.RT && owner === P && !P.act ? 1.4 : 1;
+  const sp = 4.8 * sprint * (shield ? 0.5 : 1);
+  applyVel(P, V().addScaledVector(r, ix * sp).addScaledVector(f, iz * sp), dt);
+
+  // Shots and jumps
+  if (edge('A')) {
+    if (owner === P) {
+      if (cur.RB) startShot(P, { name: 'STEP-BACK', back: true, step: true, dur: 1.25 });
+      else if (cur.LT) startShot(P, { name: 'FADEAWAY', fade: true, dur: 1.3 });
+      else startShot(P, { name: 'JUMP SHOT', dur: 1.25 });
+    } else {
+      jumpPlayer(P);
+    }
+  }
+  if (relE('A') && P.act && P.act.kind === 'shot' && !P.act.released &&
+      !P.act.auto && !P.act.layup && !P.act.dunk) {
+    releaseShot(P, P.act, false);
+  }
+
+  // Layups and dunks
+  if (edge('Y') && owner === P && !P.act) {
+    if (hDist(P) < 3.5) {
+      if (cur.LB) {
+        lbUsed = true;
+        startShot(P, { name: 'EURO STEP', layup: true, euro: true, move: true, dur: 0.9 });
+      } else if (cur.RT && hDist(P) < 2.4) {
+        startShot(P, { name: 'SLAM DUNK', dunk: true, move: true, dur: 0.9 });
+      } else {
+        startShot(P, { name: 'LAYUP', layup: true, move: true, dur: 0.9 });
+      }
+    } else {
+      startShot(P, { name: 'JUMP SHOT', dur: 1.25 });
+    }
+  }
+
+  // Dribble moves
+  if (edge('X') && owner === P && !P.act) {
+    if (cur.LB) { lbUsed = true; betweenLegs(P); }
+    else if (cur.RB) { rbUsed = true; behindBack(P); }
+    else if (cur.LT) hesitation(P);
+    else crossover(P);
+  }
+  if (edge('R') && owner === P) behindBack(P);
+  if (edge('T') && owner === P) betweenLegs(P);
+  if (edge('G') && owner === P) hesitation(P);
+
+  // Pass
+  if (edge('B') && owner === P) {
+    if (cur.LB) lbUsed = true;
+    passBall(P);
+  }
+
+  // Spin: LB alone, only if LB wasn't used for a combo
+  if (edge('LB')) lbUsed = false;
+  if (relE('LB') && !lbUsed && owner === P && !P.act) spinMove(P);
+  if (edge('RB')) rbUsed = false;
+
+  // D-pad
+  if (edge('up')) pump(P);
+  if (edge('down')) pullBack(P);
+  if (edge('left')) hop(P, -1);
+  if (edge('right')) hop(P, 1);
+}
+
+// ================= AI =================
+function updateAI(dt) {
+  const M = MATE, D = DEF;
+
+  // Teammate: spots the wing, catches, and shoots when holding too long
+  if (owner === M) {
+    M.holdT += dt;
+    if (!M.act) {
+      aiSteer(M, -7.4, -5.6, 1.2, dt);
+      if (M.holdT > 1.7) startShot(M, { auto: true, name: 'JUMP SHOT' });
+    }
+  } else if (!owner && ballMode === 'loose') {
+    aiSteer(M, ball.position.x, ball.position.z, 5, dt);
+  } else {
+    aiSteer(M, -7.4, -5.6, 3.8, dt);
+  }
+
+  // Defender: stays between you and the hoop
+  if (owner === D) {
+    D.holdT += dt;
+    if (!D.act) {
+      aiSteer(D, -9.2, 0, 1.6, dt);
+      if (D.holdT > 1.9) startShot(D, { auto: true, name: 'JUMP SHOT' });
+    }
+  } else if (owner === ME) {
+    const f = fwd(ME);
+    aiSteer(D, ME.root.position.x + f.x * 1.2, ME.root.position.z + f.z * 1.2, 4.5, dt);
+  } else if (owner === M) {
+    const f = fwd(M);
+    aiSteer(D, M.root.position.x + f.x * 1.2, M.root.position.z + f.z * 1.2, 4.2, dt);
+  } else if (ballMode === 'loose') {
+    aiSteer(D, ball.position.x, ball.position.z, 5.2, dt);
+  } else {
+    aiSteer(D, -9, 0, 2, dt);
+  }
+}
+
+// ================= Animation =================
+function computePose(P, dt) {
+  const T = { shR: -0.25, elR: -0.5, shL: -0.25, elL: -0.5, hipR: 0, kneeR: 0.05, hipL: 0, kneeL: 0.05, lean: 0, crouch: 0 };
+  const sp = Math.hypot(P.vel.x, P.vel.z);
+
+  if (P.h > 0.03) {
+    T.hipR = T.hipL = -0.45; T.kneeR = T.kneeL = 0.75;
+  } else if (sp > 0.4) {
+    const s = Math.sin(P.runPhase);
+    T.hipR = s * 0.55; T.hipL = -s * 0.55;
+    T.kneeR = 0.15 + Math.max(0, -s) * 0.7;
+    T.kneeL = 0.15 + Math.max(0, s) * 0.7;
+    T.lean = 0.12; T.crouch = 0.05;
+  } else {
+    T.crouch = 0.07; T.kneeR = T.kneeL = 0.2;
+  }
+
+  // Dribbling arm and guard arm
+  if (owner === P && ballMode === 'dribble' && !P.act) {
+    const k = P.hand, o = k === 'R' ? 'L' : 'R';
+    T['sh' + k] = -0.45; T['el' + k] = -1.05;
+    T['sh' + o] = -0.9;  T['el' + o] = -1.5;
+    T.lean = 0.1;
+  }
+  if (P.shield && !P.act) {
+    T.shL = T.shR = -1.1; T.elL = T.elR = -1.6; T.lean = -0.1;
+  }
+  if (P.act && P.act.pose) P.act.pose(clamp(P.act.t / P.act.dur, 0, 1), T);
+
+  const k = Math.min(1, dt * 16);
+  for (const key in T) P.cur[key] += (T[key] - P.cur[key]) * k;
+}
+
+function applyPose(P) {
+  const c = P.cur, L = P.legs, A = P.arms;
+  L.R.hip.rotation.x = c.hipR;  L.R.knee.rotation.x = c.kneeR;
+  L.L.hip.rotation.x = c.hipL;  L.L.knee.rotation.x = c.kneeL;
+  A.R.sh.rotation.x = c.shR;    A.R.el.rotation.x = c.elR;
+  A.L.sh.rotation.x = c.shL;    A.L.el.rotation.x = c.elL;
+  P.torso.rotation.x = c.lean;
+  P.pelvis.position.y = 0.95 - c.crouch;
+  P.root.position.y = P.h;
+  P.root.rotation.y = P.faceYaw + P.spin;
+  P.root.updateMatrixWorld(true);
+}
+
+// ================= Shoe squeak synth (Web Audio, no files) =================
+const Squeak = (() => {
+  let ctx = null, master = null, noiseBuf = null, voices = 0;
+  const MAX_VOICES = 10;
+
+  function init() {
+    if (ctx) return;
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const comp = ctx.createDynamicsCompressor();
+    master = ctx.createGain();
+    master.gain.value = 0.35;
+    master.connect(comp).connect(ctx.destination);
+    noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  function unlock() {
+    init();
+    if (ctx.state === 'suspended') ctx.resume();
+  }
+  function running() { return !!ctx && ctx.state === 'running'; }
+
+  function play({ pan = 0, vol = 1, pitch = 1, dur = 0.18 } = {}) {
+    if (!running() || voices >= MAX_VOICES) return;
+    voices++;
+    const t = ctx.currentTime;
+
+    const out = ctx.createGain();
+    out.gain.setValueAtTime(0, t);
+    out.gain.linearRampToValueAtTime(0.5 * vol, t + 0.015);
+    out.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = clamp(pan, -1, 1);
+    out.connect(panner).connect(master);
+
+    const f0 = (2600 + Math.random() * 900) * pitch;
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(f0, t);
+    osc.frequency.exponentialRampToValueAtTime(f0 * 0.62, t + dur);
+
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 35 + Math.random() * 35;
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = f0 * 0.035;
+    lfo.connect(lfoGain).connect(osc.frequency);
+
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = 9;
+    bp.frequency.setValueAtTime(f0 * 1.1, t);
+    bp.frequency.exponentialRampToValueAtTime(f0 * 0.7, t + dur);
+    const tonal = ctx.createGain();
+    tonal.gain.value = 0.5;
+    osc.connect(bp).connect(tonal).connect(out);
+
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuf;
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 3000;
+    const ng = ctx.createGain();
+    ng.gain.value = 0.35;
+    src.connect(hp).connect(ng).connect(out);
+
+    const end = t + dur + 0.05;
+    osc.start(t); lfo.start(t); src.start(t, Math.random() * 0.5);
+    osc.stop(end); lfo.stop(end); src.stop(end);
+    osc.onended = () => { voices--; };
+  }
+  return { unlock, play, running };
+})();
+
+// ================= Squeak triggers =================
+const squeakState = new Map();
+function updateSqueaks(P, dt) {
+  let s = squeakState.get(P);
+  if (!s) {
+    s = { prevVel: V(), peak: 0, cool: 0 };
+    squeakState.set(P, s);
+  }
+  s.cool -= dt;
+
+  const vx = P.vel.x, vz = P.vel.z;
+  const speed = Math.hypot(vx, vz);
+  const prevSpeed = Math.hypot(s.prevVel.x, s.prevVel.z);
+  s.peak = Math.max(speed, s.peak - dt * 8);
+
+  let kind = null;
+  if (s.peak > 3 && speed < s.peak * 0.45) { kind = 'stop'; s.peak = speed; }
+  if (!kind && prevSpeed > 2.5 && speed > 2.5) {
+    const cos = (vx * s.prevVel.x + vz * s.prevVel.z) / (speed * prevSpeed);
+    if (cos < 0.45) kind = cos < -0.2 ? 'reverse' : 'pivot';
+  }
+
+  if (kind && s.cool <= 0) {
+    // Camera looks down -X, so screen-right is world -Z
+    const pan = clamp(-(P.root.position.z - ME.root.position.z) / 10, -1, 1);
+    const dist = Math.hypot(P.root.position.x - ME.root.position.x, P.root.position.z - ME.root.position.z);
+    const vol = clamp(1 - dist / 30, 0.2, 1) * (P === ME ? 1 : 0.8);
+    const intensity = clamp(speed / 5, 0.5, 1.2);
+    Squeak.play({
+      pan,
+      vol: vol * intensity,
+      pitch: kind === 'reverse' ? 0.92 : kind === 'pivot' ? 1.0 : 1.08,
+      dur: kind === 'stop' ? 0.22 : 0.16
+    });
+    s.cool = 0.22;
+  }
+  s.prevVel.set(vx, 0, vz);
+}
+
+// ================= HUD =================
+function updateHUD() {
+  scoreEl.textContent = score;
+  clockEl.textContent = Math.max(0, Math.ceil(shotClock));
+  clockEl.style.color = shotClock <= 5 ? '#ef476f' : '#ffd166';
+  const a = ME.act;
+  if (a && a.kind === 'shot' && !a.released && !a.auto && !a.layup && !a.dunk) {
+    meterEl.style.display = 'block';
+    fillEl.style.width = (a.c * 100) + '%';
+  } else {
+    meterEl.style.display = 'none';
+  }
+}
+
+// ================= Camera =================
+const camTarget = V(), lookTarget = V(), camLook = V(-7, 1.4, 0);
+camera.position.set(ME.root.position.x + 8, 6.5, 0);
+function updateCamera(dt) {
+  camTarget.set(ME.root.position.x + 8, 6.5, ME.root.position.z * 0.6);
+  lookTarget.set(ME.root.position.x - 3, 1.4, ME.root.position.z * 0.6);
+  const k = 1 - Math.exp(-4 * dt);
+  camera.position.lerp(camTarget, k);
+  camLook.lerp(lookTarget, k);
+  camera.lookAt(camLook);
+}
+
+// ================= Frame =================
+function frame(dt) {
+  prev = cur;
+  cur = readInput();
+  const anyPress = cur.A || cur.B || cur.X || cur.Y || cur.LB || cur.RB || cur.LT || cur.RT ||
+                   cur.up || cur.down || cur.left || cur.right;
+  if (anyPress && !Squeak.running()) Squeak.unlock();
+
+  handleUser(dt);
+  updateAI(dt);
+
+  for (const P of ENT) {
+    tickAct(P, dt);
+    physEntity(P, dt);
+  }
+  for (const P of ENT) {
+    const sp = Math.hypot(P.vel.x, P.vel.z);
+    P.runPhase += dt * sp * 2.4;
+    const f = fwd(P);
+    P.faceYaw = Math.atan2(f.x, f.z);
+    computePose(P, dt);
+    applyPose(P);
+  }
+
+  updateBall(dt);
+  checkFlight(dt);
+  ballEvents(dt);
+  for (const P of ENT) updateSqueaks(P, dt);
+  updateHUD();
+}
+
+// ================= Resize & loop =================
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+  try {
+    frame(dt);
+  } catch (err) {
+    console.error(err);
+    msgEl.textContent = 'Error: ' + err.message;
+    msgEl.style.opacity = 1;
+  }
+  updateCamera(dt);
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
