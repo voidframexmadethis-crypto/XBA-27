@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Globe,
@@ -16,7 +16,7 @@ import {
   Flame,
 } from "lucide-react";
 import { WORLD_CITIES, WorldCity, REGIONS_META, GLOBAL_LEADERS_BASE, GlobalLeaderEntry } from "@/lib/worldTour";
-import { loadCareerStats } from "@/lib/progression";
+import { CareerStats, getDefaultCareerStats, loadCareerStats } from "@/lib/progression";
 
 interface WorldTourMenuProps {
   isOpen: boolean;
@@ -38,9 +38,21 @@ export default function WorldTourMenu({
   const [previewCity, setPreviewCity] = useState<WorldCity>(selectedCity);
   const [viewMode, setViewMode] = useState<"arenas" | "leaders">("arenas");
   const [leaderCategory, setLeaderCategory] = useState<"pts" | "reb" | "ast">("pts");
+  const [careerStats, setCareerStats] = useState<CareerStats>(getDefaultCareerStats);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.resolve().then(() => {
+      if (!cancelled) {
+        setCareerStats(loadCareerStats());
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
 
   const allLeaders = useMemo(() => {
-    const career = loadCareerStats();
     const userEntry: GlobalLeaderEntry = {
       rank: 0,
       name: "YOU (My Career)",
@@ -48,10 +60,13 @@ export default function WorldTourMenu({
       city: "Global Arena",
       country: "Your Franchise",
       flag: "⭐",
-      pts: career.careerPts,
-      reb: career.careerReb,
-      ast: career.careerAst,
-      ppg: career.matchesPlayed > 0 ? Number((career.careerPts / career.matchesPlayed).toFixed(1)) : career.careerPts,
+      pts: careerStats.careerPts,
+      reb: careerStats.careerReb,
+      ast: careerStats.careerAst,
+      ppg:
+        careerStats.matchesPlayed > 0
+          ? Number((careerStats.careerPts / careerStats.matchesPlayed).toFixed(1))
+          : careerStats.careerPts,
       isUser: true,
     };
     const combined = [...GLOBAL_LEADERS_BASE, userEntry];
@@ -62,7 +77,7 @@ export default function WorldTourMenu({
     } else {
       return combined.sort((a, b) => b.pts - a.pts).map((e, i) => ({ ...e, rank: i + 1 }));
     }
-  }, [leaderCategory]);
+  }, [leaderCategory, careerStats]);
 
   const filteredCities = useMemo(() => {
     return WORLD_CITIES.filter((city) => {

@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3000 -H 0.0.0.0",
+    "dev": "node server.ts",
     "build": "next build",
-    "start": "next start",
+    "start": "node server.ts",
     "lint": "eslint .",
     "clean": "next clean"
   },
@@ -13,6 +13,7 @@
     "@google/genai": "^2.4.0",
     "@hookform/resolvers": "^5.2.1",
     "@types/three": "^0.187.0",
+    "@types/ws": "^8.18.2",
     "autoprefixer": "^10.4.21",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -23,7 +24,8 @@
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
     "tailwind-merge": "^3.3.1",
-    "three": "^0.187.0"
+    "three": "^0.187.0",
+    "ws": "^8.22.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.1.11",
