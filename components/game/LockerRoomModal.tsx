@@ -44,8 +44,7 @@ export default function LockerRoomModal({
 }: LockerRoomModalProps) {
   const [activeTab, setActiveTab] = useState<"jerseys" | "sneakers" | "headbands" | "milestones">("jerseys");
   const [notification, setNotification] = useState<string | null>(null);
-
-  if (!isOpen) return null;
+  const [confirmingReset, setConfirmingReset] = useState(false);
 
   const levelInfo = calculateLevel(careerStats.xp);
   const xpPercent = Math.min(100, Math.round((levelInfo.currentLevelXp / levelInfo.nextLevelXp) * 100));
@@ -81,14 +80,17 @@ export default function LockerRoomModal({
   };
 
   const handleReset = () => {
-    if (confirm("Reset all career stats, XP, and unlocked gear to Rookie defaults?")) {
-      const reset = resetCareerStats();
-      onStatsChange(reset);
-      onEquipItem("jersey", reset.equippedJersey);
-      onEquipItem("sneakers", reset.equippedSneakers);
-      onEquipItem("headband", reset.equippedHeadband);
-      showToast("Career stats reset to rookie baseline.");
+    if (!confirmingReset) {
+      setConfirmingReset(true);
+      return;
     }
+    setConfirmingReset(false);
+    const reset = resetCareerStats();
+    onStatsChange(reset);
+    onEquipItem("jersey", reset.equippedJersey);
+    onEquipItem("sneakers", reset.equippedSneakers);
+    onEquipItem("headband", reset.equippedHeadband);
+    showToast("Career stats reset to rookie baseline.");
   };
 
   const getItemProgress = (item: ProgressionItem) => {
@@ -232,20 +234,21 @@ export default function LockerRoomModal({
 
   return (
     <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/90 backdrop-blur-2xl z-[150] flex items-center justify-center p-3 sm:p-6 overflow-y-auto"
-        onClick={onClose}
-      >
+      {isOpen && (
         <motion.div
-          initial={{ scale: 0.95, y: 20 }}
-          animate={{ scale: 1, y: 0 }}
-          exit={{ scale: 0.95, y: 20 }}
-          onClick={(e) => e.stopPropagation()}
-          className="relative w-full max-w-4xl max-h-[92vh] flex flex-col bg-neutral-950 border border-white/10 rounded-3xl shadow-[0_0_60px_rgba(0,0,0,0.8)] overflow-hidden text-white"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/90 backdrop-blur-2xl z-[150] flex items-start sm:items-center justify-center p-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-6 overflow-y-auto"
+          onClick={onClose}
         >
+          <motion.div
+            initial={{ scale: 0.95, y: 20 }}
+            animate={{ scale: 1, y: 0 }}
+            exit={{ scale: 0.95, y: 20 }}
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-4xl max-h-[92dvh] my-auto flex flex-col bg-neutral-950 border border-white/10 rounded-3xl shadow-[0_0_60px_rgba(0,0,0,0.8)] overflow-hidden text-white"
+          >
           {/* Toast Notification Banner */}
           <AnimatePresence>
             {notification && (
@@ -496,25 +499,43 @@ export default function LockerRoomModal({
                 <span>Practice Drill (+6 PTS, +3 REB, +3 AST)</span>
               </button>
 
-              <button
-                onClick={handleReset}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 hover:bg-red-500/20 hover:text-red-300 border border-white/10 text-white/40 transition-all text-xs font-bold"
-                title="Reset all career stats to zero"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Reset</span>
-              </button>
+              {confirmingReset ? (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={handleReset}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white border border-red-400 transition-all text-xs font-black cursor-pointer"
+                  >
+                    <span>Confirm Reset</span>
+                  </button>
+                  <button
+                    onClick={() => setConfirmingReset(false)}
+                    className="px-2.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white/80 text-xs font-bold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={handleReset}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 hover:bg-red-500/20 hover:text-red-300 border border-white/10 text-white/40 transition-all text-xs font-bold cursor-pointer"
+                  title="Reset all career stats to zero"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reset</span>
+                </button>
+              )}
             </div>
 
             <button
               onClick={onClose}
-              className="px-6 py-2 bg-white text-black font-black uppercase text-xs tracking-wider rounded-xl hover:bg-neutral-200 transition-all"
+              className="px-6 py-2 bg-white text-black font-black uppercase text-xs tracking-wider rounded-xl hover:bg-neutral-200 transition-all cursor-pointer"
             >
               Back to Court
             </button>
           </div>
         </motion.div>
-      </motion.div>
+        </motion.div>
+      )}
     </AnimatePresence>
   );
 }

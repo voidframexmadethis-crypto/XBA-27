@@ -43,12 +43,12 @@ export default function EndGameLeaderboardModal({
   const levelInfo = calculateLevel(careerStats.xp);
 
   return (
-    <div className="absolute inset-0 bg-black/95 backdrop-blur-2xl z-[220] flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
+    <div className="fixed inset-0 bg-black/95 backdrop-blur-2xl z-[220] flex items-start sm:items-center justify-center p-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-6 overflow-y-auto">
       <motion.div
         initial={{ scale: 0.9, opacity: 0, y: 30 }}
         animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.9, opacity: 0, y: 30 }}
-        className="relative w-full max-w-4xl bg-gradient-to-br from-neutral-950 via-neutral-900 to-black border-2 border-amber-500/50 rounded-3xl p-6 sm:p-8 shadow-[0_0_100px_rgba(245,158,11,0.3)] text-white space-y-6 overflow-hidden max-h-[92vh] flex flex-col"
+        className="relative w-full max-w-4xl bg-gradient-to-br from-neutral-950 via-neutral-900 to-black border-2 border-amber-500/50 rounded-3xl p-4 sm:p-8 shadow-[0_0_100px_rgba(245,158,11,0.3)] text-white space-y-5 overflow-hidden max-h-[92dvh] my-auto flex flex-col"
       >
         {/* Glow backdrop */}
         <div className="absolute -top-32 -left-32 w-64 h-64 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />

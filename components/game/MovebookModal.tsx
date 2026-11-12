@@ -60,25 +60,24 @@ export default function MovebookModal({
       });
   }, [sideTab, offenseCat, defenseCat, query]);
 
-  if (!isOpen) return null;
-
   return (
     <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[205] flex items-center justify-center p-4 sm:p-6 overflow-y-auto"
-        onClick={onClose}
-      >
+      {isOpen && (
         <motion.div
-          initial={{ scale: 0.96, y: 14 }}
-          animate={{ scale: 1, y: 0 }}
-          exit={{ scale: 0.96, y: 14 }}
-          transition={{ duration: 0.16 }}
-          onClick={(e) => e.stopPropagation()}
-          className="relative w-full max-w-5xl bg-neutral-950 border border-white/15 rounded-2xl shadow-2xl overflow-hidden text-white flex flex-col max-h-[90vh]"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[205] flex items-start sm:items-center justify-center p-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-6 overflow-y-auto"
+          onClick={onClose}
         >
+          <motion.div
+            initial={{ scale: 0.96, y: 14 }}
+            animate={{ scale: 1, y: 0 }}
+            exit={{ scale: 0.96, y: 14 }}
+            transition={{ duration: 0.16 }}
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-5xl bg-neutral-950 border border-white/15 rounded-2xl shadow-2xl overflow-hidden text-white flex flex-col max-h-[92dvh] my-auto"
+          >
           {/* Header */}
           <div className="px-6 py-4 bg-neutral-900 border-b border-white/10 flex flex-wrap items-center justify-between gap-4 shrink-0">
             <div className="flex items-center gap-3">
@@ -259,7 +258,8 @@ export default function MovebookModal({
             )}
           </div>
         </motion.div>
-      </motion.div>
+        </motion.div>
+      )}
     </AnimatePresence>
   );
 }

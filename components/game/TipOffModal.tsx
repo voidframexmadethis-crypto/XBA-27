@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { motion } from "motion/react";
 import { Sparkles, Zap } from "lucide-react";
 import { WorldCity } from "@/lib/worldTour";
@@ -11,6 +12,19 @@ interface TipOffModalProps {
 }
 
 export default function TipOffModal({ isOpen, onTipOff, selectedCity }: TipOffModalProps) {
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Space" || e.code === "Enter") {
+        e.preventDefault();
+        e.stopPropagation();
+        onTipOff(true);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [isOpen, onTipOff]);
+
   if (!isOpen) return null;
 
   const handleAction = (userWon: boolean) => {
@@ -18,7 +32,7 @@ export default function TipOffModal({ isOpen, onTipOff, selectedCity }: TipOffMo
   };
 
   return (
-    <div className="fixed inset-0 bg-black/90 backdrop-blur-2xl z-[200] flex items-center justify-center p-3 sm:p-8 overflow-y-auto">
+    <div className="fixed inset-0 bg-black/90 backdrop-blur-2xl z-[200] flex items-start sm:items-center justify-center p-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-8 overflow-y-auto">
       <motion.div
         initial={{ scale: 0.85, opacity: 0, y: 30 }}
         animate={{ scale: 1, opacity: 1, y: 0 }}

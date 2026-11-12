@@ -56,8 +56,6 @@ export default function NBAFeaturesModal({
     });
   }, [featureList, activeCategory, searchQuery]);
 
-  if (!isOpen) return null;
-
   const renderIcon = (iconName?: string) => {
     switch (iconName) {
       case "Trophy":
@@ -87,20 +85,21 @@ export default function NBAFeaturesModal({
 
   return (
     <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/95 backdrop-blur-2xl z-[190] flex items-center justify-center p-3 sm:p-6 overflow-y-auto"
-        onClick={onClose}
-      >
+      {isOpen && (
         <motion.div
-          initial={{ scale: 0.92, y: 20 }}
-          animate={{ scale: 1, y: 0 }}
-          exit={{ scale: 0.92, y: 20 }}
-          onClick={(e) => e.stopPropagation()}
-          className="relative w-full max-w-5xl bg-neutral-950 border-2 border-amber-500/40 rounded-3xl shadow-[0_0_90px_rgba(245,158,11,0.25)] overflow-hidden text-white flex flex-col max-h-[92vh]"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/95 backdrop-blur-2xl z-[190] flex items-start sm:items-center justify-center p-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-6 overflow-y-auto"
+          onClick={onClose}
         >
+          <motion.div
+            initial={{ scale: 0.92, y: 20 }}
+            animate={{ scale: 1, y: 0 }}
+            exit={{ scale: 0.92, y: 20 }}
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-5xl bg-neutral-950 border-2 border-amber-500/40 rounded-3xl shadow-[0_0_90px_rgba(245,158,11,0.25)] overflow-hidden text-white flex flex-col max-h-[92dvh] my-auto"
+          >
           {/* Header */}
           <div className="px-6 py-5 bg-gradient-to-r from-amber-950/80 via-neutral-900 to-cyan-950/80 border-b border-amber-500/30 flex flex-wrap items-center justify-between gap-4 shrink-0">
             <div className="flex items-center gap-3">
@@ -263,7 +262,8 @@ export default function NBAFeaturesModal({
             </button>
           </div>
         </motion.div>
-      </motion.div>
+        </motion.div>
+      )}
     </AnimatePresence>
   );
 }

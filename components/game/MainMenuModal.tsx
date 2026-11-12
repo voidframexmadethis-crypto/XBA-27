@@ -102,43 +102,59 @@ export default function MainMenuModal({
   audioSettings,
   onChangeAudioSettings,
 }: MainMenuModalProps) {
-  if (!isOpen) return null;
-
   const ovr = calculateOverallRating(athleteProfile.attributes);
   const levelInfo = calculateLevel(careerStats.xp);
 
   return (
     <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[185] flex items-center justify-center p-3 sm:p-6 overflow-y-auto"
-        onClick={onClose}
-      >
+      {isOpen && (
         <motion.div
-          initial={{ scale: 0.96, y: 16 }}
-          animate={{ scale: 1, y: 0 }}
-          exit={{ scale: 0.96, y: 16 }}
-          transition={{ duration: 0.18 }}
-          onClick={(e) => e.stopPropagation()}
-          className="relative w-full max-w-5xl bg-neutral-950 border border-white/15 rounded-2xl p-5 sm:p-8 shadow-2xl text-white space-y-6 max-h-[94vh] overflow-y-auto"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[185] flex items-start sm:items-center justify-center p-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-6 overflow-y-auto"
+          onClick={onClose}
         >
-          {/* Header */}
-          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-amber-500 text-black font-black text-xl flex items-center justify-center shrink-0">
-                2K
+          <motion.div
+            initial={{ scale: 0.96, y: 16 }}
+            animate={{ scale: 1, y: 0 }}
+            exit={{ scale: 0.96, y: 16 }}
+            transition={{ duration: 0.18 }}
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-5xl bg-carbon border border-amber-500/25 rounded-2xl p-4 sm:p-7 shadow-[0_0_80px_rgba(0,0,0,0.9),0_0_40px_rgba(245,158,11,0.12)] text-white space-y-5 max-h-[93dvh] my-auto overflow-y-auto"
+          >
+            {/* Broadcast Top Accent Bar */}
+            <div className="h-1 w-full rounded-full bg-gradient-to-r from-amber-500 via-yellow-300 to-cyan-400 opacity-85" />
+
+            {/* Header */}
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400 via-amber-500 to-orange-600 text-black font-black text-lg flex flex-col items-center justify-center shrink-0 shadow-[0_0_24px_rgba(245,158,11,0.4)] border border-yellow-200/70 leading-none">
+                  <span className="text-[10px] tracking-widest uppercase font-black">XBA</span>
+                  <span className="text-xl tracking-tighter">27</span>
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-2xl sm:text-3xl font-black italic uppercase tracking-tight text-2k-gold">
+                      XBA 27 · Hoops Moves
+                    </h2>
+                    <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-white/10 border border-amber-400/35 text-amber-300">
+                      {activeMode === "match"
+                        ? "5v5 Arena"
+                        : activeMode === "streetball"
+                        ? "Streetball"
+                        : activeMode === "training"
+                        ? "Training"
+                        : "Freestyle"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-white/65 mt-0.5">
+                    {athleteProfile.firstName} {athleteProfile.lastName} · #{athleteProfile.jerseyNumber} · {athleteProfile.position} ·{" "}
+                    <span className="text-amber-300 font-bold">{ovr} OVR</span> · Level {levelInfo.level} {levelInfo.title} ·{" "}
+                    <span className="text-cyan-300 font-semibold">{selectedCity.flag} {selectedCity.name}</span>
+                  </p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-2xl sm:text-3xl font-black italic uppercase tracking-tight text-2k-gold">
-                  Main Menu
-                </h2>
-                <p className="text-xs text-white/60">
-                  {athleteProfile.firstName} {athleteProfile.lastName} · #{athleteProfile.jerseyNumber} · {athleteProfile.position} · {ovr} OVR · Level {levelInfo.level} {levelInfo.title}
-                </p>
-              </div>
-            </div>
 
             <div className="flex items-center gap-2.5">
               <button
@@ -571,7 +587,8 @@ export default function MainMenuModal({
             </button>
           </div>
         </motion.div>
-      </motion.div>
+        </motion.div>
+      )}
     </AnimatePresence>
   );
 }

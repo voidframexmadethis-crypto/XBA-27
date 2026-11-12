@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { WORLD_CITIES, WorldCity, REGIONS_META, GLOBAL_LEADERS_BASE, GlobalLeaderEntry } from "@/lib/worldTour";
 import { CareerStats, getDefaultCareerStats, loadCareerStats } from "@/lib/progression";
+import { AthleteProfile, getDefaultAthleteProfile, loadAthleteProfile } from "@/lib/athleteProfile";
 
 interface WorldTourMenuProps {
   isOpen: boolean;
@@ -39,27 +40,32 @@ export default function WorldTourMenu({
   const [viewMode, setViewMode] = useState<"arenas" | "leaders">("arenas");
   const [leaderCategory, setLeaderCategory] = useState<"pts" | "reb" | "ast">("pts");
   const [careerStats, setCareerStats] = useState<CareerStats>(getDefaultCareerStats);
+  const [athleteProfile, setAthleteProfile] = useState<AthleteProfile>(getDefaultAthleteProfile);
 
   useEffect(() => {
+    if (!isOpen) return;
     let cancelled = false;
     Promise.resolve().then(() => {
       if (!cancelled) {
+        setPreviewCity(selectedCity);
         setCareerStats(loadCareerStats());
+        setAthleteProfile(loadAthleteProfile());
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [isOpen]);
+  }, [isOpen, selectedCity]);
 
   const allLeaders = useMemo(() => {
+    const fullName = `${athleteProfile.firstName} ${athleteProfile.lastName}`.trim() || "MY PLAYER";
     const userEntry: GlobalLeaderEntry = {
       rank: 0,
-      name: "YOU (My Career)",
-      jerseyNumber: "#23",
-      city: "Global Arena",
-      country: "Your Franchise",
-      flag: "⭐",
+      name: fullName,
+      jerseyNumber: `#${athleteProfile.jerseyNumber || "23"}`,
+      city: selectedCity.name,
+      country: selectedCity.country,
+      flag: selectedCity.flag,
       pts: careerStats.careerPts,
       reb: careerStats.careerReb,
       ast: careerStats.careerAst,
@@ -77,7 +83,7 @@ export default function WorldTourMenu({
     } else {
       return combined.sort((a, b) => b.pts - a.pts).map((e, i) => ({ ...e, rank: i + 1 }));
     }
-  }, [leaderCategory, careerStats]);
+  }, [leaderCategory, careerStats, athleteProfile, selectedCity]);
 
   const filteredCities = useMemo(() => {
     return WORLD_CITIES.filter((city) => {
@@ -93,8 +99,6 @@ export default function WorldTourMenu({
     });
   }, [activeRegion, searchQuery]);
 
-  if (!isOpen) return null;
-
   // Convert lat/lng to SVG map coordinates (simple equirectangular projection)
   const getMapCoords = (lat: number, lng: number) => {
     const x = ((lng + 180) / 360) * 1000;
@@ -104,18 +108,21 @@ export default function WorldTourMenu({
 
   return (
     <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/95 backdrop-blur-2xl z-[170] flex items-center justify-center p-3 sm:p-6 overflow-y-auto"
-      >
+      {isOpen && (
         <motion.div
-          initial={{ scale: 0.95, y: 20 }}
-          animate={{ scale: 1, y: 0 }}
-          exit={{ scale: 0.95, y: 20 }}
-          className="relative w-full max-w-6xl bg-neutral-950 border border-cyan-500/30 rounded-3xl shadow-[0_0_90px_rgba(6,182,212,0.2)] overflow-hidden text-white flex flex-col max-h-[94vh]"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/95 backdrop-blur-2xl z-[170] flex items-start sm:items-center justify-center p-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-6 overflow-y-auto"
+          onClick={onClose}
         >
+          <motion.div
+            initial={{ scale: 0.95, y: 20 }}
+            animate={{ scale: 1, y: 0 }}
+            exit={{ scale: 0.95, y: 20 }}
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-6xl bg-neutral-950 border border-cyan-500/30 rounded-3xl shadow-[0_0_90px_rgba(6,182,212,0.2)] overflow-hidden text-white flex flex-col max-h-[92dvh] my-auto"
+          >
           {/* Header */}
           <div className="relative px-6 py-4 bg-gradient-to-r from-amber-950/80 via-neutral-900 to-cyan-950/80 border-b border-amber-500/30 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -197,7 +204,7 @@ export default function WorldTourMenu({
                     className="cursor-pointer transition-transform hover:scale-125"
                   >
                     {isSelected && (
-                      <circle cx={x} cy={y} r="14" fill="#06b6d4" fillOpacity="0.3" className="animate-ping" />
+                      <circle cx={x} cy={y} r="13" fill="#06b6d4" fillOpacity="0.28" />
                     )}
                     <circle
                       cx={x}
@@ -334,7 +341,7 @@ export default function WorldTourMenu({
                               {leader.jerseyNumber}
                             </span>
                             {leader.isUser && (
-                              <span className="px-2 py-0.5 rounded-full bg-amber-400 text-black text-[9px] font-black animate-pulse">
+                              <span className="px-2 py-0.5 rounded-full bg-amber-400 text-black text-[9px] font-black">
                                 YOU
                               </span>
                             )}
@@ -385,7 +392,7 @@ export default function WorldTourMenu({
               </div>
 
           {/* Main Content Area: Cities Grid & Active City Preview Panel */}
-          <div className="p-6 overflow-y-auto flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 max-h-[50vh]">
+          <div className="p-4 sm:p-6 overflow-y-auto flex-1 grid grid-cols-1 lg:grid-cols-3 gap-5 min-h-0">
             {/* Left 2 Cols: City Cards Grid */}
             <div className="lg:col-span-2 space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -565,7 +572,8 @@ export default function WorldTourMenu({
             </button>
           </div>
         </motion.div>
-      </motion.div>
+        </motion.div>
+      )}
     </AnimatePresence>
   );
 }

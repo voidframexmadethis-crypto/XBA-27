@@ -41,6 +41,7 @@ import {
   AthleteProfile,
   getDefaultAthleteProfile,
   loadAthleteProfile,
+  saveAthleteProfile,
 } from "@/lib/athleteProfile";
 import {
   OffenseMove,
@@ -427,11 +428,11 @@ export default function BasketballGame() {
       setAthleteProfile(savedProfile);
       setCareerStats(savedCareer);
       setAudioSettings(savedAudio);
-      if (gameRef.current?.applyAthleteProfile) {
-        gameRef.current.applyAthleteProfile(savedProfile);
-      }
       if (gameRef.current?.applyCustomization) {
         gameRef.current.applyCustomization(savedCareer);
+      }
+      if (gameRef.current?.applyAthleteProfile) {
+        gameRef.current.applyAthleteProfile(savedProfile);
       }
 
       setDetectedDevice(dev);
@@ -3531,37 +3532,48 @@ export default function BasketballGame() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 bg-black/90 backdrop-blur-2xl flex items-center justify-center p-8 z-[100]"
+            className="fixed inset-0 bg-black/90 backdrop-blur-2xl flex items-start sm:items-center justify-center p-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-8 z-[195] overflow-y-auto"
             onClick={() => setShowHelp(false)}
           >
-            <div className="max-w-5xl w-full grid md:grid-cols-2 gap-12" onClick={(e) => e.stopPropagation()}>
+            <div
+              className="relative max-w-5xl w-full bg-neutral-950/95 border border-white/15 rounded-2xl p-5 sm:p-8 grid md:grid-cols-2 gap-8 max-h-[92dvh] my-auto overflow-y-auto shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => setShowHelp(false)}
+                aria-label="Close Controls"
+                className="absolute top-4 right-4 w-10 h-10 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 flex items-center justify-center text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
               <div className="space-y-4">
-                <h3 className="text-3xl font-black italic uppercase text-red-500 border-b border-white/10 pb-2">
+                <h3 className="text-2xl sm:text-3xl font-black italic uppercase text-red-500 border-b border-white/10 pb-2 pr-10">
                   Offense &amp; Defense Controls
                 </h3>
-                <div className="grid grid-cols-2 gap-2 text-sm font-bold">
-                  <div>Move / Slide</div><div>WASD / Arrows</div>
-                  <div>Sprint</div><div>Shift / RT</div>
-                  <div>Shot / Fadeaway</div><div>Space / A</div>
-                  <div>Dunk / Reverse</div><div>I / Y</div>
-                  <div>Cross / Hop / Stepback</div><div>U / X</div>
+                <div className="grid grid-cols-2 gap-2 text-xs sm:text-sm font-bold">
+                  <div>Move / Slide</div><div>WASD / Arrows / Touch Stick</div>
+                  <div>Sprint</div><div>Shift / RT Button</div>
+                  <div>Shot / Fadeaway</div><div>Space / A Button</div>
+                  <div>Dunk / Reverse</div><div>I / Y Button</div>
+                  <div>Cross / Hop / Stepback</div><div>U / X Button</div>
                   <div>Behind-Back / Closeout</div><div>C</div>
                   <div>Hesitation / Hook Shot</div><div>H</div>
                   <div>Spin Move / Drop Step</div><div>V</div>
                   <div>Pump Fake / Jab Step</div><div>J</div>
-                  <div>Pass / Lob Pass</div><div>K / L</div>
-                  <div>Block / Box Out / Shield</div><div>G</div>
-                  <div>Steal / Poke Reach</div><div>E</div>
-                  <div>Call Plays (PnR / Cuts)</div><div>1 - 6</div>
-                  <div>Sub Bench</div><div>Q / LB</div>
+                  <div>Pass / Lob Pass</div><div>K / L / B Button</div>
+                  <div>Block / Box Out / Shield</div><div>G / LT Button</div>
+                  <div>Steal / Poke Reach</div><div>E / LT Button</div>
+                  <div>Call Plays (PnR / Cuts)</div><div>1 - 6 / Movebook</div>
+                  <div>Sub Bench</div><div>Q / LB / Timeout</div>
                 </div>
               </div>
               <div className="space-y-4">
-                <h3 className="text-3xl font-black italic uppercase text-blue-500 border-b border-white/10 pb-2">
-                  World Tour & Tactics
+                <h3 className="text-2xl sm:text-3xl font-black italic uppercase text-blue-500 border-b border-white/10 pb-2">
+                  World Tour &amp; Tactics
                 </h3>
                 <p className="text-sm opacity-80 leading-relaxed">
-                  Travel to global courts in North America, Argentina, Central America, Africa, Asia, Australia, and Europe. Adjust defensive intensity (Press, Lockdown, 2-3 Zone, Conservative Wall) or offensive sets (Pace & Space, Pick & Roll, Inside Paint Power, Fast Break) anytime during tactical timeouts!
+                  Travel to global courts in North America, Argentina, Central America, Africa, Asia, Australia, and Europe. Adjust defensive intensity (Press, Lockdown, 2-3 Zone, Conservative Wall) or offensive sets (Pace &amp; Space, Pick &amp; Roll, Inside Paint Power, Fast Break) anytime during tactical timeouts!
                 </p>
                 <div className="pt-2 flex flex-wrap gap-3">
                   <button
@@ -3569,7 +3581,7 @@ export default function BasketballGame() {
                       setShowHelp(false);
                       setShowWorldTour(true);
                     }}
-                    className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg transition-all"
+                    className="flex items-center gap-2 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg transition-all cursor-pointer"
                   >
                     <Globe className="w-4 h-4" />
                     <span>Open World Tour</span>
@@ -3579,10 +3591,16 @@ export default function BasketballGame() {
                       setShowHelp(false);
                       setShowLockerRoom(true);
                     }}
-                    className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider rounded-xl shadow-lg transition-all"
+                    className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider rounded-xl shadow-lg transition-all cursor-pointer"
                   >
                     <Trophy className="w-4 h-4" />
                     <span>Locker Room</span>
+                  </button>
+                  <button
+                    onClick={() => setShowHelp(false)}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer"
+                  >
+                    <span>Back</span>
                   </button>
                 </div>
               </div>
@@ -3601,11 +3619,37 @@ export default function BasketballGame() {
           if (gameRef.current?.applyCustomization) {
             gameRef.current.applyCustomization(newStats);
           }
+          if (gameRef.current?.applyAthleteProfile) {
+            gameRef.current.applyAthleteProfile(athleteProfileRef.current);
+          }
         }}
-        onEquipItem={(_type, _id) => {
+        onEquipItem={(type, id) => {
+          const nextProfile = { ...athleteProfileRef.current };
+          if (type === "jersey") {
+            const jItem = JERSEY_ITEMS.find((j) => j.id === id);
+            if (jItem) {
+              nextProfile.jerseyColorHex = jItem.colorHex;
+              if (jItem.secondaryHex) nextProfile.shortsColorHex = jItem.secondaryHex;
+            }
+          } else if (type === "sneakers") {
+            const sItem = SNEAKER_ITEMS.find((s) => s.id === id);
+            if (sItem) nextProfile.shoeColorHex = sItem.colorHex;
+          } else if (type === "headband") {
+            const hItem = HEADBAND_ITEMS.find((h) => h.id === id);
+            if (hItem) {
+              nextProfile.headbandEnabled = hItem.id !== "acc_none";
+              if (hItem.id !== "acc_none") nextProfile.headbandColorHex = hItem.colorHex;
+            }
+          }
+          saveAthleteProfile(nextProfile);
+          athleteProfileRef.current = nextProfile;
+          setAthleteProfile(nextProfile);
           if (gameRef.current?.applyCustomization) {
             const current = loadCareerStats();
             gameRef.current.applyCustomization(current);
+          }
+          if (gameRef.current?.applyAthleteProfile) {
+            gameRef.current.applyAthleteProfile(nextProfile);
           }
         }}
       />
@@ -3641,13 +3685,25 @@ export default function BasketballGame() {
         onClose={() => setShowFeaturesModal(false)}
         onSelectFeatureMode={(featId) => {
           if (featId === "mycareer") {
+            setShowCreateAthlete(true);
+          } else if (featId === "myteam" || featId === "seasons") {
             setShowLockerRoom(true);
-          } else if (featId === "play_now" || featId === "the_city") {
+          } else if (featId === "play_now" || featId === "the_city" || featId === "the_w") {
             setShowWorldTour(true);
-          } else if (featId === "learn_2k" || featId === "gameplay_engine") {
-            setShowHelp(true);
+          } else if (featId === "learn_2k") {
+            handleSelectGameMode("training", false);
+          } else if (featId === "gameplay_engine") {
+            setShowMovebook(true);
           } else if (featId === "mynba") {
             callTimeout();
+          } else if (featId === "presentation") {
+            if (allHighlightsRef.current.length > 0) {
+              handleOpenHighlightsFromMenu();
+            } else {
+              setShowMainMenu(true);
+            }
+          } else if (featId === "account_link") {
+            setShowMultiplayer(true);
           } else {
             setShowWorldTour(true);
           }

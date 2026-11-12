@@ -25,18 +25,17 @@ export default function HighlightsOverlay({
   onReplayCurrent,
   onContinue,
 }: HighlightsOverlayProps) {
-  if (!isOpen || clips.length === 0) return null;
-
   const clip = clips[activeClipIndex] || clips[0];
 
   return (
     <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: 20 }}
-        className="fixed bottom-4 left-4 right-4 sm:left-1/2 sm:-translate-x-1/2 sm:max-w-3xl z-[160] pointer-events-auto"
-      >
+      {isOpen && clips.length > 0 && clip && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 20 }}
+          className="fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-[max(0.75rem,env(safe-area-inset-left))] right-[max(0.75rem,env(safe-area-inset-right))] sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:w-full sm:max-w-3xl z-[160] pointer-events-auto"
+        >
         <div className="bg-neutral-950/92 backdrop-blur-xl border border-amber-500/40 rounded-2xl p-4 sm:p-5 shadow-2xl text-white">
           {/* Top Highlight Header & Play Info */}
           <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/10">
@@ -114,7 +113,8 @@ export default function HighlightsOverlay({
             </div>
           </div>
         </div>
-      </motion.div>
+        </motion.div>
+      )}
     </AnimatePresence>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { UserCheck, X, Check, RotateCcw, Sparkles, Sliders, Ruler } from "lucide-react";
 import {
@@ -45,7 +45,19 @@ export default function CreateAthleteModal({
   const [draft, setDraft] = useState<AthleteProfile>(profile);
   const [savedToast, setSavedToast] = useState(false);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    Promise.resolve().then(() => {
+      if (!cancelled) {
+        setDraft(profile);
+        setSavedToast(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, profile]);
 
   const ovr = calculateOverallRating(draft.attributes);
   const maxAttributeBudget = 340;
@@ -101,21 +113,22 @@ export default function CreateAthleteModal({
 
   return (
     <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/92 backdrop-blur-2xl z-[210] flex items-center justify-center p-3 sm:p-6 overflow-y-auto"
-        onClick={onClose}
-      >
+      {isOpen && (
         <motion.div
-          initial={{ scale: 0.95, y: 18 }}
-          animate={{ scale: 1, y: 0 }}
-          exit={{ scale: 0.95, y: 18 }}
-          transition={{ duration: 0.18 }}
-          onClick={(e) => e.stopPropagation()}
-          className="relative w-full max-w-5xl bg-neutral-950 border border-white/15 rounded-2xl shadow-2xl overflow-hidden text-white flex flex-col max-h-[92vh]"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/92 backdrop-blur-2xl z-[210] flex items-start sm:items-center justify-center p-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-6 overflow-y-auto"
+          onClick={onClose}
         >
+          <motion.div
+            initial={{ scale: 0.95, y: 18 }}
+            animate={{ scale: 1, y: 0 }}
+            exit={{ scale: 0.95, y: 18 }}
+            transition={{ duration: 0.18 }}
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-5xl bg-neutral-950 border border-white/15 rounded-2xl shadow-2xl overflow-hidden text-white flex flex-col max-h-[92dvh] my-auto"
+          >
           {/* Header */}
           <div className="px-6 py-4 bg-neutral-900 border-b border-white/10 flex items-center justify-between gap-4 shrink-0">
             <div className="flex items-center gap-3">
@@ -481,7 +494,8 @@ export default function CreateAthleteModal({
             </div>
           </div>
         </motion.div>
-      </motion.div>
+        </motion.div>
+      )}
     </AnimatePresence>
   );
 }

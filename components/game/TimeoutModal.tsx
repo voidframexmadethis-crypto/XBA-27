@@ -46,8 +46,6 @@ export default function TimeoutModal({
   const [selectedBenchIdx, setSelectedBenchIdx] = useState<number | null>(null);
   const [selectedActiveIdx, setSelectedActiveIdx] = useState<number | null>(null);
 
-  if (!isOpen) return null;
-
   const DEFENSE_OPTIONS: { id: DefensiveScheme; label: string; desc: string; stat: string }[] = [
     {
       id: "press",
@@ -119,18 +117,19 @@ export default function TimeoutModal({
 
   return (
     <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/90 backdrop-blur-2xl z-[160] flex items-center justify-center p-3 sm:p-6 overflow-y-auto"
-      >
+      {isOpen && (
         <motion.div
-          initial={{ scale: 0.95, y: 15 }}
-          animate={{ scale: 1, y: 0 }}
-          exit={{ scale: 0.95, y: 15 }}
-          className="relative w-full max-w-4xl bg-neutral-950 border border-amber-500/30 rounded-3xl shadow-[0_0_80px_rgba(245,158,11,0.2)] overflow-hidden text-white flex flex-col max-h-[92vh]"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/90 backdrop-blur-2xl z-[160] flex items-start sm:items-center justify-center p-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-6 overflow-y-auto"
         >
+          <motion.div
+            initial={{ scale: 0.95, y: 15 }}
+            animate={{ scale: 1, y: 0 }}
+            exit={{ scale: 0.95, y: 15 }}
+            className="relative w-full max-w-4xl bg-neutral-950 border border-amber-500/30 rounded-3xl shadow-[0_0_80px_rgba(245,158,11,0.2)] overflow-hidden text-white flex flex-col max-h-[92dvh] my-auto"
+          >
           {/* Top Clipboard Header */}
           <div className="relative px-6 py-5 bg-gradient-to-r from-amber-950/60 via-neutral-900 to-neutral-900 border-b border-amber-500/20 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -406,7 +405,8 @@ export default function TimeoutModal({
             </button>
           </div>
         </motion.div>
-      </motion.div>
+        </motion.div>
+      )}
     </AnimatePresence>
   );
 }

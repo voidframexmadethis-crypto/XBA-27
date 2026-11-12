@@ -107,8 +107,6 @@ export default function MultiplayerModal({
     };
   }, [isOpen, onFetchRooms]);
 
-  if (!isOpen) return null;
-
   const players = currentRoom ? Object.values(currentRoom.players) : [];
   const isConnected = !!currentRoom && transport !== "disconnected";
 
@@ -126,20 +124,21 @@ export default function MultiplayerModal({
 
   return (
     <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/88 backdrop-blur-xl z-[200] flex items-center justify-center p-4 sm:p-6 overflow-y-auto"
-        onClick={onClose}
-      >
+      {isOpen && (
         <motion.div
-          initial={{ scale: 0.96, y: 12 }}
-          animate={{ scale: 1, y: 0 }}
-          exit={{ scale: 0.96, y: 12 }}
-          onClick={(e) => e.stopPropagation()}
-          className="relative w-full max-w-4xl bg-neutral-950 border border-white/15 rounded-2xl p-6 sm:p-8 shadow-2xl text-white space-y-6 max-h-[92vh] overflow-y-auto"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/88 backdrop-blur-xl z-[200] flex items-start sm:items-center justify-center p-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-6 overflow-y-auto"
+          onClick={onClose}
         >
+          <motion.div
+            initial={{ scale: 0.96, y: 12 }}
+            animate={{ scale: 1, y: 0 }}
+            exit={{ scale: 0.96, y: 12 }}
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-4xl bg-neutral-950 border border-white/15 rounded-2xl p-4 sm:p-8 shadow-2xl text-white space-y-6 max-h-[92dvh] my-auto overflow-y-auto"
+          >
           {/* Header */}
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
             <div className="flex items-center gap-3">
@@ -421,7 +420,8 @@ export default function MultiplayerModal({
             </div>
           )}
         </motion.div>
-      </motion.div>
+        </motion.div>
+      )}
     </AnimatePresence>
   );
 }

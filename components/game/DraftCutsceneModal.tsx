@@ -11,6 +11,8 @@ import {
   formatHeight,
   saveAthleteProfile,
 } from "@/lib/athleteProfile";
+import { loadAudioSettings } from "@/lib/audioManager";
+import { loadAudioSettings } from "@/lib/audioManager";
 
 interface DraftCutsceneModalProps {
   isOpen: boolean;
@@ -52,6 +54,32 @@ export default function DraftCutsceneModal({
   const [selectedPickIndex, setSelectedPickIndex] = useState<number>(computedPickIdx);
   const [activeDraft, setActiveDraft] = useState<DraftRecord | null>(profile.draftRecord);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const chimeCtxRef = useRef<AudioContext | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      let cancelled = false;
+      Promise.resolve().then(() => {
+        if (!cancelled) {
+          setStage("lobby");
+          setCountdown(3);
+          setSelectedPickIndex(computedPickIdx);
+          setActiveDraft(profile.draftRecord);
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
+    } else {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      if (typeof window !== "undefined" && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    }
+  }, [isOpen, computedPickIdx, profile.draftRecord]);
 
   useEffect(() => {
     return () => {
@@ -59,30 +87,44 @@ export default function DraftCutsceneModal({
       if (typeof window !== "undefined" && window.speechSynthesis) {
         window.speechSynthesis.cancel();
       }
+      if (chimeCtxRef.current && chimeCtxRef.current.state !== "closed") {
+        chimeCtxRef.current.close().catch(() => {});
+      }
     };
   }, []);
 
   const speakLine = (text: string) => {
+    const audioCfg = loadAudioSettings();
+    if (audioCfg.muted || audioCfg.sfx <= 0.01) return;
     if (typeof window === "undefined" || !window.speechSynthesis) return;
     window.speechSynthesis.cancel();
     const ut = new SpeechSynthesisUtterance(text);
     ut.pitch = 0.95;
     ut.rate = 1.02;
-    ut.volume = 0.85;
+    ut.volume = Math.min(1, 0.85 * audioCfg.sfx);
     window.speechSynthesis.speak(ut);
   };
 
   const playDraftChime = () => {
     try {
+      const audioCfg = loadAudioSettings();
+      if (audioCfg.muted || audioCfg.sfx <= 0.01) return;
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const ctx = new AudioCtx();
+      if (!AudioCtx) return;
+      if (!chimeCtxRef.current || chimeCtxRef.current.state === "closed") {
+        chimeCtxRef.current = new AudioCtx();
+      }
+      const ctx = chimeCtxRef.current;
+      if (ctx.state === "suspended") {
+        ctx.resume().catch(() => {});
+      }
       const notes = [392.0, 493.88, 587.33, 783.99];
       notes.forEach((freq, idx) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = "triangle";
         osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.14);
-        gain.gain.setValueAtTime(0.18, ctx.currentTime + idx * 0.14);
+        gain.gain.setValueAtTime(0.16 * audioCfg.sfx, ctx.currentTime + idx * 0.14);
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.14 + 0.45);
         osc.connect(gain).connect(ctx.destination);
         osc.start(ctx.currentTime + idx * 0.14);
@@ -157,24 +199,25 @@ export default function DraftCutsceneModal({
     setStage("celebration");
   };
 
-  if (!isOpen) return null;
-
   const targetTeam = DRAFT_FRANCHISES[selectedPickIndex] || DRAFT_FRANCHISES[0];
 
   return (
     <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/95 backdrop-blur-2xl z-[215] flex items-center justify-center p-3 sm:p-6 overflow-y-auto"
-      >
+      {isOpen && (
         <motion.div
-          initial={{ scale: 0.94, y: 18 }}
-          animate={{ scale: 1, y: 0 }}
-          exit={{ scale: 0.94, y: 18 }}
-          className="relative w-full max-w-4xl bg-neutral-950 border border-amber-500/35 rounded-2xl shadow-[0_0_90px_rgba(245,158,11,0.25)] overflow-hidden text-white flex flex-col max-h-[92vh]"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/95 backdrop-blur-2xl z-[215] flex items-start sm:items-center justify-center p-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-6 overflow-y-auto"
+          onClick={onClose}
         >
+          <motion.div
+            initial={{ scale: 0.94, y: 18 }}
+            animate={{ scale: 1, y: 0 }}
+            exit={{ scale: 0.94, y: 18 }}
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-4xl bg-neutral-950 border border-amber-500/35 rounded-2xl shadow-[0_0_90px_rgba(245,158,11,0.25)] overflow-hidden text-white flex flex-col max-h-[92dvh] my-auto"
+          >
           {/* Top Broadcast Header */}
           <div className="px-6 py-4 bg-neutral-900 border-b border-white/10 flex items-center justify-between gap-4 shrink-0">
             <div className="flex items-center gap-3">
@@ -477,7 +520,8 @@ export default function DraftCutsceneModal({
             )}
           </div>
         </motion.div>
-      </motion.div>
+        </motion.div>
+      )}
     </AnimatePresence>
   );
 }

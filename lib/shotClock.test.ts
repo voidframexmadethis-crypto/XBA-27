@@ -7,7 +7,7 @@ import {
   calculateShotClockProgress,
   resetShotClock,
   tickShotClock,
-} from "./shotClock";
+} from "./shotClock.ts";
 
 test("getShotClockUrgency categorizes thresholds correctly", () => {
   assert.equal(getShotClockUrgency(24.0), "normal");
