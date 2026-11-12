@@ -8,6 +8,14 @@ import LockerRoomModal from "./LockerRoomModal";
 import TimeoutModal, { TacticalSettings } from "./TimeoutModal";
 import WorldTourMenu from "./WorldTourMenu";
 import NBAFeaturesModal from "./NBAFeaturesModal";
+import Scoreboard from "./Scoreboard";
+import ShotClockDisplay from "./ShotClockDisplay";
+import {
+  SHOT_CLOCK_FULL,
+  resetShotClock,
+  tickShotClock,
+  formatShotClock,
+} from "@/lib/shotClock";
 import { WORLD_CITIES, WorldCity } from "@/lib/worldTour";
 import {
   loadCareerStats,
@@ -37,7 +45,9 @@ export default function BasketballGame() {
   // React state for HUD
   const [scoreHome, setScoreHome] = useState(0);
   const [scoreAway, setScoreAway] = useState(0);
-  const [shotClock, setShotClock] = useState(24);
+  const [shotClock, setShotClock] = useState(24.0);
+  const [shotClockResetPulse, setShotClockResetPulse] = useState(0);
+  const [lastShotResetReason, setLastShotResetReason] = useState<string>("init");
   const [gameClock, setGameClock] = useState(720); // 12 minutes in seconds
   const [quarter, setQuarter] = useState(1);
   const [message, setMessage] = useState({ text: "", color: "#fff", visible: false });
@@ -182,10 +192,70 @@ export default function BasketballGame() {
     sun.shadow.camera.top = 10; sun.shadow.camera.bottom = -10;
     scene.add(sun);
 
+    // --- PROCEDURAL REALISTIC WOODGRAIN & WEAR TEXTURE ---
+    const createWoodgrainTexture = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1024;
+      canvas.height = 512;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+
+      // Base maple/oak hardwood color
+      ctx.fillStyle = "#c88449";
+      ctx.fillRect(0, 0, 1024, 512);
+
+      // Draw hardwood planks (vertical stripes)
+      const plankWidth = 32;
+      for (let x = 0; x < 1024; x += plankWidth) {
+        ctx.fillStyle = (x / plankWidth) % 2 === 0 ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.14)";
+        ctx.fillRect(x, 0, plankWidth, 512);
+
+        // Plank groove line
+        ctx.fillStyle = "rgba(45, 22, 10, 0.4)";
+        ctx.fillRect(x, 0, 2, 512);
+
+        // Woodgrain wavy streaks
+        ctx.strokeStyle = "rgba(70, 35, 12, 0.18)";
+        ctx.lineWidth = 1.5;
+        for (let i = 0; i < 4; i++) {
+          const gx = x + 8 + i * 6 + Math.sin(x + i) * 3;
+          ctx.beginPath();
+          ctx.moveTo(gx, 0);
+          ctx.bezierCurveTo(gx + 5, 120, gx - 5, 380, gx + 2, 512);
+          ctx.stroke();
+        }
+      }
+
+      // Add wear and tear / scuff marks (shoe scuffs, resin wear near paint)
+      ctx.fillStyle = "rgba(25, 15, 8, 0.28)";
+      for (let i = 0; i < 45; i++) {
+        const sx = Math.random() * 1024;
+        const sz = Math.random() * 512;
+        ctx.beginPath();
+        ctx.ellipse(sx, sz, 12 + Math.random() * 35, 3 + Math.random() * 8, (Math.random() - 0.5) * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Center court polish glow & wear
+      const grad = ctx.createRadialGradient(512, 256, 15, 512, 256, 200);
+      grad.addColorStop(0, "rgba(255, 242, 210, 0.18)");
+      grad.addColorStop(1, "rgba(0, 0, 0, 0)");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 1024, 512);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(2, 1);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      return texture;
+    };
+
     // --- COURT & ARENA APRON ---
     const apronMat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(initialCity.courtBorderColor),
-      roughness: 0.6,
+      roughness: 0.75,
+      metalness: 0.1,
     });
     const apronFloor = new THREE.Mesh(
       new THREE.PlaneGeometry(COURT_W + 16, COURT_H + 16),
@@ -196,14 +266,51 @@ export default function BasketballGame() {
     apronFloor.receiveShadow = true;
     scene.add(apronFloor);
 
-    // Hardwood Court (Boundaries)
+    // Hardwood Court with realistic woodgrain and wear & tear
+    const floorTex = createWoodgrainTexture();
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(COURT_W, COURT_H),
-      new THREE.MeshStandardMaterial({ color: 0xc68b59, roughness: 0.55 })
+      new THREE.MeshStandardMaterial({ 
+        map: floorTex || undefined, 
+        roughness: 0.45,
+        metalness: 0.05,
+      })
     );
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
     scene.add(floor);
+
+    // --- GRASS TUFTS & WEAR AROUND COURT MARGINS ---
+    const grassMat = new THREE.MeshStandardMaterial({ color: 0x1b4d3e, roughness: 0.85 });
+    const dirtMat = new THREE.MeshStandardMaterial({ color: 0x3d2817, roughness: 0.9 });
+    const marginGroup = new THREE.Group();
+
+    for (let i = 0; i < 160; i++) {
+      const edge = Math.floor(Math.random() * 4);
+      let gx = 0, gz = 0;
+      const halfW = (COURT_W + 15) / 2;
+      const halfH = (COURT_H + 15) / 2;
+      if (edge === 0) { gx = (Math.random() - 0.5) * (COURT_W + 15); gz = halfH - Math.random() * 3.5; }
+      else if (edge === 1) { gx = (Math.random() - 0.5) * (COURT_W + 15); gz = -halfH + Math.random() * 3.5; }
+      else if (edge === 2) { gx = halfW - Math.random() * 3.5; gz = (Math.random() - 0.5) * (COURT_H + 15); }
+      else { gx = -halfW + Math.random() * 3.5; gz = (Math.random() - 0.5) * (COURT_H + 15); }
+
+      // Sprouting grass tuft
+      const tuft = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.4, 5), grassMat);
+      tuft.position.set(gx, 0.18, gz);
+      tuft.rotation.z = (Math.random() - 0.5) * 0.5;
+      tuft.rotation.x = (Math.random() - 0.5) * 0.5;
+      marginGroup.add(tuft);
+
+      // Small dirt patch / crack
+      if (i % 3 === 0) {
+        const patch = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.3), dirtMat);
+        patch.rotation.x = -Math.PI / 2;
+        patch.position.set(gx + (Math.random() - 0.5) * 0.4, 0.001, gz + (Math.random() - 0.5) * 0.4);
+        marginGroup.add(patch);
+      }
+    }
+    scene.add(marginGroup);
 
     // Painted Free Throw Keys
     const keyMat = new THREE.MeshStandardMaterial({
@@ -236,6 +343,8 @@ export default function BasketballGame() {
     line(0.1, 15, 0, 0);
     ring(1.75, 1.85, 0, 0, 0, Math.PI * 2);
 
+    const shotClock3DMats: THREE.MeshBasicMaterial[] = [];
+
     [1, -1].forEach(side => {
       const x = 14 * side;
       line(5.8, 0.05, x - 2.9 * side, 2.45); line(5.8, 0.05, x - 2.9 * side, -2.45);
@@ -246,6 +355,26 @@ export default function BasketballGame() {
       const board = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.05, 1.8), new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 }));
       board.position.set(x - 0.4 * side, 3.45, 0);
       scene.add(board);
+
+      // 3D Arena Shot Clock unit on top of backboard
+      const clockHousing = new THREE.Mesh(
+        new THREE.BoxGeometry(0.12, 0.35, 0.55),
+        new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.85 })
+      );
+      clockHousing.position.set(x - 0.4 * side, 4.15, 0);
+      scene.add(clockHousing);
+
+      // Glowing LED face
+      const clockFaceMat = new THREE.MeshBasicMaterial({ color: 0xffbb00 });
+      shotClock3DMats.push(clockFaceMat);
+      const clockFace = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.5, 0.3),
+        clockFaceMat
+      );
+      clockFace.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
+      clockFace.position.set(x - (0.4 + 0.065 * side) * side, 4.15, 0);
+      scene.add(clockFace);
+
       const rim = new THREE.Mesh(new THREE.TorusGeometry(RIM_R, 0.02, 12, 32), new THREE.MeshStandardMaterial({ color: 0xff6a00 }));
       rim.rotation.x = Math.PI / 2; rim.position.set(x - 1.2 * side, RIM_Y, 0);
       scene.add(rim);
@@ -703,6 +832,60 @@ export default function BasketballGame() {
       
       const random = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
       
+      function shotClockBeep(high = false) {
+        if (!ctx || ctx.state !== "running") return;
+        const t = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = "square";
+        osc.frequency.setValueAtTime(high ? 1150 : 750, t);
+        g.gain.setValueAtTime(0.2, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+        osc.connect(g).connect(master!);
+        osc.start(t);
+        osc.stop(t + 0.09);
+      }
+
+      function shotClockBuzzer() {
+        if (!ctx || ctx.state !== "running") return;
+        const t = ctx.currentTime;
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const g = ctx.createGain();
+        const filter = ctx.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.value = 600;
+        osc1.type = "sawtooth";
+        osc2.type = "sawtooth";
+        osc1.frequency.setValueAtTime(215, t);
+        osc2.frequency.setValueAtTime(220, t);
+        g.gain.setValueAtTime(0.38, t);
+        g.gain.setValueAtTime(0.38, t + 0.7);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 1.15);
+        osc1.connect(filter);
+        osc2.connect(filter);
+        filter.connect(g).connect(master!);
+        osc1.start(t);
+        osc2.start(t);
+        osc1.stop(t + 1.2);
+        osc2.stop(t + 1.2);
+      }
+
+      function shotResetSound() {
+        if (!ctx || ctx.state !== "running") return;
+        const t = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(440, t);
+        osc.frequency.exponentialRampToValueAtTime(880, t + 0.06);
+        g.gain.setValueAtTime(0.12, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+        osc.connect(g).connect(master!);
+        osc.start(t);
+        osc.stop(t + 0.08);
+      }
+
       return { 
         unlock: () => { init(); if (ctx && ctx.state === "suspended") ctx.resume(); startCheer(); }, 
         squeak, 
@@ -710,6 +893,9 @@ export default function BasketballGame() {
         dribble,
         crowdScream,
         netSwish,
+        shotClockBeep,
+        shotClockBuzzer,
+        shotResetSound,
         updateCheer, 
         speak,
         commentary: (type: keyof typeof phrases, val?: any) => {
@@ -727,7 +913,12 @@ export default function BasketballGame() {
     function fire(P: any, from: THREE.Vector3, aim: THREE.Vector3, FT: number, type: string, ex: any = {}) {
       state.flight = { kind: type, shooter: P, passTo: ex.passTo || null, pts: ex.pts || 0, perfect: !!ex.perfect, dunk: !!ex.dunk, layup: !!ex.layup, t: 0, T: FT, rim: 0 };
       ball.position.copy(from); state.ballVel.set((aim.x - from.x) / FT, (aim.y - from.y) / FT + 0.5 * G * FT, (aim.z - from.z) / FT);
-      state.owner = null; state.ballMode = "flight"; if (type === "shot") state.shotClock = 24;
+      state.owner = null; state.ballMode = "flight";
+      if (type === "shot") {
+        state.shotClock = resetShotClock("shot_attempt");
+        setShotClockResetPulse(k => k + 1);
+        setLastShotResetReason("shot_attempt");
+      }
     }
     function releaseShot(P: any, a: any, forced: boolean) {
       if (a.released) return; a.released = true;
@@ -738,6 +929,13 @@ export default function BasketballGame() {
       if (a.dunk) { spread = 0.03; FT = 0.42; pts = 2; } else if (a.layup) { spread = 0.1; FT = 0.5 + d * 0.03; pts = 2; }
       else { spread = 0.05 + e * 0.85; FT = 0.8 + d * 0.045; }
       const from = handPos(P); const f = fwd(P); const aim = V(hoopX + rnd(spread), RIM_Y + rnd(spread * 0.4), rnd(spread));
+
+      // Reset shot clock on shot attempt
+      state.shotClock = resetShotClock("shot_attempt");
+      setShotClockResetPulse(k => k + 1);
+      setLastShotResetReason("shot_attempt");
+      Audio.shotResetSound();
+
       fire(P, from, aim, FT, "shot", { perfect: e < 0.06, dunk: a.dunk, layup: a.layup, pts });
     }
     function startShot(P: any, o: any = {}) {
@@ -758,6 +956,9 @@ export default function BasketballGame() {
       Audio.commentary("foul");
       state.ballMode = "dead"; state.deadT = 1.5; state.ballVel.set(0,0,0);
       state.owner = attacker;
+      state.shotClock = resetShotClock("foul");
+      setShotClockResetPulse(k => k + 1);
+      setLastShotResetReason("foul");
     }
     function substitute(team: GameEntity[], idxIn: number, idxOut: number) {
       const pIn = team[idxIn], pOut = team[idxOut];
@@ -898,6 +1099,12 @@ export default function BasketballGame() {
       triggerMsg,
       triggerLabel,
       scoopBall,
+      resetShotClock: (reason = "shot_attempt") => {
+        state.shotClock = resetShotClock(reason as any);
+        setShotClockResetPulse(k => k + 1);
+        setLastShotResetReason(reason);
+        Audio.shotResetSound();
+      },
       endMatch: endGameAndRecordStats,
     };
 
@@ -930,8 +1137,49 @@ export default function BasketballGame() {
         return;
       }
 
-      // HUD Update logic (optimized to prevent unnecessary re-renders)
-      const nextClock = Math.max(0, Math.ceil(state.shotClock)); if (nextClock !== lastClockRef.current) { setShotClock(nextClock); lastClockRef.current = nextClock; }
+      // Shot Clock Tick & Urgency Processing
+      const tickRes = tickShotClock(state.shotClock, dt, state.isPaused || state.ballMode === "dead");
+      state.shotClock = tickRes.newTime;
+
+      if (tickRes.shouldBeep) {
+        Audio.shotClockBeep(tickRes.beepSecond === 1);
+      }
+
+      if (tickRes.expired && state.deadT <= 0) {
+        state.shotClock = resetShotClock("turnover");
+        setShotClockResetPulse(k => k + 1);
+        setLastShotResetReason("turnover");
+        Audio.shotClockBuzzer();
+        Audio.whistle();
+        Audio.commentary("shotclock");
+        triggerMsg("SHOT CLOCK VIOLATION", "#ef4444");
+
+        if (state.owner) {
+          state.owner = teamA.includes(state.owner) ? teamB[0] : teamA[0];
+          state.ballMode = "dribble";
+        }
+      }
+
+      // Update 3D arena shot clock displays
+      shotClock3DMats.forEach((mat) => {
+        if (state.shotClock <= 0) {
+          mat.color.setHex(0xff0000);
+        } else if (state.shotClock <= 5) {
+          mat.color.setHex(Math.sin(now * 0.015) > 0 ? 0xff0022 : 0x550000);
+        } else if (state.shotClock <= 10) {
+          mat.color.setHex(0xff9900);
+        } else {
+          mat.color.setHex(0xffcc00);
+        }
+      });
+
+      // HUD Update logic (updates smoothly, with sub-second precision when <= 5s)
+      const curShot = state.shotClock;
+      const displayKey = curShot <= 5.0 ? Math.floor(curShot * 10) / 10 : Math.ceil(curShot);
+      if (displayKey !== lastClockRef.current) {
+        setShotClock(curShot);
+        lastClockRef.current = displayKey;
+      }
       
       state.gameClock -= dt;
       if (state.gameClock <= 0) {
@@ -1191,7 +1439,12 @@ export default function BasketballGame() {
             else if (state.flight.pts === 3) { Audio.commentary("three"); Audio.crowdScream(); }
             else { Audio.commentary("swish"); Audio.netSwish(); Audio.crowdScream(); }
 
-            state.ballMode = "dead"; state.deadT = 1.4; state.ballVel.set(0,0,0); state.shotClock = 24; state.flight = null;
+            state.ballMode = "dead"; state.deadT = 1.4; state.ballVel.set(0,0,0);
+            state.shotClock = resetShotClock("basket_made");
+            setShotClockResetPulse(k => k + 1);
+            setLastShotResetReason("basket_made");
+            Audio.shotResetSound();
+            state.flight = null;
             state.crowdCheer = 3.0; // SCREAMING CHEER!
           } else if (d < RIM_R + 0.1 && state.flight.rim < 3) { 
             state.flight.rim++; p.y = RIM_Y+0.02; state.ballVel.y = 1.5; state.ballVel.x += dx*2; 
@@ -1235,6 +1488,9 @@ export default function BasketballGame() {
           if (state.hadRimContact) {
             (best as GameEntity).stats.reb++;
             state.hadRimContact = false;
+            state.shotClock = resetShotClock("offensive_rebound");
+            setShotClockResetPulse(k => k + 1);
+            setLastShotResetReason("rebound");
           }
           state.owner = best; state.ballMode = "dribble"; state.looseT = 0; if((best as GameEntity).isUser) triggerLabel("BALL!"); 
         } 
@@ -1246,8 +1502,6 @@ export default function BasketballGame() {
         isBallLooseRef.current = looseNow;
         setIsBallLoose(looseNow);
       }
-
-      state.shotClock -= dt; if(state.shotClock <= 0) { state.shotClock = 24; if(state.owner) { state.owner = teamA.includes(state.owner) ? teamB[0] : teamA[0]; state.ballMode = "dribble"; triggerMsg("SHOT CLOCK", "#ffd166"); } }
 
       // CAMERA
       const focusX = state.owner ? state.owner.root.position.x : ball.position.x;
@@ -1275,69 +1529,22 @@ export default function BasketballGame() {
       <div ref={mountRef} className="w-full h-full" />
 
       {/* NBA 2K Television Broadcast Scoreboard HUD */}
-      <div className="absolute top-3 left-4 right-4 flex justify-between items-start pointer-events-none z-20">
-        {/* Left: Home Score Panel */}
-        <div className="flex items-center gap-3 bg-gradient-to-r from-red-950/90 via-black/90 to-black/80 backdrop-blur-xl px-5 py-2.5 rounded-2xl border-2 border-red-500/40 shadow-[0_0_30px_rgba(239,68,68,0.25)]">
-          <div className="w-9 h-9 rounded-xl bg-red-600 flex items-center justify-center font-black text-white text-xs border border-white/20 shadow-md">
-            HOM
-          </div>
-          <div className="flex flex-col">
-            <span className="text-[10px] uppercase font-black tracking-widest text-red-400">Home Franchise</span>
-            <span className="text-4xl font-black text-white tabular-nums leading-none">{scoreHome}</span>
-          </div>
-        </div>
+      <Scoreboard
+        scoreHome={scoreHome}
+        scoreAway={scoreAway}
+        quarter={quarter}
+        gameClock={gameClock}
+        shotClock={shotClock}
+        selectedCity={selectedCity}
+      />
 
-        {/* Center: 2K Broadcast Clock Hub */}
-        <div className="flex flex-col items-center gap-1.5 bg-gradient-to-b from-neutral-900/95 via-black/95 to-neutral-950/95 backdrop-blur-2xl px-6 py-2 rounded-2xl border-2 border-amber-500/40 shadow-[0_0_50px_rgba(245,158,11,0.25)]">
-          <div className="flex items-center gap-4">
-            {/* 2K Badge */}
-            <div className="px-2 py-0.5 rounded bg-gradient-to-r from-amber-400 to-yellow-500 text-black font-black text-[10px] tracking-tighter">
-              2K HD
-            </div>
-
-            <div className="flex flex-col items-center">
-              <span className="text-[9px] uppercase font-black tracking-widest text-white/40">Quarter</span>
-              <span className="text-xl font-black text-amber-400">{quarter}</span>
-            </div>
-            <div className="w-px h-8 bg-white/10" />
-            <div className="flex flex-col items-center min-w-[85px]">
-              <span className="text-[9px] uppercase font-black tracking-widest text-white/40">Game Clock</span>
-              <span className="text-3xl font-black text-yellow-300 tabular-nums">{formatTime(gameClock)}</span>
-            </div>
-            <div className="w-px h-8 bg-white/10" />
-            <div className="flex flex-col items-center min-w-[50px]">
-              <span className="text-[9px] uppercase font-black tracking-widest text-white/40">Shot</span>
-              <span className={`text-2xl font-black tabular-nums transition-colors ${shotClock <= 5 ? "text-red-500 animate-pulse" : "text-yellow-400"}`}>
-                {shotClock}
-              </span>
-            </div>
-          </div>
-          {/* Active Arena & City Badge */}
-          <div className="flex items-center gap-1.5 pt-1 border-t border-white/10 w-full justify-center">
-            <MapPin className="w-3 h-3 text-cyan-400" />
-            <span className="text-[10px] font-black uppercase text-white/90 tracking-wider truncate max-w-[220px]">
-              {selectedCity.name} • {selectedCity.arenaName}
-            </span>
-            <span className="text-xs">{selectedCity.flag}</span>
-          </div>
-        </div>
-
-        {/* Right: Away Score Panel */}
-        <div
-          className="flex items-center gap-3 bg-gradient-to-l from-cyan-950/90 via-black/90 to-black/80 backdrop-blur-xl px-5 py-2.5 rounded-2xl border-2 border-cyan-500/40 shadow-[0_0_30px_rgba(6,182,212,0.25)]"
-        >
-          <div className="flex flex-col items-right text-right">
-            <span className="text-[10px] uppercase font-black tracking-widest text-cyan-400 truncate max-w-[110px]">{selectedCity.name}</span>
-            <span className="text-4xl font-black text-white tabular-nums leading-none">{scoreAway}</span>
-          </div>
-          <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-white text-xs border border-white/20 shadow-md shrink-0"
-            style={{ backgroundColor: selectedCity.jerseyPrimary }}
-          >
-            {selectedCity.flag}
-          </div>
-        </div>
-      </div>
+      {/* Prominent On-Screen 24-Second Shot Clock Widget & Pressure Alert */}
+      <ShotClockDisplay
+        shotClock={shotClock}
+        resetPulseKey={shotClockResetPulse}
+        lastResetReason={lastShotResetReason}
+        isPaused={showTimeout || showMainMenu}
+      />
 
       <AnimatePresence>{message.visible && <motion.div initial={{ opacity: 0, y: -40 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="absolute top-[20%] left-0 right-0 text-center pointer-events-none z-30 font-black italic text-7xl uppercase drop-shadow-[0_0_30px_rgba(0,0,0,0.8)]" style={{ color: message.color }}>{message.text}</motion.div>}</AnimatePresence>
       <AnimatePresence>{label.visible && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="absolute top-[34%] left-0 right-0 text-center pointer-events-none z-30 text-2xl font-black tracking-widest text-amber-300 italic uppercase drop-shadow">{label.text}</motion.div>}</AnimatePresence>
