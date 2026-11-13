@@ -288,7 +288,8 @@ export default function LockerRoomModal({
 
               <button
                 onClick={onClose}
-                className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/70 hover:text-white transition-all shrink-0"
+                aria-label="Close Locker Room"
+                className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/70 hover:text-white transition-all shrink-0 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>

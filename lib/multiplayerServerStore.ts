@@ -315,6 +315,19 @@ export function leaveRoom(roomCodeRaw: string, playerId: string): MultiplayerRoo
   return room;
 }
 
+export function markPlayerDisconnected(roomCodeRaw: string, playerId: string): MultiplayerRoomState | null {
+  const map = getRoomMap();
+  const roomCode = sanitizeRoomCode(roomCodeRaw);
+  const room = map.get(roomCode);
+  if (!room) return null;
+  const player = room.players[playerId];
+  if (player) {
+    player.connected = false;
+    room.updatedAt = Date.now();
+  }
+  return room;
+}
+
 export function listPublicRooms(): MultiplayerRoomSummary[] {
   const map = getRoomMap();
   const now = Date.now();

@@ -104,7 +104,7 @@ export default function DraftCutsceneModal({
     window.speechSynthesis.speak(ut);
   };
 
-  const playDraftChime = () => {
+  const playDraftChime = async () => {
     try {
       const audioCfg = loadAudioSettings();
       if (audioCfg.muted || audioCfg.sfx <= 0.01) return;
@@ -115,8 +115,9 @@ export default function DraftCutsceneModal({
       }
       const ctx = chimeCtxRef.current;
       if (ctx.state === "suspended") {
-        ctx.resume().catch(() => {});
+        await ctx.resume().catch(() => {});
       }
+      if (ctx.state !== "running") return;
       const notes = [392.0, 493.88, 587.33, 783.99];
       notes.forEach((freq, idx) => {
         const osc = ctx.createOscillator();
@@ -194,6 +195,9 @@ export default function DraftCutsceneModal({
 
   const skipToCelebration = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
     finalizeDraftPick(selectedPickIndex);
     setStage("celebration");
   };

@@ -305,11 +305,15 @@ export default function TimeoutModal({
                       {activePlayers.map((p, idx) => (
                         <div
                           key={idx}
-                          onClick={() => setSelectedActiveIdx(idx)}
-                          className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all ${
-                            selectedActiveIdx === idx
-                              ? "bg-red-500/20 border-red-500 text-white"
-                              : "bg-white/5 border-white/10 hover:bg-white/10 text-white/80"
+                          onClick={() => {
+                            if (!p.isUser) setSelectedActiveIdx(idx);
+                          }}
+                          className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
+                            p.isUser
+                              ? "bg-amber-500/10 border-amber-500/30 text-white/80 cursor-not-allowed"
+                              : selectedActiveIdx === idx
+                              ? "bg-red-500/20 border-red-500 text-white cursor-pointer"
+                              : "bg-white/5 border-white/10 hover:bg-white/10 text-white/80 cursor-pointer"
                           }`}
                         >
                           <div className="flex items-center gap-3">
@@ -325,10 +329,16 @@ export default function TimeoutModal({
                               </div>
                             </div>
                           </div>
-                          {selectedActiveIdx === idx && (
-                            <span className="text-[10px] font-black uppercase text-red-400">
-                              Selected Out
+                          {p.isUser ? (
+                            <span className="text-[10px] font-black uppercase text-amber-400">
+                              On Court
                             </span>
+                          ) : (
+                            selectedActiveIdx === idx && (
+                              <span className="text-[10px] font-black uppercase text-red-400">
+                                Selected Out
+                              </span>
+                            )
                           )}
                         </div>
                       ))}

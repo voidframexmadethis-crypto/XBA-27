@@ -372,7 +372,9 @@ export default function CreateAthleteModal({
                     <div className="flex flex-wrap gap-2">
                       {JERSEY_PALETTE.map((hex) => (
                         <button
-                          key={hex}
+                          key={`jersey-${hex}`}
+                          type="button"
+                          aria-label={`Select jersey color ${hex}`}
                           onClick={() => setDraft({ ...draft, jerseyColorHex: hex })}
                           className={`w-7 h-7 rounded-md border-2 cursor-pointer ${
                             draft.jerseyColorHex === hex ? "border-white scale-110" : "border-white/20"
@@ -382,23 +384,77 @@ export default function CreateAthleteModal({
                       ))}
                     </div>
                   </div>
-                  <div className="flex items-center justify-between bg-white/5 border border-white/10 rounded-xl px-4 py-2.5">
-                    <div>
-                      <div className="text-xs font-bold text-white">Signature Headband</div>
-                      <div className="text-[11px] text-white/50">Show headband on 3D court</div>
+                  <div>
+                    <label className="block text-xs text-white/50 mb-1.5">Shorts Color</label>
+                    <div className="flex flex-wrap gap-2">
+                      {JERSEY_PALETTE.map((hex) => (
+                        <button
+                          key={`shorts-${hex}`}
+                          type="button"
+                          aria-label={`Select shorts color ${hex}`}
+                          onClick={() => setDraft({ ...draft, shortsColorHex: hex })}
+                          className={`w-7 h-7 rounded-md border-2 cursor-pointer ${
+                            draft.shortsColorHex === hex ? "border-white scale-110" : "border-white/20"
+                          }`}
+                          style={{ backgroundColor: hex }}
+                        />
+                      ))}
                     </div>
-                    <button
-                      onClick={() =>
-                        setDraft({ ...draft, headbandEnabled: !draft.headbandEnabled })
-                      }
-                      className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase cursor-pointer ${
-                        draft.headbandEnabled
-                          ? "bg-amber-500 text-black"
-                          : "bg-white/10 text-white/60"
-                      }`}
-                    >
-                      {draft.headbandEnabled ? "On" : "Off"}
-                    </button>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-white/50 mb-1.5">Sneaker Color</label>
+                    <div className="flex flex-wrap gap-2">
+                      {["#f5f5f5", "#111827", "#c8102e", "#006bb6", "#eab308", "#10b981", "#f97316", "#7c3aed"].map((hex) => (
+                        <button
+                          key={`shoe-${hex}`}
+                          type="button"
+                          aria-label={`Select sneaker color ${hex}`}
+                          onClick={() => setDraft({ ...draft, shoeColorHex: hex })}
+                          className={`w-7 h-7 rounded-md border-2 cursor-pointer ${
+                            draft.shoeColorHex === hex ? "border-amber-400 scale-110" : "border-white/20"
+                          }`}
+                          style={{ backgroundColor: hex }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex flex-col justify-between gap-2 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-xs font-bold text-white">Signature Headband</div>
+                        <div className="text-[11px] text-white/50">Show headband on 3D court</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDraft({ ...draft, headbandEnabled: !draft.headbandEnabled })
+                        }
+                        className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase cursor-pointer ${
+                          draft.headbandEnabled
+                            ? "bg-amber-500 text-black"
+                            : "bg-white/10 text-white/60"
+                        }`}
+                      >
+                        {draft.headbandEnabled ? "On" : "Off"}
+                      </button>
+                    </div>
+                    {draft.headbandEnabled && (
+                      <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-white/10">
+                        <span className="text-[10px] text-white/50 mr-1">Band:</span>
+                        {["#ffffff", "#18181b", "#c8102e", "#eab308", "#06b6d4", "#10b981"].map((hex) => (
+                          <button
+                            key={`hb-${hex}`}
+                            type="button"
+                            aria-label={`Select headband color ${hex}`}
+                            onClick={() => setDraft({ ...draft, headbandColorHex: hex })}
+                            className={`w-5 h-5 rounded-full border-2 cursor-pointer ${
+                              draft.headbandColorHex === hex ? "border-amber-400 scale-110" : "border-white/25"
+                            }`}
+                            style={{ backgroundColor: hex }}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

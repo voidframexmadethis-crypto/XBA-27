@@ -123,7 +123,8 @@ export default function NBAFeaturesModal({
 
             <button
               onClick={onClose}
-              className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/70 hover:text-white transition-all shrink-0"
+              aria-label="Close Modes and Features Directory"
+              className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/70 hover:text-white transition-all shrink-0 cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -173,7 +174,20 @@ export default function NBAFeaturesModal({
 
           {/* Feature Grid */}
           <div className="p-6 overflow-y-auto flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[60vh]">
-            {filteredFeatures.map((feat) => (
+            {filteredFeatures.length === 0 ? (
+              <div className="md:col-span-2 py-12 text-center text-sm text-white/60 space-y-2">
+                <div>No modes or features matched &ldquo;{searchQuery}&rdquo;.</div>
+                <button
+                  onClick={() => {
+                    setSearchQuery("");
+                    setActiveCategory("ALL");
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-amber-400 text-black text-xs font-black uppercase cursor-pointer"
+                >
+                  Show All Features
+                </button>
+              </div>
+            ) : filteredFeatures.map((feat) => (
               <div
                 key={feat.id}
                 className="bg-white/5 border border-white/10 hover:border-amber-500/40 rounded-2xl p-5 transition-all duration-200 hover:bg-white/10 flex flex-col justify-between group shadow-xl"

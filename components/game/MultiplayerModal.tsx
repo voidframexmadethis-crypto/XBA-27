@@ -193,9 +193,12 @@ export default function MultiplayerModal({
                   <button
                     onClick={async () => {
                       setBusy(true);
-                      await onLeaveRoom();
-                      await refreshRooms();
-                      setBusy(false);
+                      try {
+                        await onLeaveRoom();
+                        await refreshRooms();
+                      } finally {
+                        setBusy(false);
+                      }
                     }}
                     disabled={busy}
                     className="min-h-[44px] px-4 py-2 rounded-xl bg-red-950/60 hover:bg-red-900/70 border border-red-500/40 text-red-200 text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer"
@@ -309,8 +312,11 @@ export default function MultiplayerModal({
                   disabled={busy}
                   onClick={async () => {
                     setBusy(true);
-                    await onJoinRoom("PUBLIC-COURT", preferredTeam);
-                    setBusy(false);
+                    try {
+                      await onJoinRoom("PUBLIC-COURT", preferredTeam);
+                    } finally {
+                      setBusy(false);
+                    }
                   }}
                   className="min-h-[88px] p-5 rounded-2xl bg-gradient-to-br from-amber-500/20 via-neutral-900 to-neutral-950 border border-amber-500/45 hover:border-amber-400 text-left flex flex-col justify-between cursor-pointer"
                 >
@@ -327,9 +333,12 @@ export default function MultiplayerModal({
                   disabled={busy}
                   onClick={async () => {
                     setBusy(true);
-                    await onCreateRoom();
-                    await refreshRooms();
-                    setBusy(false);
+                    try {
+                      await onCreateRoom();
+                      await refreshRooms();
+                    } finally {
+                      setBusy(false);
+                    }
                   }}
                   className="min-h-[88px] p-5 rounded-2xl bg-gradient-to-br from-cyan-500/20 via-neutral-900 to-neutral-950 border border-cyan-500/40 hover:border-cyan-400 text-left flex flex-col justify-between cursor-pointer"
                 >
@@ -356,8 +365,11 @@ export default function MultiplayerModal({
                   disabled={busy || customCode.trim().length < 3}
                   onClick={async () => {
                     setBusy(true);
-                    await onJoinRoom(customCode.trim(), preferredTeam);
-                    setBusy(false);
+                    try {
+                      await onJoinRoom(customCode.trim(), preferredTeam);
+                    } finally {
+                      setBusy(false);
+                    }
                   }}
                   className="min-h-[44px] px-6 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-black font-black uppercase text-xs tracking-wider cursor-pointer"
                 >
@@ -406,8 +418,11 @@ export default function MultiplayerModal({
                         disabled={busy}
                         onClick={async () => {
                           setBusy(true);
-                          await onJoinRoom(rm.roomCode, preferredTeam);
-                          setBusy(false);
+                          try {
+                            await onJoinRoom(rm.roomCode, preferredTeam);
+                          } finally {
+                            setBusy(false);
+                          }
                         }}
                         className="min-h-[44px] px-4 rounded-xl bg-white/10 hover:bg-amber-500 hover:text-black text-white font-bold uppercase text-xs tracking-wider transition-colors cursor-pointer"
                       >

@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { motion, AnimatePresence } from "motion/react";
-import { Clock, Keyboard, Gamepad2, Info, Trophy, Sparkles, Shirt, Flag, Globe, Timer, MapPin, Menu, Tv, Play, Flame, Shield, X, ChevronRight, BookOpen } from "lucide-react";
+import { Clock, Keyboard, Gamepad2, Info, Trophy, Sparkles, Shirt, Flag, Globe, Timer, MapPin, Menu, Tv, Play, Flame, Shield, X, ChevronRight, BookOpen, Cast } from "lucide-react";
 import LockerRoomModal from "./LockerRoomModal";
 import TimeoutModal, { TacticalSettings } from "./TimeoutModal";
 import WorldTourMenu from "./WorldTourMenu";
@@ -18,6 +19,7 @@ import DraftCutsceneModal from "./DraftCutsceneModal";
 import MovebookModal from "./MovebookModal";
 import MultiplayerModal from "./MultiplayerModal";
 import HighlightsOverlay from "./HighlightsOverlay";
+import ScreenMirrorModal from "./ScreenMirrorModal";
 import {
   SHOT_CLOCK_FULL,
   resetShotClock,
@@ -64,7 +66,10 @@ import {
 import type {
   DeviceType,
   InputPreference,
+  MatchSyncState,
   MultiplayerRoomState,
+  PoseSnapshot,
+  RemotePlayerState,
   TeamSide,
 } from "@/lib/multiplayerTypes";
 import {
@@ -73,10 +78,17 @@ import {
   DEFAULT_AUDIO_SETTINGS,
   loadAudioSettings,
 } from "@/lib/audioManager";
+import {
+  MirrorBroadcaster,
+  NativeMirrorCapabilities,
+  createMirrorSessionCode,
+  detectNativeMirrorCapabilities,
+} from "@/lib/mirrorClient";
+import type { MirrorMatchMeta } from "@/lib/mirrorTypes";
 
 // Game Constants
 const COURT_W = 28, COURT_H = 15;
-const HOOP_X = 13.6, RIM_Y = 3.05, RIM_R = 0.23, BOARD_X = 14.1;
+const HOOP_X = 12.8, RIM_Y = 3.05, RIM_R = 0.23, BOARD_X = 13.2;
 const BALL_R = 0.12, G = 9.8;
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
@@ -157,6 +169,228 @@ export default function BasketballGame() {
     ...DEFAULT_AUDIO_SETTINGS,
   }));
 
+  // Player Career Progression & Customization States
+  const [careerStats, setCareerStats] = useState<CareerStats>(getDefaultCareerStats);
+  const [showLockerRoom, setShowLockerRoom] = useState(false);
+  const [lastMatchEarnings, setLastMatchEarnings] = useState<{
+    pts: number;
+    reb: number;
+    ast: number;
+    xpGained: number;
+    leveledUp: boolean;
+    unlocked: ProgressionItem[];
+  } | null>(null);
+
+  // World Tour & Tactical Timeout States
+  const [selectedCity, setSelectedCity] = useState<WorldCity>(WORLD_CITIES[0]);
+  const [showWorldTour, setShowWorldTour] = useState(false);
+  const [showTimeout, setShowTimeout] = useState(false);
+  const [timeoutsLeft, setTimeoutsLeft] = useState(3);
+  const [tactics, setTactics] = useState<TacticalSettings>({
+    defense: "lockdown",
+    offense: "pick_roll",
+  });
+  const tacticsRef = useRef<TacticalSettings>(tactics);
+  const [subVersion, setSubVersion] = useState(0);
+  const [teamARoster, setTeamARoster] = useState<any[]>([]);
+  const initialCityRef = useRef(selectedCity);
+
+  // Screen Mirroring & TV Cast States
+  const [showScreenMirror, setShowScreenMirror] = useState(false);
+  const [isMirroring, setIsMirroring] = useState(false);
+  const [mirrorCode, setMirrorCode] = useState("");
+  const [mirrorViewerCount, setMirrorViewerCount] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [mirrorCaps, setMirrorCaps] = useState<NativeMirrorCapabilities>({
+    airplay: false,
+    remotePlayback: false,
+    pictureInPicture: false,
+    fullscreen: false,
+  });
+  const mirrorVideoRef = useRef<HTMLVideoElement | null>(null);
+  const mirrorBroadcasterRef = useRef<MirrorBroadcaster | null>(null);
+  const mirrorFrameHookRef = useRef<((canvas: HTMLCanvasElement) => void) | null>(null);
+  const mirrorMetaRef = useRef<MirrorMatchMeta>({
+    hostName: `${athleteProfile.firstName} ${athleteProfile.lastName}`,
+    cityName: selectedCity.name,
+    cityFlag: selectedCity.flag,
+    mode: gameMode,
+    scoreHome: 0,
+    scoreAway: 0,
+    quarter: 1,
+    gameClock: 120,
+    shotClock: 24,
+    homeTeamName: "HOME",
+    awayTeamName: selectedCity.name.toUpperCase(),
+  });
+
+  useEffect(() => {
+    const nextMeta: MirrorMatchMeta = {
+      hostName: `${athleteProfile.firstName} ${athleteProfile.lastName}`,
+      cityName: selectedCity.name,
+      cityFlag: selectedCity.flag,
+      mode: gameMode,
+      scoreHome,
+      scoreAway,
+      quarter,
+      gameClock,
+      shotClock,
+      homeTeamName: "HOME",
+      awayTeamName: selectedCity.name.toUpperCase(),
+    };
+    mirrorMetaRef.current = nextMeta;
+    mirrorBroadcasterRef.current?.updateMeta(nextMeta);
+  }, [
+    athleteProfile.firstName,
+    athleteProfile.lastName,
+    selectedCity.name,
+    selectedCity.flag,
+    gameMode,
+    scoreHome,
+    scoreAway,
+    quarter,
+    gameClock,
+    shotClock,
+  ]);
+
+  useEffect(() => {
+    setMirrorCaps(detectNativeMirrorCapabilities(mirrorVideoRef.current));
+    const onFsChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFsChange);
+      mirrorFrameHookRef.current = null;
+      mirrorBroadcasterRef.current?.stop();
+      mirrorBroadcasterRef.current = null;
+    };
+  }, []);
+
+  const ensureMirrorVideoStream = useCallback(() => {
+    const canvas = gameRef.current?.renderer?.domElement as HTMLCanvasElement | undefined;
+    const video = mirrorVideoRef.current;
+    if (!canvas || !video) return null;
+    if (!video.srcObject && typeof canvas.captureStream === "function") {
+      try {
+        const stream = canvas.captureStream(30);
+        video.srcObject = stream;
+        video.muted = true;
+        video.play().catch(() => {});
+      } catch {
+        return null;
+      }
+    }
+    return video;
+  }, []);
+
+  const handleStartMirroring = useCallback(async () => {
+    const canvas = (gameRef.current?.renderer?.domElement as HTMLCanvasElement | undefined) || null;
+    ensureMirrorVideoStream();
+    if (!mirrorBroadcasterRef.current) {
+      mirrorBroadcasterRef.current = new MirrorBroadcaster(mirrorMetaRef.current, (info) => {
+        setIsMirroring(info.active);
+        setMirrorCode(info.code);
+        setMirrorViewerCount(info.viewerCount);
+      });
+    }
+    const nextCode = createMirrorSessionCode();
+    await mirrorBroadcasterRef.current.start(nextCode, canvas, mirrorMetaRef.current);
+    mirrorFrameHookRef.current = (renderedCanvas: HTMLCanvasElement) => {
+      mirrorBroadcasterRef.current?.captureRenderedFrame(renderedCanvas, mirrorMetaRef.current);
+    };
+  }, [ensureMirrorVideoStream]);
+
+  const handleStopMirroring = useCallback(async () => {
+    mirrorFrameHookRef.current = null;
+    if (mirrorBroadcasterRef.current) {
+      await mirrorBroadcasterRef.current.stop();
+    }
+    setIsMirroring(false);
+    setMirrorViewerCount(0);
+  }, []);
+
+  const handleTriggerAirPlayOrCast = useCallback(async (): Promise<{ ok: boolean; message: string }> => {
+    const video = ensureMirrorVideoStream() as (HTMLVideoElement & {
+      webkitShowPlaybackTargetPicker?: () => void;
+      remote?: { prompt: () => Promise<void> };
+    }) | null;
+
+    if (video && typeof video.webkitShowPlaybackTargetPicker === "function") {
+      try {
+        video.webkitShowPlaybackTargetPicker();
+        return {
+          ok: true,
+          message: "AirPlay device picker opened. If no Apple TV appears, swipe down Control Center and tap Screen Mirroring.",
+        };
+      } catch {
+        // Fallback guidance below
+      }
+    }
+    if (video?.remote && typeof video.remote.prompt === "function") {
+      try {
+        await video.remote.prompt();
+        return { ok: true, message: "Wireless Cast device picker opened." };
+      } catch {
+        // User dismissed or browser blocked remote playback in iframe
+      }
+    }
+    return {
+      ok: false,
+      message:
+        "Use Start Screen Mirroring above with the QR code / Mirror Link to cast wirelessly to any TV, or use your device's Control Center / browser Cast menu.",
+    };
+  }, [ensureMirrorVideoStream]);
+
+  const handleTogglePiP = useCallback(async (): Promise<{ ok: boolean; message: string }> => {
+    const video = ensureMirrorVideoStream() as (HTMLVideoElement & {
+      webkitSupportsPresentationMode?: (mode: string) => boolean;
+      webkitSetPresentationMode?: (mode: string) => void;
+      webkitPresentationMode?: string;
+    }) | null;
+    if (!video) {
+      return { ok: false, message: "Video capture stream is unavailable on this browser." };
+    }
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+        return { ok: true, message: "Exited floating mini-screen." };
+      }
+      if (typeof video.requestPictureInPicture === "function") {
+        await video.play().catch(() => {});
+        await video.requestPictureInPicture();
+        return { ok: true, message: "Floating Picture-in-Picture mini-screen active." };
+      }
+      if (
+        typeof video.webkitSupportsPresentationMode === "function" &&
+        video.webkitSupportsPresentationMode("picture-in-picture") &&
+        typeof video.webkitSetPresentationMode === "function"
+      ) {
+        const nextMode =
+          video.webkitPresentationMode === "picture-in-picture" ? "inline" : "picture-in-picture";
+        video.webkitSetPresentationMode(nextMode);
+        return { ok: true, message: "Toggled Picture-in-Picture mini-screen." };
+      }
+    } catch {
+      // Fallback below
+    }
+    return {
+      ok: false,
+      message: "Picture-in-Picture requires starting playback on the court first or is blocked by this iframe.",
+    };
+  }, [ensureMirrorVideoStream]);
+
+  const handleToggleFullscreen = useCallback(async () => {
+    if (typeof document === "undefined") return;
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch {
+      // Ignore fullscreen permission errors inside sandboxed iframes
+    }
+  }, []);
+
   const handleExecuteMove = useCallback((move: OffenseMove | DefenseMove) => {
     if (gameRef.current?.executeMove) {
       gameRef.current.executeMove(move);
@@ -186,6 +420,8 @@ export default function BasketballGame() {
     gameModeRef.current = mode;
     setShowSummary(false);
     setShowHighlights(false);
+    setShowMeter(false);
+    setTimeoutsLeft(3);
     isHighlightReplayRef.current = false;
     if (mode === "training") {
       setTrainingDrill({ made: 0, target: 5, completedCount: 0 });
@@ -254,32 +490,6 @@ export default function BasketballGame() {
     setAudioSettings(updated);
   }, []);
 
-  // Player Career Progression & Customization States
-  const [careerStats, setCareerStats] = useState<CareerStats>(getDefaultCareerStats);
-  const [showLockerRoom, setShowLockerRoom] = useState(false);
-  const [lastMatchEarnings, setLastMatchEarnings] = useState<{
-    pts: number;
-    reb: number;
-    ast: number;
-    xpGained: number;
-    leveledUp: boolean;
-    unlocked: ProgressionItem[];
-  } | null>(null);
-
-  // World Tour & Tactical Timeout States
-  const [selectedCity, setSelectedCity] = useState<WorldCity>(WORLD_CITIES[0]);
-  const [showWorldTour, setShowWorldTour] = useState(false);
-  const [showTimeout, setShowTimeout] = useState(false);
-  const [timeoutsLeft, setTimeoutsLeft] = useState(3);
-  const [tactics, setTactics] = useState<TacticalSettings>({
-    defense: "lockdown",
-    offense: "pick_roll",
-  });
-  const tacticsRef = useRef<TacticalSettings>(tactics);
-  const [subVersion, setSubVersion] = useState(0);
-  const [teamARoster, setTeamARoster] = useState<any[]>([]);
-  const initialCityRef = useRef(selectedCity);
-
   const handleTacticsChange = useCallback((newTactics: TacticalSettings) => {
     setTactics(newTactics);
     tacticsRef.current = newTactics;
@@ -288,24 +498,31 @@ export default function BasketballGame() {
     }
   }, []);
 
-  const callTimeout = useCallback(() => {
-    if (timeoutsLeft <= 0) {
-      if (gameRef.current?.triggerMsg) {
-        gameRef.current.triggerMsg("NO TIMEOUTS REMAINING", "#ef4444");
+  const openTacticsHuddle = useCallback((consumeTimeout: boolean) => {
+    const inLiveMatch = gameModeRef.current === "match" || gameModeRef.current === "streetball";
+    if (consumeTimeout && inLiveMatch) {
+      if (timeoutsLeft <= 0) {
+        if (gameRef.current?.triggerMsg) {
+          gameRef.current.triggerMsg("NO TIMEOUTS REMAINING", "#ef4444");
+        }
+        return;
       }
-      return;
+      setTimeoutsLeft((prev) => prev - 1);
     }
-    setTimeoutsLeft((prev) => prev - 1);
     if (gameRef.current?.state) {
       gameRef.current.state.isPaused = true;
       gameRef.current.state.pauseT = 0;
     }
-    if (gameRef.current?.Audio) {
+    if (consumeTimeout && inLiveMatch && gameRef.current?.Audio) {
       gameRef.current.Audio.whistle();
       gameRef.current.Audio.speak("Timeout! Tactical huddle!");
     }
     setShowTimeout(true);
   }, [timeoutsLeft]);
+
+  const callTimeout = useCallback(() => {
+    openTacticsHuddle(true);
+  }, [openTacticsHuddle]);
 
   const resumeFromTimeout = useCallback(() => {
     setShowTimeout(false);
@@ -325,11 +542,18 @@ export default function BasketballGame() {
     if (gameRef.current?.applyCity) {
       gameRef.current.applyCity(city);
     }
+    if (mpClientRef.current?.roomCode) {
+      mpClientRef.current.sendEvent("city_change", { cityId: city.id });
+    }
   }, []);
 
   const handleStartMatchCity = useCallback((city: WorldCity) => {
     setSelectedCity(city);
     setShowWorldTour(false);
+    setShowSummary(false);
+    setShowHighlights(false);
+    setShowMeter(false);
+    setTimeoutsLeft(3);
     setGameMode("match");
     gameModeRef.current = "match";
     if (gameRef.current?.applyGameMode) {
@@ -337,6 +561,10 @@ export default function BasketballGame() {
     }
     if (gameRef.current?.applyCity) {
       gameRef.current.applyCity(city);
+    }
+    if (mpClientRef.current?.roomCode) {
+      mpClientRef.current.sendEvent("city_change", { cityId: city.id });
+      mpClientRef.current.sendEvent("mode_change", { mode: "match" });
     }
     setShowTipOff(true);
   }, []);
@@ -350,10 +578,11 @@ export default function BasketballGame() {
     showLockerRoom ||
     showFeaturesModal ||
     showMultiplayer ||
+    showScreenMirror ||
     showHelp;
 
   useEffect(() => {
-    isOverlayOpenRef.current =
+    const open =
       showMainMenu ||
       showTipOff ||
       showCreateAthlete ||
@@ -365,7 +594,14 @@ export default function BasketballGame() {
       showHelp ||
       showFeaturesModal ||
       showMultiplayer ||
+      showScreenMirror ||
       showSummary;
+    isOverlayOpenRef.current = open;
+    if (open && gameRef.current?.state) {
+      gameRef.current.state.keys = {};
+      gameRef.current.state.touchButtons = {};
+      gameRef.current.state.joystick = { x: 0, y: 0, active: false, autoSprint: false };
+    }
   }, [
     showMainMenu,
     showTipOff,
@@ -378,6 +614,7 @@ export default function BasketballGame() {
     showHelp,
     showFeaturesModal,
     showMultiplayer,
+    showScreenMirror,
     showSummary,
   ]);
 
@@ -408,6 +645,9 @@ export default function BasketballGame() {
         if (mpRoomRef.current) {
           mpRoomRef.current.players[pid] = player;
           if (match) Object.assign(mpRoomRef.current.match, match);
+        }
+        if (match && gameRef.current?.applyRemoteMatchPatch) {
+          gameRef.current.applyRemoteMatchPatch(match);
         }
       },
       onMatchEvent: (event, match) => {
@@ -501,12 +741,9 @@ export default function BasketballGame() {
 
     // --- SETUP ---
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a0c11);
-    scene.fog = new THREE.Fog(0x0a0c11, 35, 95);
+    scene.background = new THREE.Color(0x0b0f19);
+    scene.fog = new THREE.FogExp2(0x0b0f19, 0.015);
 
-    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 300);
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    
     const isSoftwareGl = (() => {
       if (typeof document === "undefined") return true;
       const gl = document.createElement("canvas").getContext("webgl2");
@@ -518,20 +755,37 @@ export default function BasketballGame() {
       return /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(gpu);
     })();
 
+    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 300);
+    const renderer = new THREE.WebGLRenderer({ antialias: !isSoftwareGl, powerPreference: "high-performance" });
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.06;
+
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const roomEnv = new RoomEnvironment();
+    const envRT = pmrem.fromScene(roomEnv, 0.04);
+    scene.environment = envRT.texture;
+    scene.environmentIntensity = 0.52;
+    roomEnv.dispose();
+    pmrem.dispose();
+
     renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = !isSoftwareGl;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.setSize(window.innerWidth, window.innerHeight);
     mountRef.current.appendChild(renderer.domElement);
 
-    // --- LIGHTING (Overhead Arena Spotlight + Warm Rim Light + Hemisphere Fill) ---
-    scene.add(new THREE.HemisphereLight(0x9fb4dd, 0x201a12, 0.72));
-    const arenaSpot = new THREE.SpotLight(0xfff4e0, 2.2, 95, 0.58, 0.7, 1);
-    arenaSpot.position.set(0, 24, 0);
+    // --- LIGHTING (2K Arena Rafter Spotlight + Ambient Fill + Rim & Key Light) ---
+    const ambientLight = new THREE.AmbientLight(0x1a233a, 0.8);
+    scene.add(ambientLight);
+    scene.add(new THREE.HemisphereLight(0x9fb4dd, 0x201a12, 0.55));
+
+    const arenaSpot = new THREE.SpotLight(0xffffff, 2.5, 130, Math.PI / 4, 0.5, 0.85);
+    arenaSpot.position.set(0, 40, 0);
     arenaSpot.target.position.set(0, 0, 0);
     arenaSpot.castShadow = !isSoftwareGl;
     arenaSpot.shadow.mapSize.set(2048, 2048);
-    arenaSpot.shadow.bias = -0.0008;
+    arenaSpot.shadow.bias = -0.0005;
     scene.add(arenaSpot, arenaSpot.target);
 
     const rimLight = new THREE.DirectionalLight(0xff9a4a, 0.65);
@@ -672,9 +926,11 @@ export default function BasketballGame() {
     const floorTex = createWoodgrainTexture();
     const asphaltTex = createAsphaltTexture();
     const floorMat = new THREE.MeshStandardMaterial({
+      color: floorTex ? 0xffffff : 0xd4a373,
       map: floorTex || undefined,
-      roughness: 0.55,
-      metalness: 0.04,
+      roughness: 0.3,
+      metalness: 0.1,
+      envMapIntensity: 1.15,
     });
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(COURT_W, COURT_H),
@@ -801,42 +1057,63 @@ export default function BasketballGame() {
       clockFace.position.set(x - (0.8 + 0.065) * side, 4.15, 0);
       scene.add(clockFace);
 
-      // Metallic Rim
+      // Metallic Rim + Mounting Collar + Diagonal Backboard Support Struts
       const rim = new THREE.Mesh(
-        new THREE.TorusGeometry(RIM_R, 0.02, 12, 32),
-        new THREE.MeshStandardMaterial({ color: 0xd8431e, metalness: 0.5, roughness: 0.4 })
+        new THREE.TorusGeometry(RIM_R, 0.022, 14, 36),
+        new THREE.MeshStandardMaterial({ color: 0xe64a19, metalness: 0.65, roughness: 0.28 })
       );
       rim.rotation.x = Math.PI / 2;
       rim.position.set(x - 1.2 * side, RIM_Y, 0);
       rim.castShadow = true;
       scene.add(rim);
 
-      // Stanchion Pole + Padded Base + Gooseneck Extension Arm
-      const poleMat = new THREE.MeshStandardMaterial({ color: 0x888c94, metalness: 0.6, roughness: 0.4 });
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.085, 3.6, 14), poleMat);
-      pole.position.set(x + 0.65 * side, 1.8, 0);
+      const rimCollar = new THREE.Mesh(
+        new THREE.BoxGeometry(0.18, 0.09, 0.16),
+        new THREE.MeshStandardMaterial({ color: 0xd8431e, metalness: 0.55, roughness: 0.35 })
+      );
+      rimCollar.position.set(x - 0.9 * side, RIM_Y - 0.02, 0);
+      scene.add(rimCollar);
+
+      // Stanchion Pole + Padded Base + Accent Stripe + Gooseneck Extension Arm
+      const poleMat = new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.72, roughness: 0.28 });
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.09, 3.65, 16), poleMat);
+      pole.position.set(x + 0.65 * side, 1.825, 0);
       pole.castShadow = true;
       scene.add(pole);
 
       const stanchionPad = new THREE.Mesh(
-        new THREE.BoxGeometry(0.45, 1.35, 0.45),
-        new THREE.MeshStandardMaterial({ color: 0x181c24, roughness: 0.7 })
+        new THREE.BoxGeometry(0.48, 1.42, 0.48),
+        new THREE.MeshStandardMaterial({ color: 0x11151d, roughness: 0.65 })
       );
-      stanchionPad.position.set(x + 0.65 * side, 0.675, 0);
+      stanchionPad.position.set(x + 0.65 * side, 0.71, 0);
       stanchionPad.castShadow = true;
       scene.add(stanchionPad);
 
-      const arm = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.12, 0.12), poleMat);
+      const padStripe = new THREE.Mesh(
+        new THREE.BoxGeometry(0.5, 0.16, 0.5),
+        new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.45, metalness: 0.2 })
+      );
+      padStripe.position.set(x + 0.65 * side, 1.22, 0);
+      scene.add(padStripe);
+
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.13, 0.13), poleMat);
       arm.position.set(x - 0.1 * side, 3.05, 0);
       arm.castShadow = true;
       scene.add(arm);
 
-      // Tapered Wireframe Basketball Net
-      const netMesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(RIM_R, 0.11, 0.42, 16, 1, true),
-        new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.55 })
+      const boardBracket = new THREE.Mesh(
+        new THREE.BoxGeometry(0.06, 0.95, 1.55),
+        new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.75, roughness: 0.35, wireframe: true })
       );
-      netMesh.position.set(x - 1.2 * side, RIM_Y - 0.21, 0);
+      boardBracket.position.set(x - 0.77 * side, 3.42, 0);
+      scene.add(boardBracket);
+
+      // Tapered Braided Basketball Net (higher ring/height detail)
+      const netMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(RIM_R * 0.96, 0.115, 0.44, 24, 4, true),
+        new THREE.MeshBasicMaterial({ color: 0xf8fafc, wireframe: true, transparent: true, opacity: 0.68 })
+      );
+      netMesh.position.set(x - 1.2 * side, RIM_Y - 0.22, 0);
       scene.add(netMesh);
     });
 
@@ -886,7 +1163,7 @@ export default function BasketballGame() {
       }
     }
 
-    // Team Benches (Player chairs on court sideline)
+    // Team Benches (Player chairs on court sideline with seat cushions)
     const benchHomeMat = new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.4 });
     const benchAwayMat = new THREE.MeshStandardMaterial({ color: 0x1e40af, roughness: 0.4 });
     for (let i = 0; i < 6; i++) {
@@ -898,6 +1175,155 @@ export default function BasketballGame() {
       chairA.position.set(2 + i * 0.85, 0.225, 7.8);
       scene.add(chairA);
     }
+
+    // --- LED COURTSIDE RIBBON BOARD, SCORER'S TABLE & OVERHEAD JUMBOTRON ---
+    const createLedBannerTex = (cityName: string, primaryHex: string) => {
+      const c = document.createElement("canvas");
+      c.width = 1024;
+      c.height = 128;
+      const g = c.getContext("2d");
+      if (g) {
+        g.fillStyle = "#090c14";
+        g.fillRect(0, 0, 1024, 128);
+        g.fillStyle = primaryHex;
+        g.fillRect(0, 0, 1024, 14);
+        g.fillRect(0, 114, 1024, 14);
+        g.fillStyle = "#f59e0b";
+        g.font = "900 44px sans-serif";
+        g.textAlign = "center";
+        g.textBaseline = "middle";
+        g.fillText(`XBA 27  ·  ${cityName.toUpperCase()} ARENA  ·  WORLD TOUR`, 512, 66);
+      }
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    };
+
+    const ledBoardGroup = new THREE.Group();
+    let ledBannerTex = createLedBannerTex(initialCity.name, initialCity.jerseyPrimary);
+    const ledBannerMat = new THREE.MeshBasicMaterial({ map: ledBannerTex });
+    const ledHousing = new THREE.Mesh(
+      new THREE.BoxGeometry(COURT_W - 2, 0.56, 0.16),
+      new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.4, metalness: 0.6 })
+    );
+    ledHousing.position.set(0, 0.28, -8.02);
+    ledBoardGroup.add(ledHousing);
+
+    const ledFace = new THREE.Mesh(new THREE.PlaneGeometry(COURT_W - 2.2, 0.46), ledBannerMat);
+    ledFace.position.set(0, 0.28, -7.93);
+    ledBoardGroup.add(ledFace);
+
+    // Midcourt Scorer's Table
+    const scorerTable = new THREE.Mesh(
+      new THREE.BoxGeometry(4.4, 0.78, 0.72),
+      new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.5, metalness: 0.4 })
+    );
+    scorerTable.position.set(0, 0.39, -7.65);
+    ledBoardGroup.add(scorerTable);
+
+    const scorerApronMat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(initialCity.jerseyPrimary),
+      emissive: new THREE.Color(initialCity.jerseyPrimary),
+      emissiveIntensity: 0.22,
+      roughness: 0.35,
+    });
+    const scorerApron = new THREE.Mesh(new THREE.PlaneGeometry(4.1, 0.58), scorerApronMat);
+    scorerApron.position.set(0, 0.4, -7.28);
+    ledBoardGroup.add(scorerApron);
+
+    for (const mx of [-1.2, 0, 1.2]) {
+      const monitor = new THREE.Mesh(
+        new THREE.BoxGeometry(0.46, 0.26, 0.05),
+        new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x0284c7, emissiveIntensity: 0.4, roughness: 0.2 })
+      );
+      monitor.position.set(mx, 0.91, -7.65);
+      monitor.rotation.x = -0.25;
+      ledBoardGroup.add(monitor);
+    }
+    scene.add(ledBoardGroup);
+
+    // Overhead Arena Steel Roof Trusses & 4-Sided Center-Hung Jumbotron (y >= 9.2m)
+    const arenaOverheadGroup = new THREE.Group();
+    const trussMat = new THREE.MeshStandardMaterial({ color: 0x1f2937, metalness: 0.78, roughness: 0.35 });
+    for (const tx of [-12, -4, 4, 12]) {
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.45, 22), trussMat);
+      beam.position.set(tx, 12.2, 0);
+      arenaOverheadGroup.add(beam);
+      for (const lz of [-6, 0, 6]) {
+        const lamp = new THREE.Mesh(
+          new THREE.BoxGeometry(0.7, 0.12, 0.45),
+          new THREE.MeshBasicMaterial({ color: 0xfff7ed })
+        );
+        lamp.position.set(tx, 11.9, lz);
+        arenaOverheadGroup.add(lamp);
+      }
+    }
+
+    const jumboGroup = new THREE.Group();
+    jumboGroup.position.set(0, 9.65, 0);
+    const jumboFrame = new THREE.Mesh(
+      new THREE.BoxGeometry(4.6, 2.0, 4.6),
+      new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.8, roughness: 0.3 })
+    );
+    jumboGroup.add(jumboFrame);
+
+    const jumboRingTop = new THREE.Mesh(
+      new THREE.BoxGeometry(4.85, 0.16, 4.85),
+      new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0xb45309, emissiveIntensity: 0.45, metalness: 0.6, roughness: 0.3 })
+    );
+    jumboRingTop.position.y = 1.02;
+    jumboGroup.add(jumboRingTop);
+
+    const jumboScreenTex = (() => {
+      const c = document.createElement("canvas");
+      c.width = 512;
+      c.height = 256;
+      const g = c.getContext("2d");
+      if (g) {
+        const grad = g.createLinearGradient(0, 0, 512, 256);
+        grad.addColorStop(0, "#090d16");
+        grad.addColorStop(0.5, "#111827");
+        grad.addColorStop(1, "#090d16");
+        g.fillStyle = grad;
+        g.fillRect(0, 0, 512, 256);
+        g.strokeStyle = "#f59e0b";
+        g.lineWidth = 8;
+        g.strokeRect(10, 10, 492, 236);
+        g.fillStyle = "#fbbf24";
+        g.font = "900 58px sans-serif";
+        g.textAlign = "center";
+        g.fillText("XBA 27", 256, 104);
+        g.fillStyle = "#38bdf8";
+        g.font = "800 30px sans-serif";
+        g.fillText("HOOPS MOVES · LIVE ARENA", 256, 165);
+        g.fillStyle = "#e2e8f0";
+        g.font = "700 20px sans-serif";
+        g.fillText("WORLD TOUR CHAMPIONSHIP", 256, 208);
+      }
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    })();
+    const jumboScreenMat = new THREE.MeshBasicMaterial({ map: jumboScreenTex });
+    [
+      { pos: [0, 0, 2.32], rotY: 0 },
+      { pos: [0, 0, -2.32], rotY: Math.PI },
+      { pos: [2.32, 0, 0], rotY: Math.PI / 2 },
+      { pos: [-2.32, 0, 0], rotY: -Math.PI / 2 },
+    ].forEach((side) => {
+      const scr = new THREE.Mesh(new THREE.PlaneGeometry(4.1, 1.55), jumboScreenMat);
+      scr.position.set(side.pos[0], side.pos[1], side.pos[2]);
+      scr.rotation.y = side.rotY;
+      jumboGroup.add(scr);
+    });
+    const cableGeo = new THREE.CylinderGeometry(0.04, 0.04, 2.8, 8);
+    [[-1.8, -1.8], [1.8, -1.8], [-1.8, 1.8], [1.8, 1.8]].forEach(([cx, cz]) => {
+      const cable = new THREE.Mesh(cableGeo, trussMat);
+      cable.position.set(cx, 1.9, cz);
+      jumboGroup.add(cable);
+    });
+    arenaOverheadGroup.add(jumboGroup);
+    scene.add(arenaOverheadGroup);
 
     // --- SEATED SPECTATORS IN BLEACHERS ---
     const crowdCount = 1200;
@@ -943,60 +1369,375 @@ export default function BasketballGame() {
     crowdMesh.count = idx;
     crowdMesh.instanceColor!.needsUpdate = true;
 
-    // --- BALL ---
+    // --- BALL (1024x512 Pebbled Leather + Recessed Channel Bump Map) ---
     function ballTexture() {
-      const c = document.createElement("canvas"); c.width = 512; c.height = 256; const g = c.getContext("2d"); if (!g) return null;
-      g.fillStyle = "#e8651a"; g.fillRect(0, 0, 512, 256); g.strokeStyle = "#161616"; g.lineWidth = 8;
-      g.beginPath(); g.moveTo(0, 128); g.lineTo(512, 128); g.stroke(); g.beginPath(); g.moveTo(256, 0); g.lineTo(256, 256); g.stroke();
-      g.beginPath(); g.arc(0, 128, 140, -1.1, 1.1); g.stroke(); g.beginPath(); g.arc(512, 128, 140, Math.PI - 1.1, Math.PI + 1.1); g.stroke();
-      const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; return tex;
-    }
-    const ball = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 32, 20), new THREE.MeshStandardMaterial({ map: ballTexture(), roughness: 0.5 }));
-    ball.castShadow = true; ball.position.set(0, 2.1, 0); scene.add(ball);
+      const c = document.createElement("canvas");
+      c.width = 1024;
+      c.height = 512;
+      const g = c.getContext("2d");
+      if (!g) return null;
 
-    // --- ENTITIES ---
-    function makeHuman(color: number, logoTex?: THREE.Texture) {
-      const root = new THREE.Group(); scene.add(root);
-      const mat = (c: number, r = 0.6) => new THREE.MeshStandardMaterial({ color: c, roughness: r });
-      const jerseyMat = mat(color), skinMat = mat(0x8d5524, 0.7), shortsMat = mat(0x161616), shoeMat = mat(0xf5f5f5, 0.4);
+      const grad = g.createLinearGradient(0, 0, 0, 512);
+      grad.addColorStop(0, "#c84e10");
+      grad.addColorStop(0.5, "#e8681c");
+      grad.addColorStop(1, "#b8440c");
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 1024, 512);
+
+      // Leather pebble grain dots
+      for (let i = 0; i < 6500; i++) {
+        const px = Math.random() * 1024;
+        const py = Math.random() * 512;
+        g.fillStyle = i % 2 === 0 ? "rgba(255, 185, 110, 0.16)" : "rgba(70, 20, 4, 0.18)";
+        g.fillRect(px, py, 2, 2);
+      }
+
+      // Recessed black rubber basketball channels
+      g.strokeStyle = "#161412";
+      g.lineWidth = 13;
+      g.beginPath(); g.moveTo(0, 256); g.lineTo(1024, 256); g.stroke();
+      g.beginPath(); g.moveTo(512, 0); g.lineTo(512, 512); g.stroke();
+      g.beginPath(); g.arc(0, 256, 280, -1.12, 1.12); g.stroke();
+      g.beginPath(); g.arc(1024, 256, 280, Math.PI - 1.12, Math.PI + 1.12); g.stroke();
+
+      // Official game ball gold stamp
+      g.fillStyle = "rgba(24, 16, 10, 0.72)";
+      g.font = "900 28px sans-serif";
+      g.textAlign = "center";
+      g.fillText("XBA 27", 370, 198);
+      g.font = "700 13px sans-serif";
+      g.fillText("OFFICIAL GAME BALL", 370, 220);
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 8;
+      return tex;
+    }
+
+    function ballBumpTexture() {
+      const c = document.createElement("canvas");
+      c.width = 1024;
+      c.height = 512;
+      const g = c.getContext("2d");
+      if (!g) return null;
+      g.fillStyle = "#9a9a9a";
+      g.fillRect(0, 0, 1024, 512);
+      for (let i = 0; i < 9000; i++) {
+        g.fillStyle = i % 2 === 0 ? "#cfcfcf" : "#686868";
+        g.fillRect(Math.random() * 1024, Math.random() * 512, 2, 2);
+      }
+      g.strokeStyle = "#121212";
+      g.lineWidth = 15;
+      g.beginPath(); g.moveTo(0, 256); g.lineTo(1024, 256); g.stroke();
+      g.beginPath(); g.moveTo(512, 0); g.lineTo(512, 512); g.stroke();
+      g.beginPath(); g.arc(0, 256, 280, -1.12, 1.12); g.stroke();
+      g.beginPath(); g.arc(1024, 256, 280, Math.PI - 1.12, Math.PI + 1.12); g.stroke();
+      return new THREE.CanvasTexture(c);
+    }
+
+    const ballColorTex = ballTexture();
+    const ballBumpTex = ballBumpTexture();
+    const ball = new THREE.Mesh(
+      new THREE.SphereGeometry(BALL_R, 36, 24),
+      new THREE.MeshStandardMaterial({
+        map: ballColorTex,
+        bumpMap: ballBumpTex,
+        bumpScale: 0.011,
+        roughness: 0.44,
+        metalness: 0.04,
+      })
+    );
+    ball.castShadow = true;
+    ball.position.set(0, 2.1, 0);
+    scene.add(ball);
+
+    // --- ENTITIES (Detailed Player Meshes + Live Jersey Nameplates) ---
+    const createJerseyPlateTexture = (
+      jerseyNumber: string,
+      lastName: string,
+      jerseyHex: string,
+      accentHex: string,
+      isBack: boolean
+    ) => {
+      const c = document.createElement("canvas");
+      c.width = 256;
+      c.height = 256;
+      const g = c.getContext("2d");
+      if (g) {
+        g.clearRect(0, 0, 256, 256);
+        // Pick crisp contrast ink against jersey luminance
+        const col = new THREE.Color(jerseyHex);
+        const lum = 0.299 * col.r + 0.587 * col.g + 0.114 * col.b;
+        const ink = lum > 0.62 ? "#0f172a" : "#ffffff";
+        const outline = lum > 0.62 ? "#ffffff" : accentHex;
+
+        g.textAlign = "center";
+        g.textBaseline = "middle";
+        if (isBack) {
+          g.fillStyle = ink;
+          g.font = "900 30px sans-serif";
+          g.fillText(lastName.toUpperCase().slice(0, 11), 128, 44);
+          g.lineWidth = 8;
+          g.strokeStyle = outline;
+          g.font = "900 116px sans-serif";
+          g.strokeText(jerseyNumber, 128, 148);
+          g.fillStyle = ink;
+          g.fillText(jerseyNumber, 128, 148);
+        } else {
+          g.fillStyle = accentHex;
+          g.font = "900 22px sans-serif";
+          g.fillText("XBA 27", 128, 46);
+          g.lineWidth = 7;
+          g.strokeStyle = outline;
+          g.font = "900 94px sans-serif";
+          g.strokeText(jerseyNumber, 128, 138);
+          g.fillStyle = ink;
+          g.fillText(jerseyNumber, 128, 138);
+        }
+      }
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    };
+
+    const SKIN_PRESETS = [0x8d5524, 0xc68642, 0xf1c27d, 0x5c3818, 0xe0ac69];
+
+    function makeHuman(
+      color: number,
+      logoTex?: THREE.Texture,
+      opts?: { jerseyNumber?: string; lastName?: string; hairStyle?: number; skinHex?: number; accentHex?: number }
+    ) {
+      const root = new THREE.Group();
+      scene.add(root);
+      const mat = (c: number, r = 0.6, m = 0.04) =>
+        new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: m });
+
+      const jerseyMat = mat(color, 0.56, 0.04);
+      const trimMat = mat(opts?.accentHex ?? 0xf59e0b, 0.48, 0.08);
+      const skinMat = mat(opts?.skinHex ?? 0x8d5524, 0.66, 0.02);
+      const shortsMat = mat(0x161616, 0.62, 0.03);
+      const shoeMat = mat(0xf5f5f5, 0.38, 0.08);
+      const sockMat = mat(0xf8fafc, 0.72, 0.01);
+      const soleMat = mat(0x18181b, 0.8, 0.02);
+      const midsoleMat = mat(0xfefefe, 0.45, 0.04);
+      const hairMat = mat(0x141210, 0.88, 0.02);
+
       const box = (w: number, h: number, d: number, m: THREE.Material, p: THREE.Object3D, x: number, y: number, z: number) => {
-        const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); mesh.position.set(x, y, z); mesh.castShadow = true; p.add(mesh); return mesh;
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+        mesh.position.set(x, y, z);
+        mesh.castShadow = true;
+        p.add(mesh);
+        return mesh;
       };
-      const pelvis = new THREE.Group(); pelvis.position.y = 0.95; root.add(pelvis); box(0.46, 0.3, 0.28, shortsMat, pelvis, 0, 0, 0);
-      const torso = new THREE.Group(); pelvis.add(torso); box(0.5, 0.62, 0.28, jerseyMat, torso, 0, 0.31, 0);
-      
-      let logoMesh;
+
+      const pelvis = new THREE.Group();
+      pelvis.position.y = 0.95;
+      root.add(pelvis);
+      box(0.47, 0.3, 0.29, shortsMat, pelvis, 0, 0, 0);
+      // Shorts elastic waistband trim
+      box(0.485, 0.055, 0.302, trimMat, pelvis, 0, 0.135, 0);
+
+      const torso = new THREE.Group();
+      pelvis.add(torso);
+      box(0.5, 0.62, 0.28, jerseyMat, torso, 0, 0.31, 0);
+      // V-neck collar & side jersey piping
+      box(0.22, 0.05, 0.292, trimMat, torso, 0, 0.605, 0);
+      box(0.03, 0.58, 0.29, trimMat, torso, -0.245, 0.31, 0);
+      box(0.03, 0.58, 0.29, trimMat, torso, 0.245, 0.31, 0);
+
+      // Front & Back Jersey Number / Nameplate decals
+      const numStr = opts?.jerseyNumber || "27";
+      const lastStr = opts?.lastName || "PLAYER";
+      const jerseyHexStr = `#${new THREE.Color(color).getHexString()}`;
+      const accentHexStr = `#${new THREE.Color(opts?.accentHex ?? 0xf59e0b).getHexString()}`;
+      const frontPlateTex = createJerseyPlateTexture(numStr, lastStr, jerseyHexStr, accentHexStr, false);
+      const backPlateTex = createJerseyPlateTexture(numStr, lastStr, jerseyHexStr, accentHexStr, true);
+      const frontPlateMat = new THREE.MeshBasicMaterial({ map: frontPlateTex, transparent: true });
+      const backPlateMat = new THREE.MeshBasicMaterial({ map: backPlateTex, transparent: true });
+      const frontPlate = new THREE.Mesh(new THREE.PlaneGeometry(0.36, 0.42), frontPlateMat);
+      frontPlate.position.set(0, 0.34, 0.143);
+      torso.add(frontPlate);
+      const backPlate = new THREE.Mesh(new THREE.PlaneGeometry(0.38, 0.46), backPlateMat);
+      backPlate.position.set(0, 0.35, -0.143);
+      backPlate.rotation.y = Math.PI;
+      torso.add(backPlate);
+
+      let logoMesh: THREE.Mesh | undefined;
       if (logoTex) {
-        logoMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.2), new THREE.MeshBasicMaterial({ map: logoTex, transparent: true }));
-        logoMesh.position.set(0, 0.4, 0.15);
+        logoMesh = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.11, 0.11),
+          new THREE.MeshBasicMaterial({ map: logoTex, transparent: true })
+        );
+        logoMesh.position.set(0.15, 0.51, 0.144);
         torso.add(logoMesh);
       }
 
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 12), skinMat); head.position.y = 0.8; head.castShadow = true; torso.add(head);
+      // Neck & Detailed Head with Facial Features + Hair
+      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.068, 0.12, 12), skinMat);
+      neck.position.set(0, 0.66, 0);
+      torso.add(neck);
+
+      const headGroup = new THREE.Group();
+      headGroup.position.y = 0.8;
+      torso.add(headGroup);
+
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.132, 20, 16), skinMat);
+      head.castShadow = true;
+      headGroup.add(head);
+
+      // Eyes, eyebrows, nose, ears
+      const eyeWhiteMat = mat(0xf8fafc, 0.3);
+      const pupilMat = mat(0x0f172a, 0.2);
+      const browMat = hairMat;
+      [-0.044, 0.044].forEach((ex) => {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.017, 10, 8), eyeWhiteMat);
+        eye.position.set(ex, 0.018, 0.118);
+        headGroup.add(eye);
+        const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.009, 8, 8), pupilMat);
+        pupil.position.set(ex, 0.018, 0.13);
+        headGroup.add(pupil);
+        const brow = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.01, 0.015), browMat);
+        brow.position.set(ex, 0.044, 0.122);
+        headGroup.add(brow);
+      });
+      const nose = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.036, 0.025), skinMat);
+      nose.position.set(0, -0.006, 0.131);
+      headGroup.add(nose);
+      [-0.132, 0.132].forEach((earX) => {
+        const ear = new THREE.Mesh(new THREE.SphereGeometry(0.024, 8, 8), skinMat);
+        ear.scale.set(0.55, 1, 0.75);
+        ear.position.set(earX, 0, -0.005);
+        headGroup.add(ear);
+      });
+
+      // Hair Cap (4 distinct athletic silhouettes)
+      const hStyle = (opts?.hairStyle ?? 0) % 4;
+      if (hStyle === 0) {
+        // Tapered high-top fade
+        const hairTop = new THREE.Mesh(new THREE.CylinderGeometry(0.122, 0.13, 0.085, 16), hairMat);
+        hairTop.position.set(0, 0.095, -0.01);
+        headGroup.add(hairTop);
+      } else if (hStyle === 1) {
+        // Textured afro crown
+        const hairCrown = new THREE.Mesh(new THREE.SphereGeometry(0.146, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.62), hairMat);
+        hairCrown.position.set(0, 0.022, -0.018);
+        headGroup.add(hairCrown);
+      } else if (hStyle === 2) {
+        // Clean buzz / low cut
+        const hairBuzz = new THREE.Mesh(new THREE.SphereGeometry(0.135, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.54), hairMat);
+        hairBuzz.position.set(0, 0.014, -0.012);
+        headGroup.add(hairBuzz);
+      } else {
+        // Swept waves / braids crown
+        const hairMain = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.07, 0.25), hairMat);
+        hairMain.position.set(0, 0.105, -0.015);
+        headGroup.add(hairMain);
+      }
 
       // Headband accessory mesh
       const headbandMat = mat(0xffffff, 0.5);
-      const headbandMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.138, 0.138, 0.045, 18), headbandMat);
-      headbandMesh.position.y = 0.83;
+      const headbandMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.044, 20), headbandMat);
+      headbandMesh.position.y = 0.835;
       torso.add(headbandMesh);
       headbandMesh.visible = false;
 
       const legs: any = {}, arms: any = {}, hands: any = {};
       [["R", -1], ["L", 1]].forEach(([key, side]: any) => {
-        const hip = new THREE.Group(); hip.position.set(side * 0.13, -0.05, 0); pelvis.add(hip);
-        box(0.19, 0.44, 0.2, shortsMat, hip, 0, -0.22, 0); const knee = new THREE.Group(); knee.position.y = -0.44; hip.add(knee);
-        box(0.16, 0.44, 0.18, skinMat, knee, 0, -0.22, 0); box(0.2, 0.08, 0.3, shoeMat, knee, 0, -0.46, 0.05); legs[key] = { hip, knee };
+        const hip = new THREE.Group();
+        hip.position.set(side * 0.13, -0.05, 0);
+        pelvis.add(hip);
+        box(0.195, 0.44, 0.205, shortsMat, hip, 0, -0.22, 0);
+        // Vertical shorts side stripe
+        box(0.02, 0.42, 0.12, trimMat, hip, side * 0.095, -0.22, 0);
+
+        const knee = new THREE.Group();
+        knee.position.y = -0.44;
+        hip.add(knee);
+        box(0.155, 0.34, 0.17, skinMat, knee, 0, -0.17, 0);
+        // Crew basketball socks
+        box(0.165, 0.11, 0.18, sockMat, knee, 0, -0.38, 0);
+        // Articulated Ankle Joint + Multi-part High-Top Basketball Sneaker
+        const ankle = new THREE.Group();
+        ankle.position.y = -0.455;
+        knee.add(ankle);
+        box(0.206, 0.024, 0.32, soleMat, ankle, 0, -0.035, 0.052);
+        box(0.202, 0.028, 0.31, midsoleMat, ankle, 0, -0.013, 0.05);
+        box(0.195, 0.075, 0.29, shoeMat, ankle, 0, 0.029, 0.044);
+        box(0.018, 0.036, 0.17, trimMat, ankle, side * 0.096, 0.029, 0.045);
+        legs[key] = { hip, knee, ankle };
       });
       [["R", -1], ["L", 1]].forEach(([key, side]: any) => {
-        const sh = new THREE.Group(); sh.position.set(side * 0.32, 0.55, 0); torso.add(sh);
-        box(0.14, 0.36, 0.14, jerseyMat, sh, 0, -0.18, 0); const el = new THREE.Group(); el.position.y = -0.36; sh.add(el);
-        box(0.12, 0.34, 0.12, skinMat, el, 0, -0.17, 0); const hand = new THREE.Group(); hand.position.y = -0.34; el.add(hand);
-        box(0.14, 0.1, 0.16, skinMat, hand, 0, -0.04, 0.03); arms[key] = { sh, el }; hands[key] = hand;
+        const sh = new THREE.Group();
+        sh.position.set(side * 0.32, 0.55, 0);
+        torso.add(sh);
+        // Sleeveless shoulder cap + upper arm
+        box(0.145, 0.1, 0.15, trimMat, sh, 0, -0.04, 0);
+        box(0.135, 0.3, 0.135, skinMat, sh, 0, -0.21, 0);
+        const el = new THREE.Group();
+        el.position.y = -0.36;
+        sh.add(el);
+        // Compression arm sleeve on shooting arm (R) + athletic wristband
+        box(0.12, 0.34, 0.12, key === "R" ? trimMat : skinMat, el, 0, -0.17, 0);
+        box(0.128, 0.055, 0.128, trimMat, el, 0, -0.3, 0);
+        const hand = new THREE.Group();
+        hand.position.y = -0.34;
+        el.add(hand);
+        box(0.135, 0.095, 0.15, skinMat, hand, 0, -0.04, 0.03);
+        arms[key] = { sh, el };
+        hands[key] = hand;
       });
-      return { root, pelvis, torso, legs, arms, hands, jerseyMat, skinMat, shortsMat, shoeMat, headbandMat, headbandMesh, logoMesh };
+      return {
+        root,
+        pelvis,
+        torso,
+        headGroup,
+        legs,
+        arms,
+        hands,
+        jerseyMat,
+        trimMat,
+        skinMat,
+        shortsMat,
+        shoeMat,
+        headbandMat,
+        headbandMesh,
+        logoMesh,
+        frontPlateMat,
+        backPlateMat,
+        jerseyNumber: numStr,
+        lastName: lastStr,
+      };
     }
+
+    const updateEntityJerseyPlates = (
+      p: GameEntity,
+      jerseyHex: string,
+      accentHex: string,
+      jerseyNumber: string,
+      lastName: string
+    ) => {
+      p.jerseyNumber = jerseyNumber;
+      p.lastName = lastName;
+      if (p.trimMat) {
+        p.trimMat.color.setStyle(accentHex);
+        p.trimMat.needsUpdate = true;
+      }
+      if (p.frontPlateMat) {
+        const old = p.frontPlateMat.map;
+        p.frontPlateMat.map = createJerseyPlateTexture(jerseyNumber, lastName, jerseyHex, accentHex, false);
+        p.frontPlateMat.needsUpdate = true;
+        old?.dispose();
+      }
+      if (p.backPlateMat) {
+        const old = p.backPlateMat.map;
+        p.backPlateMat.map = createJerseyPlateTexture(jerseyNumber, lastName, jerseyHex, accentHex, true);
+        p.backPlateMat.needsUpdate = true;
+        old?.dispose();
+      }
+    };
+
     interface GameEntity {
-      root: THREE.Group; pelvis: THREE.Group; torso: THREE.Group; legs: any; arms: any; hands: any;
+      root: THREE.Group; pelvis: THREE.Group; torso: THREE.Group; headGroup: THREE.Group; legs: any; arms: any; hands: any;
       name: string; isUser: boolean; vel: THREE.Vector3; h: number; vy: number; hand: "R"|"L"; dribPhase: number; runPhase: number; spin: number; faceYaw: number;
       act: any; holdT: number; shield: boolean; cur: any; squeak?: any;
       stats: { pts: number, ast: number, reb: number, fouls: number };
@@ -1004,11 +1745,16 @@ export default function BasketballGame() {
       isBench: boolean;
       logoMesh?: THREE.Mesh;
       jerseyMat: THREE.MeshStandardMaterial;
+      trimMat: THREE.MeshStandardMaterial;
       skinMat: THREE.MeshStandardMaterial;
       shortsMat: THREE.MeshStandardMaterial;
       shoeMat: THREE.MeshStandardMaterial;
       headbandMat: THREE.MeshStandardMaterial;
       headbandMesh: THREE.Mesh;
+      frontPlateMat?: THREE.MeshBasicMaterial;
+      backPlateMat?: THREE.MeshBasicMaterial;
+      jerseyNumber: string;
+      lastName: string;
     }
 
     const loader = new THREE.TextureLoader();
@@ -1041,14 +1787,34 @@ export default function BasketballGame() {
     // --- CENTER COURT LOGO ---
     const centerLogo = new THREE.Mesh(
       new THREE.PlaneGeometry(5, 5),
-      new THREE.MeshBasicMaterial({ map: homeLogoTex, transparent: true, opacity: 0.7, depthWrite: false })
+      new THREE.MeshBasicMaterial({ map: homeLogoTex, transparent: true, opacity: 0.72, depthWrite: false })
     );
     centerLogo.rotation.x = -Math.PI / 2;
     centerLogo.position.set(0, 0.015, 0);
     scene.add(centerLogo);
 
-    function makeEntity(color: number, x: number, z: number, name: string, pos: string, logoTex: THREE.Texture, isUser = false, isBench = false): GameEntity {
-      const H = makeHuman(color, logoTex); H.root.position.set(x, 0, z);
+    let entitySpawnIdx = 0;
+    function makeEntity(
+      color: number,
+      x: number,
+      z: number,
+      name: string,
+      pos: string,
+      logoTex: THREE.Texture,
+      isUser = false,
+      isBench = false,
+      jerseyNum?: string
+    ): GameEntity {
+      const idxSeed = entitySpawnIdx++;
+      const lastToken = name.split(" ")[0].replace(/#\d+/, "").trim() || "PLAYER";
+      const H = makeHuman(color, logoTex, {
+        jerseyNumber: jerseyNum || String(((idxSeed * 7 + 3) % 90) + 1),
+        lastName: lastToken,
+        hairStyle: idxSeed % 4,
+        skinHex: SKIN_PRESETS[idxSeed % SKIN_PRESETS.length],
+        accentHex: color === 0xc8102e ? 0xf59e0b : 0x38bdf8,
+      });
+      H.root.position.set(x, 0, z);
       if (isBench) H.root.visible = false;
       return {
         ...H,
@@ -1067,9 +1833,10 @@ export default function BasketballGame() {
         act: null as any,
         holdT: 0,
         shield: false,
-        cur: { shR: -0.25, elR: -0.5, shL: -0.25, elL: -0.5, hipR: 0, kneeR: 0.05, hipL: 0, kneeL: 0.05, lean: 0, crouch: 0 },
+        cur: { shR: -0.25, elR: -0.5, shL: -0.25, elL: -0.5, hipR: 0, kneeR: 0.05, hipL: 0, kneeL: 0.05, lean: 0, crouch: 0, ankR: 0, ankL: 0, hipRollR: 0, hipRollL: 0, shRollR: 0, shRollL: 0, twist: 0, pelvYaw: 0, pelvRoll: 0, bob: 0 },
         stats: { pts: 0, ast: 0, reb: 0, fouls: 0 },
         jerseyMat: H.jerseyMat,
+        trimMat: H.trimMat,
         skinMat: H.skinMat,
         shortsMat: H.shortsMat,
         shoeMat: H.shoeMat,
@@ -1079,32 +1846,32 @@ export default function BasketballGame() {
     }
 
     const initialAthlete = athleteProfileRef.current;
-    const ME = makeEntity(0xc8102e, -10, 0, `${initialAthlete.firstName} ${initialAthlete.lastName} #${initialAthlete.jerseyNumber}`, initialAthlete.position, homeLogoTex, true);
+    const ME = makeEntity(0xc8102e, -10, 0, `${initialAthlete.firstName} ${initialAthlete.lastName} #${initialAthlete.jerseyNumber}`, initialAthlete.position, homeLogoTex, true, false, String(initialAthlete.jerseyNumber));
     const teamA: GameEntity[] = [
       ME, 
-      makeEntity(0xc8102e, -8, 4, "Johnson", "SG", homeLogoTex), 
-      makeEntity(0xc8102e, -8, -4, "Miller", "SF", homeLogoTex), 
-      makeEntity(0xc8102e, -4, 5, "Davis", "PF", homeLogoTex), 
-      makeEntity(0xc8102e, -4, -5, "Thompson", "C", homeLogoTex),
+      makeEntity(0xc8102e, -8, 4, "Johnson", "SG", homeLogoTex, false, false, "11"), 
+      makeEntity(0xc8102e, -8, -4, "Miller", "SF", homeLogoTex, false, false, "22"), 
+      makeEntity(0xc8102e, -4, 5, "Davis", "PF", homeLogoTex, false, false, "3"), 
+      makeEntity(0xc8102e, -4, -5, "Thompson", "C", homeLogoTex, false, false, "33"),
       // Bench
-      makeEntity(0xc8102e, 0, 0, "White", "PG", homeLogoTex, false, true),
-      makeEntity(0xc8102e, 0, 0, "Green", "SG", homeLogoTex, false, true),
-      makeEntity(0xc8102e, 0, 0, "Black", "SF", homeLogoTex, false, true),
-      makeEntity(0xc8102e, 0, 0, "Brown", "PF", homeLogoTex, false, true),
-      makeEntity(0xc8102e, 0, 0, "Taylor", "C", homeLogoTex, false, true),
+      makeEntity(0xc8102e, 0, 0, "White", "PG", homeLogoTex, false, true, "9"),
+      makeEntity(0xc8102e, 0, 0, "Green", "SG", homeLogoTex, false, true, "14"),
+      makeEntity(0xc8102e, 0, 0, "Black", "SF", homeLogoTex, false, true, "21"),
+      makeEntity(0xc8102e, 0, 0, "Brown", "PF", homeLogoTex, false, true, "7"),
+      makeEntity(0xc8102e, 0, 0, "Taylor", "C", homeLogoTex, false, true, "44"),
     ];
     const teamB: GameEntity[] = [
-      makeEntity(0x1d428a, 10, 0, "Jordan", "SG", awayLogoTex), 
-      makeEntity(0x1d428a, 8, 4, "Bryant", "SF", awayLogoTex), 
-      makeEntity(0x1d428a, 8, -4, "James", "PF", awayLogoTex), 
-      makeEntity(0x1d428a, 4, 5, "Curry", "PG", awayLogoTex), 
-      makeEntity(0x1d428a, 4, -5, "Durant", "C", awayLogoTex),
+      makeEntity(0x1d428a, 10, 0, "Jordan", "SG", awayLogoTex, false, false, "23"), 
+      makeEntity(0x1d428a, 8, 4, "Bryant", "SF", awayLogoTex, false, false, "24"), 
+      makeEntity(0x1d428a, 8, -4, "James", "PF", awayLogoTex, false, false, "6"), 
+      makeEntity(0x1d428a, 4, 5, "Curry", "PG", awayLogoTex, false, false, "30"), 
+      makeEntity(0x1d428a, 4, -5, "Durant", "C", awayLogoTex, false, false, "35"),
       // Bench
-      makeEntity(0x1d428a, 0, 0, "O'Neal", "C", awayLogoTex, false, true),
-      makeEntity(0x1d428a, 0, 0, "Bird", "SF", awayLogoTex, false, true),
-      makeEntity(0x1d428a, 0, 0, "Magic", "PG", awayLogoTex, false, true),
-      makeEntity(0x1d428a, 0, 0, "Barkley", "PF", awayLogoTex, false, true),
-      makeEntity(0x1d428a, 0, 0, "Pippen", "SG", awayLogoTex, false, true),
+      makeEntity(0x1d428a, 0, 0, "O'Neal", "C", awayLogoTex, false, true, "34"),
+      makeEntity(0x1d428a, 0, 0, "Bird", "SF", awayLogoTex, false, true, "33"),
+      makeEntity(0x1d428a, 0, 0, "Magic", "PG", awayLogoTex, false, true, "32"),
+      makeEntity(0x1d428a, 0, 0, "Barkley", "PF", awayLogoTex, false, true, "34"),
+      makeEntity(0x1d428a, 0, 0, "Pippen", "SG", awayLogoTex, false, true, "33"),
     ];
     const entities: GameEntity[] = [...teamA, ...teamB];
 
@@ -1141,6 +1908,9 @@ export default function BasketballGame() {
         if (p.jerseyMat) {
           p.jerseyMat.color.setStyle(jersey.colorHex);
           p.jerseyMat.needsUpdate = true;
+        }
+        if (p !== ME) {
+          updateEntityJerseyPlates(p, jersey.colorHex, "#f59e0b", p.jerseyNumber, p.lastName);
         }
       });
 
@@ -1191,6 +1961,13 @@ export default function BasketballGame() {
           ME.headbandMat.needsUpdate = true;
         }
       }
+      updateEntityJerseyPlates(
+        ME,
+        prof.jerseyColorHex,
+        prof.headbandEnabled ? prof.headbandColorHex : "#f59e0b",
+        String(prof.jerseyNumber),
+        prof.lastName
+      );
       setTeamARoster([...teamA]);
     };
 
@@ -1219,21 +1996,125 @@ export default function BasketballGame() {
     };
 
     // --- HELPERS ---
-    const fwd = (P: any) => { const hoopX = teamA.includes(P) ? 13.6 : -13.6; const v = V(hoopX - P.root.position.x, 0, -P.root.position.z); return v.lengthSq() < 1e-6 ? V(1, 0, 0) : v.normalize(); };
+    const fwd = (P: any) => { const hoopX = teamA.includes(P) ? HOOP_X : -HOOP_X; const v = V(hoopX - P.root.position.x, 0, -P.root.position.z); return v.lengthSq() < 1e-6 ? V(1, 0, 0) : v.normalize(); };
     const rightOf = (P: any) => { const f = fwd(P); return V(-f.z, 0, f.x); };
     const torsoPos = (P: any) => V(P.root.position.x, P.h + 1.2, P.root.position.z);
     const handPos = (P: any) => P.hands[P.hand].getWorldPosition(V());
     const isNearHoop = (pos: THREE.Vector3) =>
-      Math.hypot(pos.x - 13.6, pos.z) < 3.2 || Math.hypot(pos.x + 13.6, pos.z) < 3.2;
+      Math.hypot(pos.x - HOOP_X, pos.z) < 3.0 || Math.hypot(pos.x + HOOP_X, pos.z) < 3.0;
     const applyVel = (P: any, want: THREE.Vector3, dt: number) => {
-      if (P.act && P.act.lock) return;
+      if (!Number.isFinite(P.root.position.x)) P.root.position.x = 0;
+      if (!Number.isFinite(P.root.position.z)) P.root.position.z = 0;
+      if (!Number.isFinite(P.vel.x) || !Number.isFinite(P.vel.z)) P.vel.set(0, 0, 0);
+
+      if (P.act && P.act.lock) {
+        // Carry decaying horizontal momentum during shots/dunks/step-backs instead of freezing mid-air or post-release
+        const drag = P.act.released ? 10 : 4.5;
+        P.vel.multiplyScalar(Math.exp(-drag * dt));
+        P.root.position.x = clamp(P.root.position.x + P.vel.x * dt, -13.85, 13.85);
+        P.root.position.z = clamp(P.root.position.z + P.vel.z * dt, -7.35, 7.35);
+        return;
+      }
       const isStoppingOrCutting = want.lengthSq() < 0.01 || P.vel.dot(want) < 0;
       const responseRate = P.isUser ? (isStoppingOrCutting ? 28 : 22) : (isStoppingOrCutting ? 22 : 17);
       P.vel.lerp(want, 1 - Math.exp(-responseRate * dt));
-      P.root.position.x = clamp(P.root.position.x + P.vel.x * dt, -13.9, 13.9);
-      P.root.position.z = clamp(P.root.position.z + P.vel.z * dt, -7.4, 7.4);
+      P.root.position.x = clamp(P.root.position.x + P.vel.x * dt, -13.85, 13.85);
+      P.root.position.z = clamp(P.root.position.z + P.vel.z * dt, -7.35, 7.35);
     };
-    const aiSteer = (P: any, tx: number, tz: number, sp: number, dt: number) => { const dx = tx - P.root.position.x, dz = tz - P.root.position.z, d = Math.hypot(dx, dz); const s = Math.min(sp, d * 4.5); applyVel(P, d > 0.01 ? V(dx/d*s, 0, dz/d*s) : V(), dt); };
+    const _aiWant = V();
+    const aiSteer = (P: any, tx: number, tz: number, sp: number, dt: number) => {
+      const clampedX = clamp(tx, -13.5, 13.5);
+      const clampedZ = clamp(tz, -7.1, 7.1);
+      const dx = clampedX - P.root.position.x;
+      const dz = clampedZ - P.root.position.z;
+      const d = Math.hypot(dx, dz);
+      const s = Math.min(sp, d * 4.5);
+
+      if (!P._stuck) {
+        P._stuck = { lastX: P.root.position.x, lastZ: P.root.position.z, stuckT: 0, bypassT: 0, side: 1 };
+      }
+      const st = P._stuck;
+      const moved = Math.hypot(P.root.position.x - st.lastX, P.root.position.z - st.lastZ);
+      st.lastX = P.root.position.x;
+      st.lastZ = P.root.position.z;
+
+      if (d > 0.75 && sp > 1.5 && (!P.act || !P.act.lock)) {
+        if (moved < Math.max(0.008, sp * dt * 0.16)) {
+          st.stuckT += dt;
+          if (st.stuckT > 0.35) {
+            st.stuckT = 0;
+            st.bypassT = 0.48;
+            st.side = -st.side;
+          }
+        } else {
+          st.stuckT = Math.max(0, st.stuckT - dt * 1.5);
+        }
+      } else {
+        st.stuckT = 0;
+      }
+
+      if (d > 0.01) {
+        const nx = dx / d;
+        const nz = dz / d;
+        if (st.bypassT > 0) {
+          st.bypassT = Math.max(0, st.bypassT - dt);
+          // Blend orthogonal sidestep around blocking players/obstacles
+          const ox = -nz * st.side;
+          const oz = nx * st.side;
+          _aiWant.set((nx * 0.45 + ox * 0.9) * s, 0, (nz * 0.45 + oz * 0.9) * s);
+        } else {
+          _aiWant.set(nx * s, 0, nz * s);
+        }
+      } else {
+        _aiWant.set(0, 0, 0);
+      }
+      applyVel(P, _aiWant, dt);
+    };
+
+    const resolvePlayerCollisions = () => {
+      const MIN_SEP = 0.72;
+      for (let i = 0; i < entities.length; i++) {
+        const a = entities[i];
+        if (a.isBench || !a.root.visible) continue;
+        for (let j = i + 1; j < entities.length; j++) {
+          const b = entities[j];
+          if (b.isBench || !b.root.visible) continue;
+          let dx = b.root.position.x - a.root.position.x;
+          let dz = b.root.position.z - a.root.position.z;
+          let dist = Math.hypot(dx, dz);
+          if (dist < MIN_SEP) {
+            if (dist < 0.001) {
+              const angle = (i * 1.7 + j * 2.3) % (Math.PI * 2);
+              dx = Math.cos(angle);
+              dz = Math.sin(angle);
+              dist = 1;
+            }
+            const overlap = MIN_SEP - dist;
+            const nx = dx / dist;
+            const nz = dz / dist;
+            const aRemote = remoteDrivenEntities.has(a);
+            const bRemote = remoteDrivenEntities.has(b);
+            const aAir = a.h > 0.15;
+            const bAir = b.h > 0.15;
+            let wA = 0.5;
+            let wB = 0.5;
+            if (aRemote && !bRemote) { wA = 0; wB = 1; }
+            else if (bRemote && !aRemote) { wA = 1; wB = 0; }
+            else if (aAir && !bAir) { wA = 0.2; wB = 0.8; }
+            else if (bAir && !aAir) { wA = 0.8; wB = 0.2; }
+
+            if (wA > 0) {
+              a.root.position.x = clamp(a.root.position.x - nx * overlap * wA, -13.85, 13.85);
+              a.root.position.z = clamp(a.root.position.z - nz * overlap * wA, -7.35, 7.35);
+            }
+            if (wB > 0) {
+              b.root.position.x = clamp(b.root.position.x + nx * overlap * wB, -13.85, 13.85);
+              b.root.position.z = clamp(b.root.position.z + nz * overlap * wB, -7.35, 7.35);
+            }
+          }
+        }
+      }
+    };
     
     // --- CENTRALIZED AUDIO MANAGER ADAPTER (Uses only uploaded audio files) ---
     const Audio = (() => {
@@ -1268,7 +2149,7 @@ export default function BasketballGame() {
         crowdScream: (opts?: { pan?: number; vol?: number }) => audioMgr.crowdCheer(opts),
         crowdReaction: (opts?: { pan?: number; vol?: number }) => audioMgr.crowdReaction(opts),
         whistle: () => audioMgr.crowdReaction({ vol: 0.72 }),
-        shotClockBeep: (_high = false) => {},
+        shotClockBeep: (high = false) => audioMgr.shotClockBeep(high),
         shotClockBuzzer: () => audioMgr.buzzer("shotclock"),
         buzzer: (kind: "quarter" | "game" | "shotclock" = "quarter") => audioMgr.buzzer(kind),
         shotResetSound: () => {},
@@ -1299,13 +2180,40 @@ export default function BasketballGame() {
         setShotClockResetPulse(k => k + 1);
         setLastShotResetReason("shot_attempt");
       }
+      if (!ex.fromRemote && P === ME && isMpGuestSession() && mpClientRef.current?.roomCode) {
+        const sign = isMirrorPerspective() ? -1 : 1;
+        if (type === "shot") {
+          mpClientRef.current.sendEvent("move_executed", {
+            action: "shot",
+            from: [from.x * sign, from.y, from.z * sign],
+            aim: [aim.x * sign, aim.y, aim.z * sign],
+            ft: FT,
+            pts: ex.pts || 2,
+            dunk: !!ex.dunk,
+            layup: !!ex.layup,
+          });
+        } else if (type === "pass" && ex.passTo) {
+          mpClientRef.current.sendEvent("move_executed", {
+            action: "pass",
+            from: [from.x * sign, from.y, from.z * sign],
+            aim: [aim.x * sign, aim.y, aim.z * sign],
+            ft: FT,
+            targetKey: getOwnerEntityKey(ex.passTo),
+          });
+        }
+      }
     }
     function releaseShot(P: any, a: any, forced: boolean) {
       if (a.released) return; a.released = true;
-      const hoopX = teamA.includes(P) ? 13.6 : -13.6;
+      const isHomeTeam = teamA.includes(P);
+      const hoopX = isHomeTeam ? HOOP_X : -HOOP_X;
       const d = Math.hypot(P.root.position.x - hoopX, P.root.position.z);
       const e = Math.abs((a.c || 0.5) - 0.5);
-      let spread, FT, pts = d > 7.2 ? 3 : 2;
+      const isCornerThree =
+        Math.abs(P.root.position.z) >= 6.6 &&
+        (isHomeTeam ? P.root.position.x > 11.0 : P.root.position.x < -11.0);
+      const isArcThree = d >= 6.74;
+      let spread, FT, pts = isCornerThree || isArcThree ? 3 : 2;
       if (a.dunk) { spread = 0.03; FT = 0.42; pts = 2; } else if (a.layup) { spread = 0.1; FT = 0.5 + d * 0.03; pts = 2; }
       else { spread = 0.05 + e * 0.85; FT = 0.8 + d * 0.045; }
       if (P.isUser) {
@@ -1330,19 +2238,37 @@ export default function BasketballGame() {
       fire(P, from, aim, FT, "shot", { perfect: e < 0.06, dunk: a.dunk, layup: a.layup, pts });
     }
     function startShot(P: any, o: any = {}) {
+      if (P.act && (!Number.isFinite(P.act.t) || P.act.t >= P.act.dur)) P.act = null;
       if (P.act || P.h > 0.05 || (!o.auto && state.owner !== P)) return null;
-      const a: any = { kind: "shot", name: o.name || "JUMP SHOT", t: 0, dur: o.dur || 1.25, lock: !o.move, released: false, layup: !!o.layup, dunk: !!o.dunk, auto: !!o.auto, c: 0.5, stepback: !!o.stepback };
+      const hoopX = teamA.includes(P) ? HOOP_X : -HOOP_X;
+      const distToHoop = Math.hypot(P.root.position.x - hoopX, P.root.position.z);
+      let useDunk = !!o.dunk;
+      let useLayup = !!o.layup;
+      let shotName = o.name || "JUMP SHOT";
+      if (useDunk && distToHoop > 4.6) {
+        useDunk = false;
+        if (distToHoop <= 6.5) {
+          useLayup = true;
+          shotName = "DRIVING LAYUP";
+        } else {
+          shotName = "PULL-UP JUMPER";
+        }
+      }
+      const a: any = { kind: "shot", name: shotName, t: 0, dur: o.dur || 1.25, lock: !o.move, released: false, layup: useLayup, dunk: useDunk, auto: !!o.auto, c: 0.5, stepback: !!o.stepback };
       if (o.auto) a.c = 0.5 + rnd(0.3);
       if (o.stepback) { P.vel.addScaledVector(fwd(P), -4.5); }
       a.pose = (u: number, T: any) => { const k = P.hand, o = k === "R" ? "L" : "R"; if (a.dunk) { T.shR = T.shL = -3.0; T.elR = T.elL = -0.5; return; } if (a.layup) { T["sh" + k] = -2.2; T["el" + k] = -1.9; return; } if (!a.released) { T["sh" + k] = -2.5; T["el" + k] = -1.9; if(a.stepback) T.lean = -0.2; } else { T["sh" + k] = -2.9; T["el" + k] = -0.2; } };
       a.update = () => { if (a.released) return; if ((a.layup && a.t >= 0.35) || (a.dunk && a.t >= 0.3) || (a.auto && a.t >= 0.4)) return releaseShot(P, a, false); if (P.isUser && !a.auto && !a.layup && !a.dunk) a.c = (((a.t / 0.55) % 2 + 2) % 2) < 1 ? ((a.t / 0.55) % 2) : 2 - ((a.t / 0.55) % 2); };
       a.end = () => { if (!a.released) releaseShot(P, a, true); };
       const finishBoost = P.isUser ? 1 + (athleteProfileRef.current.attributes.finishing - 75) / 260 : 1;
-      P.act = a; state.ballMode = "held"; P.vy = (a.dunk ? 5.4 : a.stepback ? 3.5 : 4.6) * finishBoost; if (P.isUser) triggerLabel(a.name); return a;
+      P.act = a; P.shield = false; state.ballMode = "held"; P.vy = (a.dunk ? 5.4 : a.stepback ? 3.5 : 4.6) * finishBoost; if (P.isUser) triggerLabel(a.name); return a;
     }
     function performFoul(defender: GameEntity, attacker: GameEntity) {
       if (state.deadT > 0) return;
       defender.stats.fouls++;
+      defender.act = null;
+      attacker.act = null;
+      attacker.shield = false;
       triggerMsg("FOUL!", "#ff0000");
       Audio.whistle();
       Audio.commentary("foul");
@@ -1357,7 +2283,7 @@ export default function BasketballGame() {
     }
     function substitute(team: GameEntity[], idxIn: number, idxOut: number) {
       const pIn = team[idxIn], pOut = team[idxOut];
-      if (!pIn.isBench || pOut.isBench) return;
+      if (!pIn || !pOut || !pIn.isBench || pOut.isBench || pOut.isUser) return;
       const oldCourtPos = pOut.root.position.clone();
       const benchPos = pIn.root.position.clone();
 
@@ -1365,20 +2291,30 @@ export default function BasketballGame() {
       pIn.root.visible = true;
       pIn.root.position.copy(oldCourtPos);
       pIn.pelvis.position.y = 0.95;
-      pIn.legs.R.hip.rotation.x = 0;
-      pIn.legs.L.hip.rotation.x = 0;
+      pIn.pelvis.rotation.set(0, 0, 0);
+      pIn.torso.rotation.set(0, 0, 0);
+      pIn.headGroup.rotation.set(0, 0, 0);
+      pIn.legs.R.hip.rotation.set(0, 0, 0);
+      pIn.legs.L.hip.rotation.set(0, 0, 0);
       pIn.legs.R.knee.rotation.x = 0.05;
       pIn.legs.L.knee.rotation.x = 0.05;
+      pIn.legs.R.ankle.rotation.x = 0;
+      pIn.legs.L.ankle.rotation.x = 0;
 
       pOut.isBench = true;
       pOut.root.visible = true;
       pOut.root.position.copy(benchPos);
       pOut.vel.set(0, 0, 0);
       pOut.pelvis.position.y = 0.5;
-      pOut.legs.R.hip.rotation.x = -1.4;
-      pOut.legs.L.hip.rotation.x = -1.4;
+      pOut.pelvis.rotation.set(0, 0, 0);
+      pOut.torso.rotation.set(0, 0, 0);
+      pOut.headGroup.rotation.set(0, 0, 0);
+      pOut.legs.R.hip.rotation.set(-1.4, 0, 0);
+      pOut.legs.L.hip.rotation.set(-1.4, 0, 0);
       pOut.legs.R.knee.rotation.x = 1.4;
       pOut.legs.L.knee.rotation.x = 1.4;
+      pOut.legs.R.ankle.rotation.x = 0;
+      pOut.legs.L.ankle.rotation.x = 0;
 
       if (state.owner === pOut) state.owner = pIn;
       setTeamARoster([...team]);
@@ -1389,7 +2325,7 @@ export default function BasketballGame() {
     let currentCity = initialCity;
 
     // --- APPLY WORLD TOUR CITY ARENA & TEAMS ---
-    const applyCity = (city: WorldCity) => {
+    const applyCity = (city: WorldCity, silent = false) => {
       currentCity = city;
       if (apronMat) {
         apronMat.color.setStyle(gameModeRef.current === "streetball" ? "#1d262b" : city.courtBorderColor);
@@ -1399,8 +2335,20 @@ export default function BasketballGame() {
         keyMat.color.setStyle(city.courtKeyColor);
         keyMat.needsUpdate = true;
       }
+      if (scorerApronMat) {
+        scorerApronMat.color.setStyle(city.jerseyPrimary);
+        scorerApronMat.emissive.setStyle(city.jerseyPrimary);
+        scorerApronMat.needsUpdate = true;
+      }
+      if (ledBannerMat) {
+        const oldBanner = ledBannerTex;
+        ledBannerTex = createLedBannerTex(city.name, city.jerseyPrimary);
+        ledBannerMat.map = ledBannerTex;
+        ledBannerMat.needsUpdate = true;
+        oldBanner.dispose();
+      }
 
-      // Update Team B jerseys & shorts to reflect this visited city's kit
+      // Update Team B jerseys, trim & shorts to reflect this visited city's kit
       teamB.forEach((p) => {
         if (p.jerseyMat) {
           p.jerseyMat.color.setStyle(city.jerseyPrimary);
@@ -1410,18 +2358,21 @@ export default function BasketballGame() {
           p.shortsMat.color.setStyle(city.shortsColor);
           p.shortsMat.needsUpdate = true;
         }
+        updateEntityJerseyPlates(p, city.jerseyPrimary, city.jerseySecondary, p.jerseyNumber, p.lastName);
       });
 
-      Audio.whistle();
-      triggerMsg(`${city.name.toUpperCase()} ARENA`, city.jerseyPrimary);
-      Audio.speak(`Welcome to ${city.arenaName} in ${city.country}!`);
-      setTimeout(() => {
-        Audio.speak(city.crowdChant);
-      }, 1800);
+      if (!silent) {
+        Audio.whistle();
+        triggerMsg(`${city.name.toUpperCase()} ARENA`, city.jerseyPrimary);
+        Audio.speak(`Welcome to ${city.arenaName} in ${city.country}!`);
+        setTimeout(() => {
+          Audio.speak(city.crowdChant);
+        }, 1800);
+      }
     };
 
-    // Apply the initial chosen city
-    applyCity(initialCity);
+    // Apply the initial chosen city silently on boot so it does not talk over Main Menu music
+    applyCity(initialCity, true);
 
     // --- APPLY GAME MODE (MATCH, STREETBALL, TRAINING, FREESTYLE) ---
     const starterPosA: [number, number][] = [[-10, 0], [-8, 4], [-8, -4], [-4, 5], [-4, -5]];
@@ -1433,48 +2384,82 @@ export default function BasketballGame() {
         p.root.visible = true;
         p.root.position.set(starterPosA[idx][0], 0, starterPosA[idx][1]);
         p.vel.set(0, 0, 0);
+        p.h = 0;
+        p.vy = 0;
+        p.shield = false;
         p.act = null;
         p.holdT = 0;
         p.pelvis.position.y = 0.95;
-        p.legs.R.hip.rotation.x = 0;
-        p.legs.L.hip.rotation.x = 0;
+        p.pelvis.rotation.set(0, 0, 0);
+        p.torso.rotation.set(0, 0, 0);
+        p.headGroup.rotation.set(0, 0, 0);
+        p.legs.R.hip.rotation.set(0, 0, 0);
+        p.legs.L.hip.rotation.set(0, 0, 0);
         p.legs.R.knee.rotation.x = 0.05;
         p.legs.L.knee.rotation.x = 0.05;
+        p.legs.R.ankle.rotation.x = 0;
+        p.legs.L.ankle.rotation.x = 0;
       });
       teamA.slice(5).forEach((p, i) => {
         p.isBench = true;
         p.root.visible = true;
         p.root.position.set(-6 + i * 0.85, 0.15, 7.8);
         p.vel.set(0, 0, 0);
+        p.h = 0;
+        p.vy = 0;
+        p.shield = false;
+        p.act = null;
         p.pelvis.position.y = 0.5;
-        p.legs.R.hip.rotation.x = -1.4;
-        p.legs.L.hip.rotation.x = -1.4;
+        p.pelvis.rotation.set(0, 0, 0);
+        p.torso.rotation.set(0, 0, 0);
+        p.headGroup.rotation.set(0, 0, 0);
+        p.legs.R.hip.rotation.set(-1.4, 0, 0);
+        p.legs.L.hip.rotation.set(-1.4, 0, 0);
         p.legs.R.knee.rotation.x = 1.4;
         p.legs.L.knee.rotation.x = 1.4;
+        p.legs.R.ankle.rotation.x = 0;
+        p.legs.L.ankle.rotation.x = 0;
       });
       teamB.slice(0, 5).forEach((p, idx) => {
         p.isBench = false;
         p.root.visible = true;
         p.root.position.set(starterPosB[idx][0], 0, starterPosB[idx][1]);
         p.vel.set(0, 0, 0);
+        p.h = 0;
+        p.vy = 0;
+        p.shield = false;
         p.act = null;
         p.holdT = 0;
         p.pelvis.position.y = 0.95;
-        p.legs.R.hip.rotation.x = 0;
-        p.legs.L.hip.rotation.x = 0;
+        p.pelvis.rotation.set(0, 0, 0);
+        p.torso.rotation.set(0, 0, 0);
+        p.headGroup.rotation.set(0, 0, 0);
+        p.legs.R.hip.rotation.set(0, 0, 0);
+        p.legs.L.hip.rotation.set(0, 0, 0);
         p.legs.R.knee.rotation.x = 0.05;
         p.legs.L.knee.rotation.x = 0.05;
+        p.legs.R.ankle.rotation.x = 0;
+        p.legs.L.ankle.rotation.x = 0;
       });
       teamB.slice(5).forEach((p, i) => {
         p.isBench = true;
         p.root.visible = true;
         p.root.position.set(2 + i * 0.85, 0.15, 7.8);
         p.vel.set(0, 0, 0);
+        p.h = 0;
+        p.vy = 0;
+        p.shield = false;
+        p.act = null;
         p.pelvis.position.y = 0.5;
-        p.legs.R.hip.rotation.x = -1.4;
-        p.legs.L.hip.rotation.x = -1.4;
+        p.pelvis.rotation.set(0, 0, 0);
+        p.torso.rotation.set(0, 0, 0);
+        p.headGroup.rotation.set(0, 0, 0);
+        p.legs.R.hip.rotation.set(-1.4, 0, 0);
+        p.legs.L.hip.rotation.set(-1.4, 0, 0);
         p.legs.R.knee.rotation.x = 1.4;
         p.legs.L.knee.rotation.x = 1.4;
+        p.legs.R.ankle.rotation.x = 0;
+        p.legs.L.ankle.rotation.x = 0;
       });
       setTeamARoster([...teamA]);
     };
@@ -1485,32 +2470,53 @@ export default function BasketballGame() {
       state.isPaused = false;
       state.flight = null;
       state.deadT = 0;
+      state.deadReason = null;
+      state.lastScoringTeam = null;
+      state.prevPossessionTeam = null;
+      state.fastTransitionT = 0;
+      state.looseT = 0;
       state.hadRimContact = false;
       state.lastPasser = null;
+      state.ballVel.set(0, 0, 0);
+      setShowMeter(false);
+      isBallLooseRef.current = false;
+      setIsBallLoose(false);
       entities.forEach((p) => {
         p.stats = { pts: 0, ast: 0, reb: 0, fouls: 0 };
         p.act = null;
+        p.h = 0;
+        p.vy = 0;
+        p.shield = false;
+        p.holdT = 0;
         p.vel.set(0, 0, 0);
       });
 
       if (mode === "streetball") {
         floorMat.map = asphaltTex || floorTex || null;
         floorMat.roughness = 0.85;
+        floorMat.metalness = 0.02;
         floorMat.needsUpdate = true;
         scene.background = new THREE.Color(0x1b2b3a);
         scene.fog = new THREE.Fog(0x1b2b3a, 35, 110);
         apronMat.color.setHex(0x1d262b);
         apronMat.needsUpdate = true;
         marginGroup.visible = true;
+        arenaOverheadGroup.visible = false;
+        ledBoardGroup.visible = false;
       } else {
+        floorMat.color.setHex(floorTex ? 0xffffff : 0xd4a373);
         floorMat.map = floorTex || null;
-        floorMat.roughness = 0.45;
+        floorMat.roughness = 0.3;
+        floorMat.metalness = 0.1;
+        floorMat.envMapIntensity = 1.15;
         floorMat.needsUpdate = true;
-        scene.background = new THREE.Color(0x0b0d12);
-        scene.fog = new THREE.Fog(0x0b0d12, 35, 120);
+        scene.background = new THREE.Color(0x0b0f19);
+        scene.fog = new THREE.FogExp2(0x0b0f19, 0.015);
         apronMat.color.setStyle(currentCity.courtBorderColor);
         apronMat.needsUpdate = true;
         marginGroup.visible = true;
+        arenaOverheadGroup.visible = true;
+        ledBoardGroup.visible = true;
       }
 
       if (mode === "freestyle") {
@@ -1555,6 +2561,8 @@ export default function BasketballGame() {
         Audio.speak("Training facility open. Drain five buckets to earn Career XP.");
       } else {
         resetStartersAndBench();
+        state.owner = ME;
+        state.ballMode = "dribble";
         state.scoreHome = 0;
         state.scoreAway = 0;
         state.gameClock = quarterLengthRef.current;
@@ -1578,12 +2586,13 @@ export default function BasketballGame() {
     const endGameAndRecordStats = () => {
       if (state.isGameOver) return;
       state.isGameOver = true;
+      setShowMeter(false);
       triggerMsg("GAME OVER", "#ef476f");
       Audio.buzzer("game");
       Audio.crowdScream({ vol: 0.95 });
       Audio.commentary("gameover");
       const stats = entities
-        .filter((p) => p.root.visible)
+        .filter((p) => !p.isBench || p.stats.pts > 0 || p.stats.reb > 0 || p.stats.ast > 0 || p.stats.fouls > 0)
         .map((p) => ({
           name: p.name,
           isUser: p.isUser,
@@ -1601,7 +2610,7 @@ export default function BasketballGame() {
         reb: ME.stats.reb,
         ast: ME.stats.ast,
         fouls: ME.stats.fouls,
-        won: state.scoreHome >= state.scoreAway,
+        won: state.scoreHome > state.scoreAway,
       };
       const recordResult = recordMatchToCareer(earnings);
       setCareerStats(recordResult.updatedStats);
@@ -1623,12 +2632,21 @@ export default function BasketballGame() {
     };
 
     const scoopBall = () => {
+      const distToBall = ME.root.position.distanceTo(ball.position);
+      if (state.owner === ME) return;
+      if (state.owner && teamA.includes(state.owner)) return;
+      if (distToBall > 4.5) return;
+
       const fromHoop = isNearHoop(ball.position);
       const wasHeldByOpp = Boolean(state.owner && !teamA.includes(state.owner));
       const wasDeadAfterScore = state.ballMode === "dead" && state.deadReason === "score";
 
-      ME.root.position.x = clamp(ball.position.x - (ball.position.x > 0 ? 0.35 : -0.35), -13.5, 13.5);
-      ME.root.position.z = clamp(ball.position.z, -7.0, 7.0);
+      if (distToBall > 1.35) {
+        const stepX = clamp(ball.position.x - ME.root.position.x, -1.25, 1.25);
+        const stepZ = clamp(ball.position.z - ME.root.position.z, -1.25, 1.25);
+        ME.root.position.x = clamp(ME.root.position.x + stepX, -13.5, 13.5);
+        ME.root.position.z = clamp(ME.root.position.z + stepZ, -7.0, 7.0);
+      }
       if (ball.position.y > 1.65 && ME.h <= 0.1) {
         ME.vy = 3.8;
       }
@@ -1646,6 +2664,9 @@ export default function BasketballGame() {
       state.prevPossessionTeam = "Home";
       isBallLooseRef.current = false;
       setIsBallLoose(false);
+      if (isMpGuestSession() && mpClientRef.current?.roomCode) {
+        mpClientRef.current.sendEvent("move_executed", { action: "scoop" });
+      }
 
       if (fromHoop && (wasHeldByOpp || wasDeadAfterScore)) {
         triggerLabel("STOLE FROM HOOP!");
@@ -2180,31 +3201,228 @@ export default function BasketballGame() {
       }
     };
 
+    const isMpGuestSession = () => {
+      const r = mpRoomRef.current;
+      const c = mpClientRef.current;
+      return Boolean(r && c && c.transport !== "disconnected" && r.hostId && r.hostId !== c.playerId);
+    };
+
+    const isMirrorPerspective = () => {
+      const r = mpRoomRef.current;
+      const c = mpClientRef.current;
+      if (!r || !c) return false;
+      return r.players[c.playerId]?.team === "Away";
+    };
+
+    const getOwnerEntityKey = (ent: GameEntity | null): string | null => {
+      if (!ent) return null;
+      const mirror = isMirrorPerspective();
+      const idxA = teamA.indexOf(ent);
+      if (idxA !== -1) return `${mirror ? "Away" : "Home"}:${idxA}`;
+      const idxB = teamB.indexOf(ent);
+      if (idxB !== -1) return `${mirror ? "Home" : "Away"}:${idxB}`;
+      return null;
+    };
+
+    const resolveEntityByKey = (key: string | null | undefined): GameEntity | null => {
+      if (!key) return null;
+      const [rawTeam, rawIdx] = key.split(":");
+      const idx = parseInt(rawIdx || "0", 10);
+      if (Number.isNaN(idx) || idx < 0 || idx >= 5) return null;
+      const mirror = isMirrorPerspective();
+      const isLocalHome = mirror ? rawTeam === "Away" : rawTeam === "Home";
+      return isLocalHome ? teamA[idx] || teamA[0] : teamB[idx] || teamB[0];
+    };
+
+    const remoteBallSync = {
+      pos: V(0, 1.2, 0),
+      vel: V(0, 0, 0),
+      mode: "dribble",
+      ownerKey: null as string | null,
+      updatedAt: 0,
+    };
+
+    const resolvePeerEntityMap = (room: MultiplayerRoomState, myPlayerId: string): Map<string, GameEntity> => {
+      const mapping = new Map<string, GameEntity>();
+      const mirror = room.players[myPlayerId]?.team === "Away";
+      const homeNonMeSlots = teamA.filter((p) => !p.isBench && p !== ME);
+      const awaySlots = teamB.filter((p) => !p.isBench);
+      const peers = Object.values(room.players)
+        .filter((p) => p.playerId !== myPlayerId)
+        .sort((a, b) => a.slotIndex - b.slotIndex || a.playerId.localeCompare(b.playerId));
+
+      let hFallback = 0;
+      let aFallback = 0;
+      for (const peer of peers) {
+        const localIsHomeTeam = mirror ? peer.team === "Away" : peer.team === "Home";
+        if (localIsHomeTeam) {
+          const preferred = teamA[peer.slotIndex];
+          const ent =
+            preferred && !preferred.isBench && preferred !== ME && !Array.from(mapping.values()).includes(preferred)
+              ? preferred
+              : homeNonMeSlots.find((s) => !Array.from(mapping.values()).includes(s)) || homeNonMeSlots[hFallback++];
+          if (ent) mapping.set(peer.playerId, ent);
+        } else {
+          const preferred = teamB[peer.slotIndex];
+          const ent =
+            preferred && !preferred.isBench && !Array.from(mapping.values()).includes(preferred)
+              ? preferred
+              : awaySlots.find((s) => !Array.from(mapping.values()).includes(s)) || awaySlots[aFallback++];
+          if (ent) mapping.set(peer.playerId, ent);
+        }
+      }
+      return mapping;
+    };
+
+    const applyRemoteMatchPatch = (match: Partial<MatchSyncState>) => {
+      const room = mpRoomRef.current;
+      const client = mpClientRef.current;
+      if (!room || !client || client.transport === "disconnected") return;
+      if (!room.hostId || room.hostId === client.playerId) return;
+
+      const mirror = isMirrorPerspective();
+      const nextHome = mirror ? match.scoreAway : match.scoreHome;
+      const nextAway = mirror ? match.scoreHome : match.scoreAway;
+      if (typeof nextHome === "number" && nextHome !== state.scoreHome) {
+        state.scoreHome = nextHome;
+        setScoreHome(nextHome);
+      }
+      if (typeof nextAway === "number" && nextAway !== state.scoreAway) {
+        state.scoreAway = nextAway;
+        setScoreAway(nextAway);
+      }
+      if (typeof match.quarter === "number" && match.quarter !== state.quarter) {
+        state.quarter = match.quarter;
+        setQuarter(match.quarter);
+      }
+      if (typeof match.gameClock === "number") {
+        const nextClock = Math.max(0, Math.ceil(match.gameClock));
+        if (Math.ceil(state.gameClock) !== nextClock) {
+          state.gameClock = nextClock;
+          setGameClock(nextClock);
+        }
+      }
+      if (typeof match.shotClock === "number") {
+        state.shotClock = match.shotClock;
+      }
+      if (match.cityId && match.cityId !== currentCity.id) {
+        const c = getCityById(String(match.cityId));
+        setSelectedCity(c);
+        applyCity(c);
+      }
+      if (match.ballPos && match.ballPos.length === 3) {
+        const sign = mirror ? -1 : 1;
+        remoteBallSync.pos.set(match.ballPos[0] * sign, match.ballPos[1], match.ballPos[2] * sign);
+        if (match.ballVel && match.ballVel.length === 3) {
+          remoteBallSync.vel.set(match.ballVel[0] * sign, match.ballVel[1], match.ballVel[2] * sign);
+        }
+        if (match.ballMode) {
+          remoteBallSync.mode = match.ballMode;
+        }
+        if (match.ownerEntityKey !== undefined) {
+          remoteBallSync.ownerKey = match.ownerEntityKey;
+        }
+        remoteBallSync.updatedAt = performance.now();
+      }
+    };
+
     const applyRemoteRoomSnapshot = (room: MultiplayerRoomState) => {
       if (!room) return;
-      if (mpClientRef.current && room.hostId && room.hostId !== mpClientRef.current.playerId) {
-        state.scoreHome = room.match.scoreHome;
-        state.scoreAway = room.match.scoreAway;
-        setScoreHome(room.match.scoreHome);
-        setScoreAway(room.match.scoreAway);
-      }
+      applyRemoteMatchPatch(room.match);
     };
 
     const applyRemoteMatchEvent = (event: any, match: any) => {
       if (!event || !mpClientRef.current) return;
       if (event.playerId === mpClientRef.current.playerId) return;
+      const mirror = isMirrorPerspective();
+
       if (event.type === "basket_scored" && match) {
-        state.scoreHome = match.scoreHome;
-        state.scoreAway = match.scoreAway;
-        setScoreHome(match.scoreHome);
-        setScoreAway(match.scoreAway);
-        triggerMsg("REMOTE BUCKET!", "#38bdf8");
+        const nextHome = mirror ? match.scoreAway : match.scoreHome;
+        const nextAway = mirror ? match.scoreHome : match.scoreAway;
+        if (typeof nextHome === "number") {
+          state.scoreHome = nextHome;
+          setScoreHome(nextHome);
+        }
+        if (typeof nextAway === "number") {
+          state.scoreAway = nextAway;
+          setScoreAway(nextAway);
+        }
+        if (typeof match.shotClock === "number") {
+          state.shotClock = match.shotClock;
+          setShotClockResetPulse((k) => k + 1);
+        }
+        Audio.netSwish({ pan: 0, vol: 0.9 });
+        Audio.crowdScream({ vol: 0.9 });
+        triggerMsg(String(event.payload?.playType || "BUCKET!"), "#38bdf8");
       } else if (event.type === "city_change" && event.payload?.cityId) {
         const c = getCityById(String(event.payload.cityId));
         setSelectedCity(c);
         applyCity(c);
       } else if (event.type === "mode_change" && event.payload?.mode) {
-        applyGameMode(event.payload.mode as GameMode);
+        const nextMode = event.payload.mode as GameMode;
+        setGameMode(nextMode);
+        gameModeRef.current = nextMode;
+        setShowSummary(false);
+        setShowHighlights(false);
+        setShowMeter(false);
+        applyGameMode(nextMode);
+      } else if (event.type === "tip_off") {
+        setShowTipOff(false);
+        const ownerKey = String(event.payload?.ownerEntityKey || "Home:0");
+        const localUserWon = mirror ? ownerKey.startsWith("Away:") : ownerKey.startsWith("Home:");
+        if (gameRef.current?.executeTipOff) {
+          gameRef.current.executeTipOff(localUserWon);
+        }
+      } else if (event.type === "quarter_end" && typeof event.payload?.quarter === "number") {
+        const q = Number(event.payload.quarter);
+        if (q >= 4 && !state.isGameOver) {
+          endGameAndRecordStats();
+        } else if (state.quarter <= q) {
+          state.quarter = q + 1;
+          state.gameClock = quarterLengthRef.current;
+          setQuarter(state.quarter);
+          setGameClock(quarterLengthRef.current);
+          triggerMsg(`QUARTER ${state.quarter}`, "#ffd166");
+        }
+      } else if (event.type === "reset_match") {
+        applyGameMode(gameModeRef.current);
+      } else if (event.type === "move_executed" && !isMpGuestSession()) {
+        // Host executes forwarded guest shot/pass/scoop in authoritative simulation
+        const room = mpRoomRef.current;
+        const client = mpClientRef.current;
+        if (!room || !client) return;
+        const map = resolvePeerEntityMap(room, client.playerId);
+        const actor = map.get(String(event.playerId));
+        if (!actor) return;
+        const p = event.payload || {};
+        if (p.action === "shot" && Array.isArray(p.from) && Array.isArray(p.aim)) {
+          fire(
+            actor,
+            V(Number(p.from[0]), Number(p.from[1]), Number(p.from[2])),
+            V(Number(p.aim[0]), Number(p.aim[1]), Number(p.aim[2])),
+            clamp(Number(p.ft || 0.8), 0.25, 2.5),
+            "shot",
+            { pts: Number(p.pts || 2), dunk: !!p.dunk, layup: !!p.layup, fromRemote: true }
+          );
+        } else if (p.action === "pass" && Array.isArray(p.from) && Array.isArray(p.aim)) {
+          const passTo = resolveEntityByKey(String(p.targetKey || "")) || teamA[0];
+          fire(
+            actor,
+            V(Number(p.from[0]), Number(p.from[1]), Number(p.from[2])),
+            V(Number(p.aim[0]), Number(p.aim[1]), Number(p.aim[2])),
+            clamp(Number(p.ft || 0.36), 0.2, 1.5),
+            "pass",
+            { passTo, fromRemote: true }
+          );
+        } else if (p.action === "scoop") {
+          if (actor.root.position.distanceTo(ball.position) < 5.0) {
+            state.owner = actor;
+            state.ballMode = "dribble";
+            state.flight = null;
+            state.deadT = 0;
+            state.deadReason = null;
+          }
+        }
       }
     };
 
@@ -2242,6 +3460,7 @@ export default function BasketballGame() {
         replayProgressRef.current = 0;
       },
       applyRemoteRoomSnapshot,
+      applyRemoteMatchPatch,
       applyRemoteMatchEvent,
       resetShotClock: (reason = "shot_attempt") => {
         state.shotClock = resetShotClock(reason as any);
@@ -2271,6 +3490,14 @@ export default function BasketballGame() {
 
     // --- LOOP ---
     let frameId: number; let prevInput: any = {};
+    // Interactive Drag-to-Orbit & Scroll-to-Zoom Camera State (tight player-follow framing)
+    let orbitTheta = 1.48;
+    let orbitPhi = 0.96;
+    let orbitRadius = window.innerWidth < window.innerHeight ? 17.5 : 13.5;
+    let orbitPointerId: number | null = null;
+    let orbitLastX = 0;
+    let orbitLastY = 0;
+
     const onKeyDown = (e: any) => {
       state.keys[e.code] = true;
       Audio.unlock();
@@ -2279,15 +3506,13 @@ export default function BasketballGame() {
       }
     };
     const onKeyUp = (e: any) => { state.keys[e.code] = false; };
-    window.addEventListener("keydown", onKeyDown); window.addEventListener("keyup", onKeyUp);
-
-    // Interactive Drag-to-Orbit & Scroll-to-Zoom Camera State (tight player-follow framing)
-    let orbitTheta = 1.48;
-    let orbitPhi = 0.96;
-    let orbitRadius = window.innerWidth < window.innerHeight ? 17.5 : 13.5;
-    let orbitPointerId: number | null = null;
-    let orbitLastX = 0;
-    let orbitLastY = 0;
+    const onWindowBlur = () => {
+      state.keys = {};
+      state.touchButtons = {};
+      state.joystick = { x: 0, y: 0, active: false, autoSprint: false };
+      orbitPointerId = null;
+    };
+    window.addEventListener("keydown", onKeyDown); window.addEventListener("keyup", onKeyUp); window.addEventListener("blur", onWindowBlur);
 
     camera.position.set(
       ME.root.position.x + orbitRadius * Math.sin(orbitPhi) * Math.cos(orbitTheta),
@@ -2364,27 +3589,30 @@ export default function BasketballGame() {
       }
 
       const isPracticeMode = gameModeRef.current === "freestyle" || gameModeRef.current === "training";
+      const mpGuestMode = isMpGuestSession();
 
-      // Shot Clock Tick & Urgency Processing
-      const tickRes = tickShotClock(state.shotClock, dt, state.isPaused || state.ballMode === "dead" || isPracticeMode);
-      state.shotClock = tickRes.newTime;
+      // Shot Clock Tick & Urgency Processing (Host-authoritative when in multiplayer)
+      if (!mpGuestMode) {
+        const tickRes = tickShotClock(state.shotClock, dt, state.isPaused || state.ballMode === "dead" || isPracticeMode);
+        state.shotClock = tickRes.newTime;
 
-      if (tickRes.shouldBeep) {
-        Audio.shotClockBeep(tickRes.beepSecond === 1);
-      }
+        if (tickRes.shouldBeep) {
+          Audio.shotClockBeep(tickRes.beepSecond === 1);
+        }
 
-      if (tickRes.expired && state.deadT <= 0) {
-        state.shotClock = resetShotClock("turnover");
-        setShotClockResetPulse(k => k + 1);
-        setLastShotResetReason("turnover");
-        Audio.shotClockBuzzer();
-        Audio.whistle();
-        Audio.commentary("shotclock");
-        triggerMsg("SHOT CLOCK VIOLATION", "#ef4444");
+        if (tickRes.expired && state.deadT <= 0) {
+          state.shotClock = resetShotClock("turnover");
+          setShotClockResetPulse(k => k + 1);
+          setLastShotResetReason("turnover");
+          Audio.shotClockBuzzer();
+          Audio.whistle();
+          Audio.commentary("shotclock");
+          triggerMsg("SHOT CLOCK VIOLATION", "#ef4444");
 
-        if (state.owner) {
-          state.owner = teamA.includes(state.owner) ? teamB[0] : teamA[0];
-          state.ballMode = "dribble";
+          if (state.owner) {
+            state.owner = teamA.includes(state.owner) ? teamB[0] : teamA[0];
+            state.ballMode = "dribble";
+          }
         }
       }
 
@@ -2409,7 +3637,7 @@ export default function BasketballGame() {
         lastClockRef.current = displayKey;
       }
       
-      if (!isPracticeMode) {
+      if (!isPracticeMode && !mpGuestMode) {
         state.gameClock -= dt;
         if (state.gameClock <= 0) {
           state.gameClock = 0;
@@ -2464,18 +3692,23 @@ export default function BasketballGame() {
         .addScaledVector(camRight, moveRight * normScale * sp);
       applyVel(ME, wantVel, dt);
 
-      const hoopX = teamA.includes(ME) ? 13.6 : -13.6;
+      const hoopX = teamA.includes(ME) ? HOOP_X : -HOOP_X;
       const toHoopDir = V(hoopX - ME.root.position.x, 0, -ME.root.position.z);
       if (toHoopDir.lengthSq() > 1e-6) toHoopDir.normalize();
       const inputWorldDir = moveMag > 0.1 && wantVel.lengthSq() > 1e-6 ? wantVel.clone().normalize() : V();
       const moveTowardHoopDot = moveMag > 0.1 ? inputWorldDir.dot(toHoopDir) : 0;
 
+      const distMeToBall = ME.root.position.distanceTo(ball.position);
       const canTakeOrStealFromHoop =
         state.owner !== ME &&
+        (!state.owner || !teamA.includes(state.owner)) &&
+        distMeToBall < 3.6 &&
         (state.ballMode === "loose" ||
           (state.ballMode === "dead" && state.deadReason === "score") ||
-          !state.owner ||
-          (state.flight?.kind === "shot" && (state.flight.reboundable || isNearHoop(ball.position))));
+          (state.ballMode === "flight" &&
+            state.flight?.kind === "shot" &&
+            (state.flight.reboundable || (isNearHoop(ball.position) && ball.position.y < 3.45))) ||
+          Boolean(state.owner && !teamA.includes(state.owner) && isNearHoop(ball.position) && distMeToBall < 2.85));
 
       if ((edge("A") || k("KeyF")) && canTakeOrStealFromHoop) {
         scoopBall();
@@ -2528,6 +3761,13 @@ export default function BasketballGame() {
           state.lastPassTime = now;
           fire(ME, handPos(ME), torsoPos(target), 0.36, "pass", { passTo: target });
         }
+      } else if (edge("B") && state.owner && state.owner !== ME && teamA.includes(state.owner) && state.ballMode === "dribble") {
+        // Call for pass from AI teammate
+        const holder = state.owner;
+        state.lastPasser = holder;
+        state.lastPassTime = now;
+        fire(holder, handPos(holder), torsoPos(ME), 0.36, "pass", { passTo: ME });
+        triggerLabel("CALL FOR PASS");
       }
       if (edge("LB")) {
         const benchIdx = teamA.findIndex(p => p.isBench);
@@ -2543,7 +3783,6 @@ export default function BasketballGame() {
       }
       if (edgeKey("KeyH")) {
         if (state.owner === ME) {
-          const hoopX = teamA.includes(ME) ? 13.6 : -13.6;
           const distToHoop = Math.hypot(ME.root.position.x - hoopX, ME.root.position.z);
           executeMove(distToHoop < 7.5 ? OffenseMove.HOOK_SHOT : OffenseMove.HESITATION);
         } else {
@@ -2552,7 +3791,6 @@ export default function BasketballGame() {
       }
       if (edgeKey("KeyV")) {
         if (state.owner === ME) {
-          const hoopX = teamA.includes(ME) ? 13.6 : -13.6;
           const distToHoop = Math.hypot(ME.root.position.x - hoopX, ME.root.position.z);
           executeMove(distToHoop < 5.5 ? OffenseMove.DROP_STEP : OffenseMove.SPIN_MOVE);
         } else {
@@ -2592,36 +3830,61 @@ export default function BasketballGame() {
       remoteDrivenEntities.clear();
       const activeMpRoom = mpRoomRef.current;
       const activeMpClient = mpClientRef.current;
+      const mirror = isMirrorPerspective();
       if (activeMpRoom && activeMpClient && activeMpClient.transport !== "disconnected") {
-        const homeNonMeSlots = teamA.filter((p) => !p.isBench && p !== ME);
-        const awaySlots = teamB.filter((p) => !p.isBench);
-        let hCursor = 0;
-        let aCursor = 0;
-
+        const peerMap = resolvePeerEntityMap(activeMpRoom, activeMpClient.playerId);
         for (const peer of Object.values(activeMpRoom.players)) {
           if (peer.playerId === activeMpClient.playerId) continue;
-          let targetEntity: GameEntity | undefined;
-          if (peer.team === "Home") {
-            targetEntity = homeNonMeSlots[hCursor++];
-          } else {
-            targetEntity = awaySlots[aCursor++];
-          }
+          const targetEntity = peerMap.get(peer.playerId);
           if (!targetEntity) continue;
 
+          if (!(targetEntity as any)._baseName) {
+            (targetEntity as any)._baseName = targetEntity.name;
+          }
           remoteDrivenEntities.add(targetEntity);
+          (targetEntity as any)._wasRemoteDriven = true;
+          targetEntity.isBench = false;
           targetEntity.root.visible = true;
           targetEntity.name = peer.name;
-          if (peer.jerseyColor) {
+          if (peer.jerseyColor && (targetEntity as any)._lastRemoteJersey !== peer.jerseyColor) {
+            (targetEntity as any)._lastRemoteJersey = peer.jerseyColor;
             targetEntity.jerseyMat.color.setStyle(peer.jerseyColor);
+            targetEntity.jerseyMat.needsUpdate = true;
           }
+          if (peer.shortsColor && (targetEntity as any)._lastRemoteShorts !== peer.shortsColor) {
+            (targetEntity as any)._lastRemoteShorts = peer.shortsColor;
+            targetEntity.shortsMat.color.setStyle(peer.shortsColor);
+            targetEntity.shortsMat.needsUpdate = true;
+          }
+          const sign = mirror ? -1 : 1;
           const lerpAlpha = 1 - Math.exp(-14 * dt);
-          targetEntity.root.position.x += (peer.transform.x - targetEntity.root.position.x) * lerpAlpha;
-          targetEntity.root.position.z += (peer.transform.z - targetEntity.root.position.z) * lerpAlpha;
-          targetEntity.vel.set(peer.transform.vx || 0, 0, peer.transform.vz || 0);
+          targetEntity.root.position.x += (peer.transform.x * sign - targetEntity.root.position.x) * lerpAlpha;
+          targetEntity.root.position.z += (peer.transform.z * sign - targetEntity.root.position.z) * lerpAlpha;
+          targetEntity.vel.set((peer.transform.vx || 0) * sign, 0, (peer.transform.vz || 0) * sign);
           targetEntity.h += ((peer.transform.h || 0) - targetEntity.h) * lerpAlpha;
-          targetEntity.faceYaw = peer.transform.faceYaw || targetEntity.faceYaw;
+          targetEntity.faceYaw = (peer.transform.faceYaw || 0) + (mirror ? Math.PI : 0);
+          (targetEntity as any)._remotePose = peer.transform.pose || null;
         }
       }
+      // Restore AI name/pose if a peer previously drove an entity and left
+      entities.forEach((ent) => {
+        if ((ent as any)._wasRemoteDriven && !remoteDrivenEntities.has(ent)) {
+          (ent as any)._wasRemoteDriven = false;
+          (ent as any)._remotePose = null;
+          (ent as any)._lastRemoteJersey = null;
+          (ent as any)._lastRemoteShorts = null;
+          if ((ent as any)._baseName) ent.name = (ent as any)._baseName;
+          if (teamA.includes(ent)) {
+            ent.jerseyMat.color.setStyle(athleteProfileRef.current.jerseyColorHex);
+            ent.shortsMat.color.setStyle(athleteProfileRef.current.shortsColorHex);
+          } else {
+            ent.jerseyMat.color.setStyle(currentCity.jerseyPrimary);
+            ent.shortsMat.color.setStyle(currentCity.shortsColor);
+          }
+          ent.jerseyMat.needsUpdate = true;
+          ent.shortsMat.needsUpdate = true;
+        }
+      });
 
       // AI & FULL-COURT FAST-BREAK TRANSITIONS
       const ownerTeam: "Home" | "Away" | null = state.owner
@@ -2702,8 +3965,16 @@ export default function BasketballGame() {
                 // Sprint really fast down to the other half of the court
                 aiSteer(P, 10.6, clamp(P.root.position.z * 0.5, -3.5, 3.5), 11.8, dt);
               } else {
-                aiSteer(P, 11.8, rnd(1.8), 7.6, dt);
-                if (P.holdT > 1.25) startShot(P, { auto: true, stepback: Math.random() < 0.2, name: Math.random() < 0.2 ? "STEP BACK" : "JUMP SHOT" });
+                const targetZ = Math.sin(now * 0.0014 + i) * 2.2;
+                aiSteer(P, 11.4, targetZ, 7.6, dt);
+                if (P.holdT > 1.25 && P.h <= 0.05) {
+                  startShot(P, { auto: true, stepback: Math.random() < 0.2, name: Math.random() < 0.2 ? "STEP BACK" : "JUMP SHOT" });
+                } else if (P.holdT > 2.6) {
+                  P.holdT = 0;
+                  P.h = 0;
+                  P.vy = 0;
+                  fire(P, handPos(P), torsoPos(ME), 0.38, "pass", { passTo: ME });
+                }
               }
             }
           } else if (isTeamA) {
@@ -2715,14 +3986,14 @@ export default function BasketballGame() {
             } else if (currentTactics.offense === "pace_space") {
               aiSteer(P, 7.5 + (i % 2) * 2.5, (i - 2) * 5.2, 7.4, dt);
             } else if (currentTactics.offense === "paint_power") {
-              aiSteer(P, i >= 3 ? 12.5 : 8.0, (i - 2) * 2.2, 7.6, dt);
+              aiSteer(P, i >= 3 ? 12.2 : 8.0, (i - 2) * 2.2, 7.6, dt);
             } else if (currentTactics.offense === "fast_break") {
               aiSteer(P, 11.5, i % 2 === 0 ? 5.5 : -5.5, 11.8, dt);
             } else {
               if (i === 4 && state.owner === ME) {
-                aiSteer(P, ME.root.position.x + 1.2, ME.root.position.z + 0.4, 7.6, dt);
+                aiSteer(P, clamp(ME.root.position.x + 1.4, -13, 13), clamp(ME.root.position.z + 1.0, -6.5, 6.5), 7.6, dt);
               } else {
-                aiSteer(P, 9.2, (i - 2) * 3.8, 7.4, dt);
+                aiSteer(P, 9.2, (i - 2) * 3.6, 7.4, dt);
               }
             }
           } else {
@@ -2738,7 +4009,7 @@ export default function BasketballGame() {
             } else if (currentTactics.defense === "press") {
               const opp = teamB[i];
               if (opp && !opp.isBench) {
-                aiSteer(P, opp.root.position.x + 0.5, opp.root.position.z, 8.6, dt);
+                aiSteer(P, opp.root.position.x + 0.9, opp.root.position.z, 8.6, dt);
               } else {
                 aiSteer(P, -4, (i - 2) * 3, 8.0, dt);
               }
@@ -2764,8 +4035,16 @@ export default function BasketballGame() {
                 // Sprint really fast down to the other half of the court
                 aiSteer(P, -10.6, clamp(P.root.position.z * 0.5, -3.5, 3.5), 11.8, dt);
               } else {
-                aiSteer(P, -11.8, rnd(1.8), 7.6, dt);
-                if (P.holdT > 1.25) startShot(P, { auto: true, stepback: Math.random() < 0.2, name: Math.random() < 0.2 ? "STEP BACK" : "JUMP SHOT" });
+                const targetZ = Math.sin(now * 0.0014 + i) * 2.2;
+                aiSteer(P, -11.4, targetZ, 7.6, dt);
+                if (P.holdT > 1.25 && P.h <= 0.05) {
+                  startShot(P, { auto: true, stepback: Math.random() < 0.2, name: Math.random() < 0.2 ? "STEP BACK" : "JUMP SHOT" });
+                } else if (P.holdT > 2.6) {
+                  P.holdT = 0;
+                  P.h = 0;
+                  P.vy = 0;
+                  startShot(P, { auto: true, layup: true, name: "DRIVING LAYUP" });
+                }
               }
             }
           } else if (!isTeamA) {
@@ -2775,7 +4054,7 @@ export default function BasketballGame() {
               const tz = fastLanesZ[i % fastLanesZ.length];
               aiSteer(P, tx, tz, 12.6, dt);
             } else {
-              aiSteer(P, -9.2, (i - 2) * 3.8, 7.6, dt);
+              aiSteer(P, -9.2, (i - 2) * 3.6, 7.6, dt);
             }
           } else {
             const t = teamA.find((p) => !p.isBench && teamA.indexOf(p) === i);
@@ -2785,7 +4064,7 @@ export default function BasketballGame() {
               const defZ = t ? t.root.position.z : fastLanesZ[i % fastLanesZ.length] * 0.75;
               aiSteer(P, defX, defZ, 12.8, dt);
             } else if (t) {
-              aiSteer(P, t.root.position.x + fwd(t).x * 1.2, t.root.position.z + fwd(t).z * 1.2, 7.6, dt);
+              aiSteer(P, t.root.position.x + fwd(t).x * 1.3, t.root.position.z + fwd(t).z * 1.3, 7.6, dt);
             }
           }
         });
@@ -2839,24 +4118,219 @@ export default function BasketballGame() {
         }
       }
 
+      // SEPARATE OVERLAPPING PLAYERS (prevents clustering/jamming in paint or rebounds)
+      resolvePlayerCollisions();
+
       // PHYSICS
       entities.forEach(P => {
         if(P.isBench) return;
-        if(P.act) { P.act.t += dt; if(P.act.update) P.act.update(); if(P.act.t >= P.act.dur) { if(P.act.end) P.act.end(); P.act = null; } }
+        if (!Number.isFinite(P.root.position.x) || !Number.isFinite(P.root.position.z)) {
+          P.root.position.set(0, 0, 0);
+          P.vel.set(0, 0, 0);
+        }
+        if (!Number.isFinite(P.h) || !Number.isFinite(P.vy)) {
+          P.h = 0;
+          P.vy = 0;
+        }
+        const remotePose = remoteDrivenEntities.has(P) ? ((P as any)._remotePose as PoseSnapshot | null) : null;
+        if (remotePose) {
+          const L = P.legs, A = P.arms;
+          L.R.hip.rotation.x = remotePose.hipR; L.R.knee.rotation.x = remotePose.kneeR;
+          L.L.hip.rotation.x = remotePose.hipL; L.L.knee.rotation.x = remotePose.kneeL;
+          A.R.sh.rotation.x = remotePose.shR; A.R.el.rotation.x = remotePose.elR;
+          A.L.sh.rotation.x = remotePose.shL; A.L.el.rotation.x = remotePose.elL;
+          P.torso.rotation.x = remotePose.lean;
+          P.pelvis.position.y = 0.95 - remotePose.crouch;
+          P.root.position.y = P.h;
+          P.root.rotation.y = P.faceYaw;
+          return;
+        }
+        if(P.act) {
+          P.act.t += dt;
+          if(P.act.update) P.act.update();
+          if(!Number.isFinite(P.act.t) || P.act.t >= P.act.dur || P.act.t > 3.5) {
+            if(P.act.end) P.act.end();
+            P.act = null;
+            P.shield = false;
+          }
+        }
+        if (state.owner === P && state.ballMode === "held" && !P.act) {
+          state.ballMode = "dribble";
+        }
         if(P.h > 0 || P.vy > 0) { P.vy -= G*dt; P.h += P.vy*dt; if(P.h <= 0) { P.h = 0; P.vy = 0; } }
         const sp = Math.hypot(P.vel.x, P.vel.z);
-        P.runPhase += dt * Math.min(sp * 2.1, 22);
         const fa = fwd(P);
-        const targetYaw = (state.owner !== P && !P.act && sp > 2.0)
-          ? Math.atan2(P.vel.x, P.vel.z)
-          : Math.atan2(fa.x, fa.z);
+        const hoopYaw = Math.atan2(fa.x, fa.z);
+        const velYaw = sp > 0.05 ? Math.atan2(P.vel.x, P.vel.z) : hoopYaw;
+        const movingTowardHoop = sp > 0.2 ? (P.vel.x * fa.x + P.vel.z * fa.z) / sp : 1;
+        const targetYaw =
+          !P.act && sp > 0.7 && (state.owner !== P || sp > 4.4 || movingTowardHoop > -0.2)
+            ? velYaw
+            : hoopYaw;
         const yawDiff = Math.atan2(Math.sin(targetYaw - P.faceYaw), Math.cos(targetYaw - P.faceYaw));
-        P.faceYaw += yawDiff * Math.min(1, dt * 18);
-        const T: any = { shR: -0.25, elR: -0.5, shL: -0.25, elL: -0.5, hipR: 0, kneeR: 0.05, hipL: 0, kneeL: 0.05, lean: 0, crouch: 0 };
-        if(P.h > 0.03) { T.hipR = T.hipL = -0.45; T.kneeR = T.kneeL = 0.75; } else if(sp > 0.35) { const s = Math.sin(P.runPhase); T.hipR = s*0.64; T.hipL = -s*0.64; T.kneeR = 0.15+Math.max(0,-s)*0.78; T.kneeL = 0.15+Math.max(0,s)*0.78; T.lean = clamp(sp * 0.024, 0.06, 0.28); }
-        if(state.owner === P && state.ballMode === "dribble" && !P.act) { const k = P.hand, o = k === "R" ? "L" : "R"; T["sh"+k] = -0.45; T["el"+k] = -1.05; T["sh"+o] = -0.9; T["el"+o] = -1.5; T.lean = 0.12; }
-        if(P.act?.pose) P.act.pose(clamp(P.act.t/P.act.dur, 0, 1), T); const k_ = Math.min(1, dt*20); for(const key in T) (P.cur as any)[key] += ((T as any)[key] - (P.cur as any)[key]) * k_;
-        const c = P.cur, L = P.legs, A = P.arms; L.R.hip.rotation.x = c.hipR; L.R.knee.rotation.x = c.kneeR; L.L.hip.rotation.x = c.hipL; L.L.knee.rotation.x = c.kneeL; A.R.sh.rotation.x = c.shR; A.R.el.rotation.x = c.elR; A.L.sh.rotation.x = c.shL; A.L.el.rotation.x = c.elL; P.torso.rotation.x = c.lean; P.pelvis.position.y = 0.95-c.crouch; P.root.position.y = P.h; P.root.rotation.y = P.faceYaw;
+        P.faceYaw += yawDiff * Math.min(1, dt * (sp > 4.5 ? 16 : 13));
+
+        // Decompose velocity in player-local space (forward/backpedal vs lateral shuffle)
+        const faceSin = Math.sin(P.faceYaw);
+        const faceCos = Math.cos(P.faceYaw);
+        const fwdSp = P.vel.x * faceSin + P.vel.z * faceCos;
+        const latSp = P.vel.x * faceCos - P.vel.z * faceSin;
+        const isBackpedaling = fwdSp < -0.55 && Math.abs(fwdSp) >= Math.abs(latSp) * 0.85;
+        const isLateralShuffle = !P.act && P.h <= 0.03 && sp > 0.5 && Math.abs(latSp) > Math.abs(fwdSp) * 1.25 && sp < 7.0;
+
+        // Ground-matched phase cadence so sneakers plant naturally without skating
+        P.runPhase += (isBackpedaling ? -1 : 1) * dt * clamp(sp * 1.82, 0, 21.5);
+
+        const strideAmp = clamp((sp - 0.25) / 5.2, 0, 1);
+        const sprintAmp = clamp((sp - 5.4) / 5.8, 0, 1);
+        const T: any = {
+          shR: -0.22,
+          elR: -0.48,
+          shL: -0.22,
+          elL: -0.48,
+          hipR: -0.04,
+          kneeR: 0.09,
+          hipL: -0.04,
+          kneeL: 0.09,
+          lean: 0.02,
+          crouch: 0.015,
+          ankR: 0,
+          ankL: 0,
+          hipRollR: 0,
+          hipRollL: 0,
+          shRollR: -0.06,
+          shRollL: 0.06,
+          twist: 0,
+          pelvYaw: 0,
+          pelvRoll: 0,
+          bob: 0,
+        };
+
+        if (P.h > 0.03) {
+          // Athletic airborne hang / gather posture
+          T.hipR = -0.42;
+          T.hipL = -0.35;
+          T.kneeR = 0.72;
+          T.kneeL = 0.65;
+          T.ankR = 0.28;
+          T.ankL = 0.28;
+          T.shR = -0.55;
+          T.shL = -0.55;
+          T.elR = -0.85;
+          T.elL = -0.85;
+        } else if (isLateralShuffle) {
+          // Real basketball defensive slide / lateral shuffle
+          const shuf = Math.sin(P.runPhase * 1.15);
+          const open = Math.abs(shuf);
+          T.crouch = 0.15 + open * 0.03;
+          T.lean = 0.16;
+          T.hipR = -0.34 - open * 0.14;
+          T.hipL = -0.34 - open * 0.14;
+          T.kneeR = 0.56 + open * 0.22;
+          T.kneeL = 0.56 + open * 0.22;
+          T.hipRollR = -0.14 - Math.max(0, shuf) * 0.22;
+          T.hipRollL = 0.14 + Math.max(0, -shuf) * 0.22;
+          T.shRollR = -0.38;
+          T.shRollL = 0.38;
+          T.shR = -0.55;
+          T.shL = -0.55;
+          T.elR = -1.05;
+          T.elL = -1.05;
+          T.bob = (open - 0.5) * 0.04;
+        } else if (sp > 0.25) {
+          // Full human running / sprinting / backpedal gait biomechanics
+          const pR = P.runPhase;
+          const pL = P.runPhase + Math.PI;
+          const sR = Math.sin(pR);
+          const cR = Math.cos(pR);
+          const sL = Math.sin(pL);
+          const cL = Math.cos(pL);
+
+          const thighSwing = 0.58 * strideAmp + 0.24 * sprintAmp;
+          const kneeFold = 0.65 * strideAmp + 0.58 * sprintAmp;
+          const stanceFlex = 0.16 + 0.14 * strideAmp;
+          const backFactor = isBackpedaling ? 0.72 : 1;
+
+          // Asymmetric thigh swing (higher knee drive in front, smooth extension behind)
+          T.hipR = (-sR * thighSwing - 0.08 * strideAmp) * backFactor;
+          T.hipL = (-sL * thighSwing - 0.08 * strideAmp) * backFactor;
+
+          // Dynamic knee bend: folds deeply during recovery swing (heel kick) & softens on landing
+          T.kneeR = stanceFlex + Math.max(0, isBackpedaling ? -cR : cR) * kneeFold;
+          T.kneeL = stanceFlex + Math.max(0, isBackpedaling ? -cL : cL) * kneeFold;
+
+          // Ankle roll: plantarflex toe push-off behind, dorsiflex heel clearance in front
+          T.ankR = cR < 0 ? 0.4 * strideAmp * (-cR) : -0.26 * strideAmp * cR;
+          T.ankL = cL < 0 ? 0.4 * strideAmp * (-cL) : -0.26 * strideAmp * cL;
+
+          // Double-frequency vertical stride float + cushioned knee absorption
+          T.bob = (Math.abs(sR) - 0.42) * (0.045 * strideAmp + 0.042 * sprintAmp);
+          T.crouch = 0.03 + 0.04 * strideAmp;
+
+          // Forward sprint lean, pelvis/shoulder counter-rotation, and banking into sharp cuts
+          T.lean = isBackpedaling
+            ? -0.05
+            : 0.06 + 0.13 * strideAmp + 0.13 * sprintAmp;
+          T.pelvYaw = sR * (0.08 * strideAmp + 0.07 * sprintAmp);
+          T.twist = -sR * (0.14 * strideAmp + 0.11 * sprintAmp);
+          T.pelvRoll = cR * 0.038 * strideAmp + clamp(-yawDiff * 0.16, -0.18, 0.18);
+
+          // Opposite bent-elbow athletic arm pump (right arm forward with left leg, left arm forward with right leg)
+          const armGain = 0.56 * strideAmp + 0.38 * sprintAmp;
+          T.shR = sR * armGain - 0.12;
+          T.shL = -sR * armGain - 0.12;
+          T.elR = -0.78 - 0.44 * strideAmp - Math.max(0, -sR) * (0.36 * strideAmp + 0.2 * sprintAmp);
+          T.elL = -0.78 - 0.44 * strideAmp - Math.max(0, sR) * (0.36 * strideAmp + 0.2 * sprintAmp);
+          T.shRollR = -0.08 - 0.06 * sprintAmp;
+          T.shRollL = 0.08 + 0.06 * sprintAmp;
+        } else {
+          // Subtle living idle breathing & athletic ready stance
+          const breathe = Math.sin(now * 0.0032 + P.faceYaw);
+          T.bob = breathe * 0.008;
+          T.crouch = 0.025;
+          T.kneeR = 0.12;
+          T.kneeL = 0.12;
+          T.shR = -0.22 + breathe * 0.015;
+          T.shL = -0.22 + breathe * 0.015;
+        }
+
+        if(state.owner === P && state.ballMode === "dribble" && !P.act) {
+          const k = P.hand, o = k === "R" ? "L" : "R";
+          T["sh" + k] = -0.45 - 0.12 * strideAmp;
+          T["el" + k] = -1.05;
+          if (sp <= 0.6) {
+            T["sh" + o] = -0.75;
+            T["el" + o] = -1.35;
+          }
+          T.lean = Math.max(T.lean, 0.12 + 0.14 * sprintAmp);
+        }
+        if(P.act?.pose) P.act.pose(clamp(P.act.t/P.act.dur, 0, 1), T);
+        const k_ = Math.min(1, dt * 20);
+        for(const key in T) (P.cur as any)[key] += ((T as any)[key] - (P.cur as any)[key]) * k_;
+        const c = P.cur, L = P.legs, A = P.arms;
+        L.R.hip.rotation.x = c.hipR;
+        L.R.hip.rotation.z = c.hipRollR || 0;
+        L.R.knee.rotation.x = c.kneeR;
+        L.R.ankle.rotation.x = c.ankR || 0;
+        L.L.hip.rotation.x = c.hipL;
+        L.L.hip.rotation.z = c.hipRollL || 0;
+        L.L.knee.rotation.x = c.kneeL;
+        L.L.ankle.rotation.x = c.ankL || 0;
+        A.R.sh.rotation.x = c.shR;
+        A.R.sh.rotation.z = c.shRollR || 0;
+        A.R.el.rotation.x = c.elR;
+        A.L.sh.rotation.x = c.shL;
+        A.L.sh.rotation.z = c.shRollL || 0;
+        A.L.el.rotation.x = c.elL;
+        P.pelvis.position.y = 0.95 - c.crouch + (c.bob || 0);
+        P.pelvis.rotation.y = c.pelvYaw || 0;
+        P.pelvis.rotation.z = c.pelvRoll || 0;
+        P.torso.rotation.x = c.lean;
+        P.torso.rotation.y = c.twist || 0;
+        P.headGroup.rotation.x = -c.lean * 0.55;
+        P.headGroup.rotation.y = -(c.twist || 0) * 0.65;
+        P.root.position.y = P.h;
+        P.root.rotation.y = P.faceYaw;
 
         // SNEAKER SQUEAKS (movement, sharp cuts/pivots, running strides, and stops)
         if (!P.squeak) P.squeak = { prevVel: V(), cool: 0 };
@@ -2899,18 +4373,20 @@ export default function BasketballGame() {
         const p = ball.position; const prevY = p.y; state.ballVel.y -= G*h; p.addScaledVector(state.ballVel, h);
         ball.rotation.x += h * 8;
         ball.rotation.z += h * 2.5;
-        if(p.x < -14 || p.x > 14) {
-          if(p.y > 2.9 && p.y < 4 && Math.abs(p.z) < 0.9) {
+        if ((p.x >= BOARD_X - BALL_R && state.ballVel.x > 0) || (p.x <= -BOARD_X + BALL_R && state.ballVel.x < 0)) {
+          if (p.y > 2.85 && p.y < 4.0 && Math.abs(p.z) < 0.92) {
             state.ballVel.x *= -0.5;
-            p.x = p.x < 0 ? -13.9 : 13.9;
+            p.x = p.x < 0 ? -BOARD_X + BALL_R + 0.02 : BOARD_X - BALL_R - 0.02;
             if (state.flight) state.flight.reboundable = true;
             state.hadRimContact = true;
             Audio.backboardHit({ pan: clamp(p.z / 7.5, -1, 1), vol: 0.9 });
           }
         }
-        if(state.flight && state.flight.kind !== "pass" && prevY > RIM_Y && p.y <= RIM_Y && state.ballVel.y < 0) {
-          const hoopX = teamA.includes(state.flight.shooter) ? 13.6 : -13.6; const dx = p.x - hoopX, dz = p.z; const d = Math.hypot(dx, dz);
+        if(!mpGuestMode && state.flight && state.flight.kind !== "pass" && prevY > RIM_Y && p.y <= RIM_Y && state.ballVel.y < 0) {
+          const hoopX = teamA.includes(state.flight.shooter) ? HOOP_X : -HOOP_X; const dx = p.x - hoopX, dz = p.z; const d = Math.hypot(dx, dz);
           if(d < RIM_R - 0.04) {
+            p.x = hoopX + dx * 0.4;
+            p.z = dz * 0.4;
             const shooter = state.flight.shooter;
             shooter.stats.pts += state.flight.pts;
             if (state.lastPasser && state.lastPasser !== shooter && now - state.lastPassTime < 5000) {
@@ -2941,10 +4417,10 @@ export default function BasketballGame() {
             allHighlightsRef.current = [...allHighlightsRef.current, clip].slice(-3);
             setHighlightsCount(allHighlightsRef.current.length);
 
-            if (activeMpClient && activeMpClient.roomCode) {
+            if (!mpGuestMode && activeMpClient && activeMpClient.roomCode) {
               activeMpClient.sendEvent("basket_scored", {
-                scoreHome: state.scoreHome,
-                scoreAway: state.scoreAway,
+                scoreHome: mirror ? state.scoreAway : state.scoreHome,
+                scoreAway: mirror ? state.scoreHome : state.scoreAway,
                 shotClock: 24,
                 scorerName: shooter.name,
                 playType: playTypeLabel,
@@ -2998,7 +4474,7 @@ export default function BasketballGame() {
           } else if (d < RIM_R + 0.1 && state.flight.rim < 3) { 
             state.flight.rim++;
             state.flight.reboundable = true;
-            p.y = RIM_Y+0.02; state.ballVel.y = 1.5; state.ballVel.x += dx*2; 
+            p.y = RIM_Y+0.02; state.ballVel.y = 1.5; state.ballVel.x += dx*2.2; state.ballVel.z += dz*2.2;
             state.hadRimContact = true;
             Audio.rimHit({ pan: clamp(p.z / 7.5, -1, 1), vol: 0.92 });
             if (state.flight.rim === 1) {
@@ -3024,7 +4500,28 @@ export default function BasketballGame() {
           state.ballVel.multiplyScalar(0.98);
         }
       };
-      if(state.ballMode === "dribble" && state.owner) {
+      if (mpGuestMode && now - remoteBallSync.updatedAt < 1200) {
+        // Non-host follows host-authoritative ball & possession state smoothly
+        const syncedOwner = resolveEntityByKey(remoteBallSync.ownerKey);
+        state.owner = syncedOwner;
+        state.ballMode = remoteBallSync.mode as any;
+        state.flight = null;
+        if (state.ballMode === "dribble" && state.owner) {
+          const P = state.owner;
+          P.dribPhase += dt * 8;
+          const bounce = Math.abs(Math.cos(P.dribPhase));
+          const hp = handPos(P);
+          ball.position.set(hp.x, BALL_R + Math.max(0, hp.y - BALL_R) * bounce, hp.z);
+        } else if (state.ballMode === "held" && state.owner) {
+          const hp = handPos(state.owner);
+          ball.position.set(hp.x, hp.y + 0.03, hp.z);
+        } else {
+          ball.position.lerp(remoteBallSync.pos, 1 - Math.exp(-22 * dt));
+          state.ballVel.copy(remoteBallSync.vel);
+          ball.rotation.x += dt * 8;
+          ball.rotation.z += dt * 2.5;
+        }
+      } else if(state.ballMode === "dribble" && state.owner) {
         const P = state.owner;
         const prevBounce = Math.abs(Math.cos(P.dribPhase));
         P.dribPhase += dt * 8;
@@ -3061,7 +4558,7 @@ export default function BasketballGame() {
           }
         }
       }
-      if(state.flight) {
+      if(!mpGuestMode && state.flight) {
         state.flight.t += dt;
         if(state.flight.kind === "pass") {
           const t = state.flight.passTo;
@@ -3075,11 +4572,12 @@ export default function BasketballGame() {
       }
       // Take / Rebound / Steal Basketball directly from the hoop (or loose on floor)
       const canGrabOrTakeFromHoop =
-        state.ballMode === "loose" ||
+        !mpGuestMode &&
+        (state.ballMode === "loose" ||
         (state.ballMode === "dead" && state.deadReason === "score" && state.deadT < 0.55) ||
         (state.ballMode === "flight" &&
           state.flight?.kind === "shot" &&
-          (state.flight.reboundable || (isNearHoop(ball.position) && state.ballVel.y < 1.2 && ball.position.y <= 3.3)));
+          (state.flight.reboundable || (isNearHoop(ball.position) && state.ballVel.y < 1.2 && ball.position.y <= 3.3))));
 
       if(canGrabOrTakeFromHoop) { 
         let best: GameEntity | null = null, bd = 2.0; 
@@ -3113,6 +4611,9 @@ export default function BasketballGame() {
             setShotClockResetPulse(k => k + 1);
             setLastShotResetReason("rebound");
           }
+          grabber.act = null;
+          grabber.shield = false;
+          grabber.holdT = 0;
           state.owner = grabber;
           state.ballMode = "dribble";
           state.flight = null;
@@ -3127,17 +4628,40 @@ export default function BasketballGame() {
         } 
       }
 
+      // Watchdog: recover ball cleanly if loose > 4.5s or stalled out of reach
+      if (!mpGuestMode && !state.owner && state.ballMode === "loose") {
+        state.looseT += dt;
+        ball.position.x = clamp(ball.position.x, -13.6, 13.6);
+        ball.position.z = clamp(ball.position.z, -7.2, 7.2);
+        if (state.looseT > 4.5) {
+          state.looseT = 0;
+          state.flight = null;
+          state.ballVel.set(0, 0, 0);
+          state.owner = ME;
+          state.ballMode = "dribble";
+          ME.act = null;
+          triggerLabel("RESET POSSESSION");
+        }
+      } else {
+        state.looseT = 0;
+      }
+
       // Track if ball is loose, rebounding at hoop, or stealable near hoop for UI button
       const looseNow =
-        state.ballMode === "loose" ||
-        (state.ballMode === "dead" && state.deadReason === "score") ||
-        (!state.owner && ball.position.y < 3.35) ||
-        Boolean(
-          state.owner &&
-            !teamA.includes(state.owner) &&
-            isNearHoop(ball.position) &&
-            ME.root.position.distanceTo(state.owner.root.position) < 2.85
-        );
+        distMeToBall < 4.5 &&
+        state.owner !== ME &&
+        (state.ballMode === "loose" ||
+          (state.ballMode === "dead" && state.deadReason === "score") ||
+          (state.ballMode === "flight" &&
+            state.flight?.kind === "shot" &&
+            ball.position.y < 3.45 &&
+            (state.flight.reboundable || isNearHoop(ball.position))) ||
+          Boolean(
+            state.owner &&
+              !teamA.includes(state.owner) &&
+              isNearHoop(ball.position) &&
+              ME.root.position.distanceTo(state.owner.root.position) < 2.85
+          ));
       if (looseNow !== isBallLooseRef.current) {
         isBallLooseRef.current = looseNow;
         setIsBallLoose(looseNow);
@@ -3154,15 +4678,28 @@ export default function BasketballGame() {
       if (activeMpRoom && activeMpClient && activeMpClient.transport !== "disconnected" && now - lastMpSyncAt >= 50) {
         lastMpSyncAt = now;
         const isHost = !activeMpRoom.hostId || activeMpRoom.hostId === activeMpClient.playerId;
+        const sign = mirror ? -1 : 1;
         activeMpClient.sendSync({
           transform: {
-            x: ME.root.position.x,
+            x: ME.root.position.x * sign,
             y: ME.root.position.y,
-            z: ME.root.position.z,
-            vx: ME.vel.x,
-            vz: ME.vel.z,
-            faceYaw: ME.faceYaw,
+            z: ME.root.position.z * sign,
+            vx: ME.vel.x * sign,
+            vz: ME.vel.z * sign,
+            faceYaw: ME.faceYaw + (mirror ? Math.PI : 0),
             h: ME.h,
+            pose: {
+              hipR: ME.cur.hipR,
+              hipL: ME.cur.hipL,
+              kneeR: ME.cur.kneeR,
+              kneeL: ME.cur.kneeL,
+              shR: ME.cur.shR,
+              shL: ME.cur.shL,
+              elR: ME.cur.elR,
+              elL: ME.cur.elL,
+              lean: ME.cur.lean,
+              crouch: ME.cur.crouch,
+            },
           },
           stats: {
             pts: ME.stats.pts,
@@ -3179,6 +4716,10 @@ export default function BasketballGame() {
                 ballPos: [ball.position.x, ball.position.y, ball.position.z],
                 ballVel: [state.ballVel.x, state.ballVel.y, state.ballVel.z],
                 ballMode: state.ballMode,
+                ownerPlayerId: state.owner === ME ? activeMpClient.playerId : null,
+                ownerEntityKey: getOwnerEntityKey(state.owner),
+                cityId: currentCity.id,
+                mode: gameModeRef.current,
               }
             : undefined,
         });
@@ -3197,7 +4738,7 @@ export default function BasketballGame() {
       state.camLook.lerp(V(focusX, focusY, focusZ), 1 - Math.exp(-20 * dt));
       camera.lookAt(state.camLook);
 
-      prevInput = { ...input, rawKeys: { ...state.keys } }; renderer.render(scene, camera); frameId = requestAnimationFrame(loop);
+      prevInput = { ...input, rawKeys: { ...state.keys } }; renderer.render(scene, camera); mirrorFrameHookRef.current?.(renderer.domElement); frameId = requestAnimationFrame(loop);
     };
 
     // Interactive Drag-to-Orbit & Scroll-to-Zoom Event Bindings on Court Canvas
@@ -3241,6 +4782,7 @@ export default function BasketballGame() {
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onWindowBlur);
       window.removeEventListener("resize", onResize);
       window.removeEventListener("pointerdown", onAutoTouchDetect);
       window.removeEventListener("touchstart", onFirstTouchStart);
@@ -3256,6 +4798,19 @@ export default function BasketballGame() {
       if (audioManagerRef.current === audioMgr) {
         audioManagerRef.current = null;
       }
+      envRT.dispose();
+      floorTex?.dispose();
+      asphaltTex?.dispose();
+      ballColorTex?.dispose();
+      ballBumpTex?.dispose();
+      ledBannerTex.dispose();
+      jumboScreenTex.dispose();
+      homeLogoTex.dispose();
+      awayLogoTex.dispose();
+      entities.forEach((p) => {
+        p.frontPlateMat?.map?.dispose();
+        p.backPlateMat?.map?.dispose();
+      });
       renderer.dispose();
       if (mountNode) mountNode.removeChild(renderer.domElement);
     };
@@ -3276,6 +4831,7 @@ export default function BasketballGame() {
   return (
     <div className="w-full h-full relative touch-none select-none overflow-hidden">
       <div ref={mountRef} className="w-full h-full" />
+      <video ref={mirrorVideoRef} muted playsInline className="sr-only pointer-events-none" />
 
       {/* Opening Tip-Off Ceremony Modal */}
       <TipOffModal
@@ -3305,16 +4861,25 @@ export default function BasketballGame() {
 
       {/* Minimal Training Drill Counter (only shown during Training Drill) */}
       {gameMode === "training" && !showMainMenu && (
-        <div className="fixed top-3 left-3 z-20 bg-neutral-950/85 backdrop-blur-md border border-white/15 rounded-xl px-3.5 py-2 text-white pointer-events-none">
-          <div className="text-[11px] font-black uppercase tracking-wider text-cyan-300">
+        <div className="fixed top-[calc(3.25rem+env(safe-area-inset-top))] sm:top-[max(0.75rem,env(safe-area-inset-top))] left-[max(0.65rem,env(safe-area-inset-left))] z-20 bg-neutral-950/85 backdrop-blur-md border border-white/15 rounded-xl px-3 py-1.5 text-white pointer-events-none">
+          <div className="text-[11px] font-black uppercase tracking-wider text-cyan-300 tabular-nums">
             Drill {trainingDrill.made}/{trainingDrill.target} · Done {trainingDrill.completedCount}
           </div>
         </div>
       )}
 
-      <AnimatePresence>{message.visible && <motion.div initial={{ opacity: 0, y: -30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="absolute top-[18%] left-0 right-0 text-center pointer-events-none z-30 font-black italic text-5xl sm:text-6xl uppercase drop-shadow-[0_4px_20px_rgba(0,0,0,0.85)]" style={{ color: message.color }}>{message.text}</motion.div>}</AnimatePresence>
-      <AnimatePresence>{label.visible && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="absolute top-[30%] left-0 right-0 text-center pointer-events-none z-30 text-xl sm:text-2xl font-black tracking-widest text-amber-300 italic uppercase drop-shadow">{label.text}</motion.div>}</AnimatePresence>
-      {showMeter && <div className="absolute bottom-44 left-1/2 -translate-x-1/2 w-72 sm:w-80 h-5 bg-black/80 rounded-full border border-white/25 overflow-hidden pointer-events-none"><div className="h-full bg-gradient-to-r from-red-600 via-green-400 to-red-600" style={{ width: `${meterFill}%` }} /><div className="absolute top-0 bottom-0 left-1/2 w-1 bg-white" /></div>}
+      <AnimatePresence>{message.visible && <motion.div initial={{ opacity: 0, y: -30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="absolute top-[18%] left-0 right-0 text-center pointer-events-none z-30 font-black italic text-4xl sm:text-6xl uppercase drop-shadow-[0_4px_20px_rgba(0,0,0,0.85)]" style={{ color: message.color }}>{message.text}</motion.div>}</AnimatePresence>
+      <AnimatePresence>{label.visible && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="absolute top-[30%] left-0 right-0 text-center pointer-events-none z-30 text-lg sm:text-2xl font-black tracking-widest text-amber-300 italic uppercase drop-shadow">{label.text}</motion.div>}</AnimatePresence>
+      {showMeter && (
+        <div
+          className={`absolute left-1/2 -translate-x-1/2 w-56 sm:w-80 h-5 bg-black/80 rounded-full border border-white/25 overflow-hidden pointer-events-none z-30 ${
+            showTouchControls ? "bottom-[calc(14.5rem+env(safe-area-inset-bottom))] sm:bottom-44" : "bottom-36 sm:bottom-44"
+          }`}
+        >
+          <div className="h-full bg-gradient-to-r from-red-600 via-green-400 to-red-600" style={{ width: `${meterFill}%` }} />
+          <div className="absolute top-0 bottom-0 left-1/2 w-1 bg-white" />
+        </div>
+      )}
 
       {/* Interactive "TAKE / STEAL BALL" Button when loose or at hoop */}
       <AnimatePresence>
@@ -3324,9 +4889,14 @@ export default function BasketballGame() {
             animate={{ scale: 1, y: 0, opacity: 1 }}
             exit={{ scale: 0.9, y: 20, opacity: 0 }}
             onClick={handlePickUpBall}
-            className="fixed bottom-12 left-1/2 -translate-x-1/2 z-40 min-h-[48px] px-6 py-3 bg-amber-400 hover:bg-amber-300 text-black font-black uppercase tracking-wider text-sm rounded-xl border border-yellow-100 shadow-xl active:scale-95 flex items-center gap-2 pointer-events-auto cursor-pointer"
+            className={`fixed left-1/2 -translate-x-1/2 z-40 min-h-[44px] sm:min-h-[48px] px-4 sm:px-6 py-2 sm:py-3 bg-amber-400 hover:bg-amber-300 text-black font-black uppercase tracking-wider text-xs sm:text-sm rounded-xl border border-yellow-100 shadow-xl active:scale-95 flex items-center gap-2 pointer-events-auto cursor-pointer whitespace-nowrap ${
+              showTouchControls
+                ? "bottom-[calc(11.25rem+env(safe-area-inset-bottom))] sm:bottom-12"
+                : "bottom-[max(2.5rem,env(safe-area-inset-bottom))]"
+            }`}
           >
-            <span>Take / Steal Ball [Space / E / Tap]</span>
+            <span className="sm:hidden">Take / Steal Ball</span>
+            <span className="hidden sm:inline">Take / Steal Ball [Space / E / Tap]</span>
           </motion.button>
         )}
       </AnimatePresence>
@@ -3334,7 +4904,7 @@ export default function BasketballGame() {
       {/* Auto-Responsive Multi-Touch Controls for Phone / Tablet / Touchscreen */}
       {showTouchControls && !showHighlights && !showMainMenu && (
         <>
-          <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-[max(0.75rem,env(safe-area-inset-left))] z-40">
+          <div className="fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-[max(0.5rem,env(safe-area-inset-left))] z-40">
             <Joystick
               onChange={(x: number, y: number, active: boolean, autoSprint: boolean) => {
                 if (gameRef.current) {
@@ -3343,7 +4913,7 @@ export default function BasketballGame() {
               }}
             />
           </div>
-          <div className="fixed bottom-[max(1.25rem,env(safe-area-inset-bottom))] right-[max(0.75rem,env(safe-area-inset-right))] grid grid-cols-3 gap-2 sm:gap-3 z-40">
+          <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(0.65rem,env(safe-area-inset-right))] grid grid-cols-3 gap-1.5 sm:gap-3 z-40">
             <ActionButton label="Sprint" icon="RT" color="bg-orange-600" onStateChange={(s: boolean) => { if(gameRef.current) gameRef.current.state.touchButtons.RT = s; }} />
             <ActionButton label="Shot" icon="A" color="bg-red-600" onStateChange={(s: boolean) => { if(gameRef.current) gameRef.current.state.touchButtons.A = s; }} />
             <ActionButton label="Pass" icon="B" color="bg-blue-600" onStateChange={(s: boolean) => { if(gameRef.current) gameRef.current.state.touchButtons.B = s; }} />
@@ -3354,9 +4924,24 @@ export default function BasketballGame() {
         </>
       )}
 
-      {/* Single Discreet Main Menu Button on Court (Zero Distractions) */}
-      <div className="fixed top-[max(0.65rem,env(safe-area-inset-top))] right-[max(0.75rem,env(safe-area-inset-right))] z-30 pointer-events-auto">
+      {/* Top-Right Court Controls: Screen Mirror & Main Menu */}
+      <div className="fixed top-[max(0.65rem,env(safe-area-inset-top))] right-[max(0.75rem,env(safe-area-inset-right))] z-30 pointer-events-auto flex items-center gap-2">
         <button
+          type="button"
+          onClick={() => setShowScreenMirror(true)}
+          aria-label="Screen Mirror"
+          className={`min-h-[40px] sm:min-h-[44px] px-3 sm:px-3.5 py-1.5 sm:py-2 backdrop-blur-md font-black uppercase text-xs tracking-wider rounded-xl border shadow-lg transition-colors flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400 ${
+            isMirroring
+              ? "bg-cyan-500 text-black border-cyan-200 hover:bg-cyan-400"
+              : "bg-neutral-950/85 hover:bg-cyan-500 hover:text-black text-cyan-300 border-cyan-400/40 hover:border-cyan-300"
+          }`}
+        >
+          <Cast className="w-4 h-4" />
+          <span className="hidden sm:inline">{isMirroring ? "Mirroring" : "Screen Mirror"}</span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => setShowMainMenu(true)}
           aria-label="Open Main Menu"
           className="min-h-[40px] sm:min-h-[44px] px-3 sm:px-4 py-1.5 sm:py-2 bg-neutral-950/85 hover:bg-amber-500 hover:text-black backdrop-blur-md text-white font-black uppercase text-xs tracking-wider rounded-xl border border-white/20 hover:border-amber-300 shadow-lg transition-colors flex items-center gap-1.5 sm:gap-2 cursor-pointer focus-visible:ring-2 focus-visible:ring-amber-400"
@@ -3459,6 +5044,8 @@ export default function BasketballGame() {
         onOpenControls={() => setShowHelp(true)}
         onOpenFeatures={() => setShowFeaturesModal(true)}
         onOpenMultiplayer={() => setShowMultiplayer(true)}
+        onOpenScreenMirroring={() => setShowScreenMirror(true)}
+        isMirroring={isMirroring}
         onOpenHighlights={handleOpenHighlightsFromMenu}
         onCallTimeout={callTimeout}
         onEndQuarterNow={handleEndQuarterNow}
@@ -3467,6 +5054,22 @@ export default function BasketballGame() {
         }}
         audioSettings={audioSettings}
         onChangeAudioSettings={handleChangeAudioSettings}
+      />
+
+      {/* Screen Mirroring & TV Cast Modal */}
+      <ScreenMirrorModal
+        isOpen={showScreenMirror}
+        onClose={() => setShowScreenMirror(false)}
+        isMirroring={isMirroring}
+        mirrorCode={mirrorCode}
+        viewerCount={mirrorViewerCount}
+        capabilities={mirrorCaps}
+        isFullscreen={isFullscreen}
+        onStartMirroring={handleStartMirroring}
+        onStopMirroring={handleStopMirroring}
+        onTriggerAirPlayOrCast={handleTriggerAirPlayOrCast}
+        onTogglePiP={handleTogglePiP}
+        onToggleFullscreen={handleToggleFullscreen}
       />
 
       {/* Offense & Defense Movebook Modal */}
@@ -3695,7 +5298,7 @@ export default function BasketballGame() {
           } else if (featId === "gameplay_engine") {
             setShowMovebook(true);
           } else if (featId === "mynba") {
-            callTimeout();
+            openTacticsHuddle(false);
           } else if (featId === "presentation") {
             if (allHighlightsRef.current.length > 0) {
               handleOpenHighlightsFromMenu();
@@ -3731,6 +5334,10 @@ export default function BasketballGame() {
           setShowSummary(false);
           setShowLockerRoom(true);
         }}
+        onMainMenu={() => {
+          setShowSummary(false);
+          setShowMainMenu(true);
+        }}
       />
     </div>
   );
@@ -3752,14 +5359,19 @@ function ActionButton({ label, icon, color, onStateChange }: { label: string, ic
       onStateChange(false);
     }
   };
+  const resetButton = () => {
+    activePointerId.current = null;
+    onStateChange(false);
+  };
   return (
-    <div className="flex flex-col items-center gap-1 select-none touch-none">
+    <div className="flex flex-col items-center gap-0.5 sm:gap-1 select-none touch-none">
       <button
         type="button"
         onPointerDown={handleDown}
         onPointerUp={handleUp}
         onPointerCancel={handleUp}
-        className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full flex items-center justify-center text-white font-black text-base sm:text-lg shadow-xl active:scale-90 transition-transform ${color} border-2 border-white/25 touch-none select-none cursor-pointer`}
+        onLostPointerCapture={resetButton}
+        className={`w-11 h-11 sm:w-14 sm:h-14 rounded-full flex items-center justify-center text-white font-black text-sm sm:text-lg shadow-xl active:scale-90 transition-transform ${color} border-2 border-white/25 touch-none select-none cursor-pointer`}
       >
         {icon}
       </button>
@@ -3841,6 +5453,16 @@ function Joystick({ onChange }: { onChange: (x: number, y: number, active: boole
     onChangeRef.current(0, 0, false, false);
   };
 
+  useEffect(() => {
+    const handleBlur = () => {
+      if (stick.current.pointerId !== null) {
+        resetStick();
+      }
+    };
+    window.addEventListener("blur", handleBlur);
+    return () => window.removeEventListener("blur", handleBlur);
+  }, []);
+
   const onStart = (e: React.PointerEvent<HTMLDivElement>) => {
     e.stopPropagation();
     e.preventDefault();
@@ -3880,15 +5502,15 @@ function Joystick({ onChange }: { onChange: (x: number, y: number, active: boole
       onPointerUp={onEnd}
       onPointerCancel={onEnd}
       onLostPointerCapture={resetStick}
-      className="w-36 h-36 sm:w-40 sm:h-40 flex items-center justify-center touch-none select-none cursor-pointer"
+      className="w-32 h-32 sm:w-40 sm:h-40 flex items-center justify-center touch-none select-none cursor-pointer"
     >
       <div
         ref={ringRef}
-        className="w-28 h-28 sm:w-32 sm:h-32 bg-white/10 backdrop-blur-xl rounded-full border-2 border-white/25 flex items-center justify-center relative pointer-events-none transition-colors"
+        className="w-24 h-24 sm:w-32 sm:h-32 bg-white/10 backdrop-blur-xl rounded-full border-2 border-white/25 flex items-center justify-center relative pointer-events-none transition-colors"
       >
         <div
           ref={handleRef}
-          className="w-12 h-12 sm:w-14 sm:h-14 bg-white/45 rounded-full border-2 border-white/60 shadow-2xl pointer-events-none will-change-transform"
+          className="w-10 h-10 sm:w-14 sm:h-14 bg-white/45 rounded-full border-2 border-white/60 shadow-2xl pointer-events-none will-change-transform"
         />
       </div>
     </div>

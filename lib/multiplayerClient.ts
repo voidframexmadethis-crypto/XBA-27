@@ -280,11 +280,24 @@ export class CrossPlayMultiplayerClient {
         }
 
         if (room) {
-          this.currentRoom = room;
-          this.callbacks.onRoomSnapshot?.(room);
-          if (room.match.lastEvent && room.match.lastEvent.seq > this.lastSeenEventSeq) {
-            this.lastSeenEventSeq = room.match.lastEvent.seq;
-            this.callbacks.onMatchEvent?.(room.match.lastEvent, room.match);
+          if (!room.players[this.playerId] && this.joinPayload) {
+            const rejoinRes = await fetch("/api/multiplayer", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: "join", ...this.joinPayload }),
+            });
+            const rejoinData = await rejoinRes.json();
+            if (rejoinData?.ok && rejoinData.room) {
+              room = rejoinData.room as MultiplayerRoomState;
+            }
+          }
+          if (room) {
+            this.currentRoom = room;
+            this.callbacks.onRoomSnapshot?.(room);
+            if (room.match.lastEvent && room.match.lastEvent.seq > this.lastSeenEventSeq) {
+              this.lastSeenEventSeq = room.match.lastEvent.seq;
+              this.callbacks.onMatchEvent?.(room.match.lastEvent, room.match);
+            }
           }
         }
       } catch {

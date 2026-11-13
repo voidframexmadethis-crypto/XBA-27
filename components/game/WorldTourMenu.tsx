@@ -147,7 +147,8 @@ export default function WorldTourMenu({
             <div className="flex items-center gap-3">
               <button
                 onClick={onClose}
-                className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/70 hover:text-white transition-all active:scale-95"
+                aria-label="Close World Tour"
+                className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/70 hover:text-white transition-all active:scale-95 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -233,12 +234,12 @@ export default function WorldTourMenu({
             </svg>
 
             {/* Overlay Banner Bar */}
-            <div className="absolute bottom-3 left-4 right-4 flex items-center justify-between text-xs font-bold text-white/80 pointer-events-none">
-              <span className="flex items-center gap-1.5 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10">
-                <MapPin className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Showing 28 Global Host Arenas</span>
+            <div className="absolute bottom-2.5 left-3 right-3 flex flex-wrap items-center justify-between gap-1.5 text-[10px] sm:text-xs font-bold text-white/80 pointer-events-none">
+              <span className="flex items-center gap-1.5 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/10">
+                <MapPin className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-cyan-400 shrink-0" />
+                <span>28 Global Host Arenas</span>
               </span>
-              <span className="bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 text-cyan-300">
+              <span className="bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/10 text-cyan-300 truncate max-w-full">
                 Selected: {previewCity.flag} {previewCity.name} ({previewCity.teamName})
               </span>
             </div>
@@ -395,6 +396,20 @@ export default function WorldTourMenu({
           <div className="p-4 sm:p-6 overflow-y-auto flex-1 grid grid-cols-1 lg:grid-cols-3 gap-5 min-h-0">
             {/* Left 2 Cols: City Cards Grid */}
             <div className="lg:col-span-2 space-y-3">
+              {filteredCities.length === 0 ? (
+                <div className="p-8 rounded-2xl bg-white/5 border border-white/10 text-center space-y-2">
+                  <div className="text-sm font-bold text-white/70">No host arenas matched &ldquo;{searchQuery}&rdquo;.</div>
+                  <button
+                    onClick={() => {
+                      setSearchQuery("");
+                      setActiveRegion("all");
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-cyan-500 text-black text-xs font-black uppercase cursor-pointer"
+                  >
+                    Show All 28 Arenas
+                  </button>
+                </div>
+              ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {filteredCities.map((city) => {
                   const isCurrent = previewCity.id === city.id;
@@ -454,6 +469,7 @@ export default function WorldTourMenu({
                   );
                 })}
               </div>
+              )}
             </div>
 
             {/* Right 1 Col: Selected City Detail / Tip-Off Card */}
@@ -535,11 +551,10 @@ export default function WorldTourMenu({
               <div className="space-y-2 pt-2">
                 <button
                   onClick={() => {
-                    onSelectCity(previewCity);
                     onStartMatch(previewCity);
                     onClose();
                   }}
-                  className="w-full py-3.5 bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-black font-black italic uppercase tracking-wider rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
+                  className="w-full py-3.5 bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-black font-black italic uppercase tracking-wider rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer"
                 >
                   <Play className="w-4 h-4 fill-black" />
                   <span>Tip-Off in {previewCity.name}</span>

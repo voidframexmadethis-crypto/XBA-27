@@ -32,7 +32,7 @@ export default function Scoreboard({
   const isLowShot = !isPracticeMode && shotClock <= 5;
 
   return (
-    <div className="fixed top-[max(0.65rem,env(safe-area-inset-top))] left-1/2 -translate-x-1/2 pointer-events-none z-20 max-w-[calc(100vw-6.5rem)]">
+    <div className="fixed top-[max(0.65rem,env(safe-area-inset-top))] left-[max(0.65rem,env(safe-area-inset-left))] sm:left-1/2 sm:-translate-x-1/2 pointer-events-none z-20 max-w-[calc(100vw-7.75rem)] sm:max-w-[calc(100vw-16rem)]">
       <div className="flex items-center gap-2 sm:gap-4 px-2.5 sm:px-5 py-1.5 sm:py-2 rounded-xl bg-neutral-950/85 backdrop-blur-md border border-white/15 shadow-lg text-white">
         {/* Home */}
         <div className="flex items-center gap-1.5 sm:gap-2">

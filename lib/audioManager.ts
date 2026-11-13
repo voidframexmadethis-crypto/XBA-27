@@ -213,6 +213,12 @@ export class BasketballAudioManager {
     saveAudioSettings(this.settings);
     this.applyGains();
 
+    if ((this.settings.muted || this.settings.sfx <= 0.01) && typeof window !== "undefined" && window.speechSynthesis) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
+
     if (prevEnabled && !this.settings.musicEnabled) {
       this.fadeOutMenuMusic(0.45);
     } else if (!prevEnabled && this.settings.musicEnabled && this.isInMenu) {
@@ -224,8 +230,17 @@ export class BasketballAudioManager {
   private prefetchMenuMusicBytes(): Promise<ArrayBuffer | null> {
     if (this.menuMusicRawPromise) return this.menuMusicRawPromise;
     this.menuMusicRawPromise = fetch(MENU_MUSIC_PATH)
-      .then((res) => (res.ok ? res.arrayBuffer() : null))
-      .catch(() => null);
+      .then((res) => {
+        if (!res.ok) {
+          this.menuMusicRawPromise = null;
+          return null;
+        }
+        return res.arrayBuffer();
+      })
+      .catch(() => {
+        this.menuMusicRawPromise = null;
+        return null;
+      });
     return this.menuMusicRawPromise;
   }
 
@@ -264,6 +279,7 @@ export class BasketballAudioManager {
         this.fadeOutMenuMusic(3.0);
       }
     }
+    this.updateCrowdAmbience(0);
   }
 
   public startMenuMusic(options?: { restart?: boolean }): void {
@@ -286,8 +302,13 @@ export class BasketballAudioManager {
       if (this.ctx && this.menuMusicFadeGain && this.ctx.state === "running") {
         const now = this.ctx.currentTime;
         const g = this.menuMusicFadeGain.gain;
-        g.cancelScheduledValues(now);
-        g.setValueAtTime(Math.max(0.0001, g.value), now);
+        const heldVal = Math.max(0.0001, g.value);
+        try {
+          (g as unknown as { cancelAndHoldAtTime?: (t: number) => void }).cancelAndHoldAtTime?.(now);
+        } catch {
+          g.cancelScheduledValues(now);
+          g.setValueAtTime(heldVal, now);
+        }
         g.linearRampToValueAtTime(1.0, now + 0.35);
       }
       return;
@@ -366,7 +387,7 @@ export class BasketballAudioManager {
       this.menuMusicFadeTimer = null;
     }
 
-    if (!this.menuMusicSource || !this.menuMusicFadeGain || !this.ctx) {
+    if (!this.menuMusicSource || !this.menuMusicFadeGain || !this.ctx || this.ctx.state !== "running") {
       this.stopMenuMusicImmediate();
       return;
     }
@@ -374,8 +395,12 @@ export class BasketballAudioManager {
     const now = this.ctx.currentTime;
     const g = this.menuMusicFadeGain.gain;
     const currentGain = Math.max(0.0001, g.value);
-    g.cancelScheduledValues(now);
-    g.setValueAtTime(currentGain, now);
+    try {
+      (g as unknown as { cancelAndHoldAtTime?: (t: number) => void }).cancelAndHoldAtTime?.(now);
+    } catch {
+      g.cancelScheduledValues(now);
+      g.setValueAtTime(currentGain, now);
+    }
     g.linearRampToValueAtTime(0.0001, now + Math.max(0.1, durationSec));
 
     const fadingSource = this.menuMusicSource;
@@ -545,10 +570,12 @@ export class BasketballAudioManager {
       const src = this.ctx.createBufferSource();
       src.buffer = crowdBuf;
       src.loop = true;
-      src.loopStart = 1.9;
-      src.loopEnd = Math.min(8.8, crowdBuf.duration - 0.1);
+      const loopStart = Math.min(1.9, Math.max(0, crowdBuf.duration * 0.2));
+      const loopEnd = Math.min(8.8, Math.max(loopStart + 0.5, crowdBuf.duration - 0.1));
+      src.loopStart = loopStart;
+      src.loopEnd = loopEnd;
       src.connect(gain).connect(this.crowdGain);
-      src.start(0, 2.0);
+      src.start(0, Math.min(2.0, loopStart));
       this.ambienceGain = gain;
       this.ambienceSource = src;
     }
@@ -800,14 +827,42 @@ export class BasketballAudioManager {
     );
   }
 
+  public shotClockBeep(high = false): void {
+    if (!this.canTrigger("shotClockBeep", 220)) return;
+    this.playSlice(
+      "buzzer",
+      {
+        offset: 0.05,
+        duration: 0.085,
+        baseGain: high ? 0.52 : 0.34,
+        rateMin: high ? 1.42 : 1.24,
+        rateMax: high ? 1.46 : 1.28,
+      },
+      {
+        bus: "sfx",
+        pan: 0,
+        vol: high ? 0.85 : 0.65,
+        voiceKind: "sfx",
+        fadeOutSec: 0.03,
+      }
+    );
+  }
+
   public speak(text: string): void {
-    if (typeof window === "undefined" || !window.speechSynthesis || this.settings.muted) return;
+    if (
+      typeof window === "undefined" ||
+      !window.speechSynthesis ||
+      this.settings.muted ||
+      this.settings.sfx <= 0.01
+    ) {
+      return;
+    }
     try {
       window.speechSynthesis.cancel();
       const ut = new SpeechSynthesisUtterance(text);
       ut.pitch = 1.08;
       ut.rate = 1.15;
-      ut.volume = Math.min(1, Math.max(0.1, this.settings.sfx * 0.75));
+      ut.volume = Math.min(1, Math.max(0.02, this.settings.sfx * 0.75));
       window.speechSynthesis.speak(ut);
     } catch {
       // Ignore speech synthesis restrictions

@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
-import { Trophy, Globe, Shirt, Play, RotateCcw, Award } from "lucide-react";
+import { Trophy, Globe, Shirt, Play, RotateCcw, Award, Menu } from "lucide-react";
 import { WorldCity } from "@/lib/worldTour";
 import { CareerStats, calculateLevel } from "@/lib/progression";
 
@@ -23,6 +23,7 @@ interface EndGameLeaderboardModalProps {
   onRematch: () => void;
   onOpenWorldTour: () => void;
   onOpenLockerRoom: () => void;
+  onMainMenu?: () => void;
 }
 
 export default function EndGameLeaderboardModal({
@@ -36,10 +37,12 @@ export default function EndGameLeaderboardModal({
   onRematch,
   onOpenWorldTour,
   onOpenLockerRoom,
+  onMainMenu,
 }: EndGameLeaderboardModalProps) {
   if (!isOpen) return null;
 
   const userWon = scoreHome > scoreAway;
+  const isTie = scoreHome === scoreAway;
   const levelInfo = calculateLevel(careerStats.xp);
 
   return (
@@ -61,7 +64,7 @@ export default function EndGameLeaderboardModal({
             <span>FINAL MATCH LEADERBOARD & SUMMARY</span>
           </div>
           <h2 className="text-4xl sm:text-5xl font-black italic uppercase tracking-tight text-2k-gold">
-            {userWon ? "VICTORY!" : "FINAL BUZZER"}
+            {userWon ? "VICTORY!" : isTie ? "TIE GAME" : "FINAL BUZZER"}
           </h2>
           <p className="text-xs text-white/60 font-semibold uppercase tracking-wider">
             {selectedCity.arenaName} • {selectedCity.name}, {selectedCity.country} {selectedCity.flag}
@@ -120,11 +123,11 @@ export default function EndGameLeaderboardModal({
           <div className="divide-y divide-white/5">
             {finalStats.map((p, i) => (
               <div key={i} className={`grid grid-cols-6 gap-2 p-3 items-center text-xs font-bold ${p.isUser || p.name === "YOU" ? "bg-amber-500/20 border-l-4 border-amber-400" : "hover:bg-white/5"}`}>
-                <div className="text-left pl-2 flex items-center gap-2">
-                  <span className="text-amber-400 font-black">#{i + 1}</span>
+                <div className="text-left pl-2 flex items-center gap-1.5 min-w-0">
+                  <span className="text-amber-400 font-black shrink-0">#{i + 1}</span>
                   <span className="text-white truncate">{p.name}</span>
                   {(p.isUser || p.name === "YOU") && (
-                    <span className="px-1.5 py-0.2 rounded bg-amber-400 text-black text-[9px] font-black">YOU</span>
+                    <span className="px-1.5 py-0.2 rounded bg-amber-400 text-black text-[9px] font-black shrink-0">YOU</span>
                   )}
                 </div>
                 <div className="text-center text-white/70">{p.team}</div>
@@ -138,30 +141,40 @@ export default function EndGameLeaderboardModal({
         </div>
 
         {/* Action Buttons */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 relative z-10 shrink-0">
+        <div className={`grid grid-cols-1 ${onMainMenu ? "sm:grid-cols-4" : "sm:grid-cols-3"} gap-3 pt-2 relative z-10 shrink-0`}>
           <button
             onClick={onRematch}
-            className="py-3 bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 hover:from-amber-300 hover:to-yellow-300 text-black font-black italic uppercase tracking-wider rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95"
+            className="py-3 bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 hover:from-amber-300 hover:to-yellow-300 text-black font-black italic uppercase tracking-wider rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer"
           >
             <RotateCcw className="w-4 h-4 stroke-[3]" />
-            <span>Play Again / Rematch</span>
+            <span>Rematch</span>
           </button>
 
           <button
             onClick={onOpenWorldTour}
-            className="py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-black italic uppercase tracking-wider rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95"
+            className="py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-black italic uppercase tracking-wider rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer"
           >
             <Globe className="w-4 h-4" />
-            <span>World Tour Arenas</span>
+            <span>World Tour</span>
           </button>
 
           <button
             onClick={onOpenLockerRoom}
-            className="py-3 bg-white/10 hover:bg-white/20 border border-white/20 text-white font-black italic uppercase tracking-wider rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95"
+            className="py-3 bg-white/10 hover:bg-white/20 border border-white/20 text-white font-black italic uppercase tracking-wider rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer"
           >
             <Shirt className="w-4 h-4 text-amber-400" />
-            <span>Locker Room (LVL {levelInfo.level})</span>
+            <span>Locker (LVL {levelInfo.level})</span>
           </button>
+
+          {onMainMenu && (
+            <button
+              onClick={onMainMenu}
+              className="py-3 bg-neutral-800 hover:bg-neutral-700 border border-white/15 text-white font-black italic uppercase tracking-wider rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer"
+            >
+              <Menu className="w-4 h-4 text-white/80" />
+              <span>Main Menu</span>
+            </button>
+          )}
         </div>
       </motion.div>
     </div>

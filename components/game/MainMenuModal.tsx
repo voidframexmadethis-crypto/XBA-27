@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Play,
@@ -25,6 +26,11 @@ import {
   Volume2,
   VolumeX,
   Music,
+  Cast,
+  ArrowRight,
+  ArrowLeft,
+  CircleDot,
+  SlidersHorizontal,
 } from "lucide-react";
 import { WorldCity } from "@/lib/worldTour";
 import { AthleteProfile, calculateOverallRating, formatHeight } from "@/lib/athleteProfile";
@@ -61,6 +67,8 @@ interface MainMenuModalProps {
   onOpenControls: () => void;
   onOpenFeatures: () => void;
   onOpenMultiplayer: () => void;
+  onOpenScreenMirroring: () => void;
+  isMirroring: boolean;
   onOpenHighlights: () => void;
   onCallTimeout: () => void;
   onEndQuarterNow: () => void;
@@ -95,6 +103,8 @@ export default function MainMenuModal({
   onOpenControls,
   onOpenFeatures,
   onOpenMultiplayer,
+  onOpenScreenMirroring,
+  isMirroring,
   onOpenHighlights,
   onCallTimeout,
   onEndQuarterNow,
@@ -102,8 +112,14 @@ export default function MainMenuModal({
   audioSettings,
   onChangeAudioSettings,
 }: MainMenuModalProps) {
+  const [activeTab, setActiveTab] = useState<"home" | "settings">("home");
   const ovr = calculateOverallRating(athleteProfile.attributes);
   const levelInfo = calculateLevel(careerStats.xp);
+
+  const handleCloseMenu = () => {
+    setActiveTab("home");
+    onClose();
+  };
 
   return (
     <AnimatePresence>
@@ -112,481 +128,713 @@ export default function MainMenuModal({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[185] flex items-start sm:items-center justify-center p-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-6 overflow-y-auto"
-          onClick={onClose}
+          className="fixed inset-0 bg-[#080a0f]/95 backdrop-blur-xl z-[185] overflow-y-auto overscroll-contain"
         >
-          <motion.div
-            initial={{ scale: 0.96, y: 16 }}
-            animate={{ scale: 1, y: 0 }}
-            exit={{ scale: 0.96, y: 16 }}
+          <motion.main
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
             transition={{ duration: 0.18 }}
-            onClick={(e) => e.stopPropagation()}
-            className="relative w-full max-w-5xl bg-carbon border border-amber-500/25 rounded-2xl p-4 sm:p-7 shadow-[0_0_80px_rgba(0,0,0,0.9),0_0_40px_rgba(245,158,11,0.12)] text-white space-y-5 max-h-[93dvh] my-auto overflow-y-auto"
+            className="min-h-full w-full bg-[#080a0f] text-white flex flex-col justify-between pb-[max(0.5rem,env(safe-area-inset-bottom))]"
           >
-            {/* Broadcast Top Accent Bar */}
-            <div className="h-1 w-full rounded-full bg-gradient-to-r from-amber-500 via-yellow-300 to-cyan-400 opacity-85" />
-
             {/* Header */}
-            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
-              <div className="flex items-center gap-3.5">
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400 via-amber-500 to-orange-600 text-black font-black text-lg flex flex-col items-center justify-center shrink-0 shadow-[0_0_24px_rgba(245,158,11,0.4)] border border-yellow-200/70 leading-none">
-                  <span className="text-[10px] tracking-widest uppercase font-black">XBA</span>
-                  <span className="text-xl tracking-tighter">27</span>
-                </div>
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-2xl sm:text-3xl font-black italic uppercase tracking-tight text-2k-gold">
-                      XBA 27 · Hoops Moves
-                    </h2>
-                    <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-white/10 border border-amber-400/35 text-amber-300">
-                      {activeMode === "match"
-                        ? "5v5 Arena"
-                        : activeMode === "streetball"
-                        ? "Streetball"
-                        : activeMode === "training"
-                        ? "Training"
-                        : "Freestyle"}
-                    </span>
+            <header className="sticky top-0 z-20 min-h-[76px] sm:min-h-[85px] px-[5%] py-3.5 pt-[max(0.9rem,env(safe-area-inset-top))] flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-5 bg-[#090b10]/95 backdrop-blur-md border-b border-[#252a32]">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-[#ff963b]/15 border border-[#ff963b]/40 flex items-center justify-center text-[#ff963b] shrink-0">
+                    <CircleDot className="w-6 h-6" />
                   </div>
-                  <p className="text-xs text-white/65 mt-0.5">
-                    {athleteProfile.firstName} {athleteProfile.lastName} · #{athleteProfile.jerseyNumber} · {athleteProfile.position} ·{" "}
-                    <span className="text-amber-300 font-bold">{ovr} OVR</span> · Level {levelInfo.level} {levelInfo.title} ·{" "}
-                    <span className="text-cyan-300 font-semibold">{selectedCity.flag} {selectedCity.name}</span>
-                  </p>
+                  <div>
+                    <h1 className="m-0 text-lg sm:text-[22px] font-black tracking-wide leading-tight uppercase">
+                      COURT<span className="text-[#ff963b]">LEGENDS</span>
+                    </h1>
+                    <small className="block text-[#8e98a8] text-[9px] font-bold tracking-[3px] uppercase">
+                      WORLD BASKETBALL TOUR · XBA 27
+                    </small>
+                  </div>
                 </div>
+
+                {/* Mobile Close / Return Button */}
+                <button
+                  type="button"
+                  onClick={handleCloseMenu}
+                  aria-label="Return to Court"
+                  className="sm:hidden min-w-[44px] min-h-[44px] px-3 rounded bg-[#ff963b] text-[#101014] font-black text-[11px] uppercase flex items-center justify-center gap-1 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                  <span>Court</span>
+                </button>
               </div>
 
-            <div className="flex items-center gap-2.5">
-              <button
-                onClick={() => {
-                  onClose();
-                  onOpenControls();
-                }}
-                className="min-h-[44px] px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-white/85 hover:text-white flex items-center gap-1.5 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-amber-400"
-              >
-                <Info className="w-4 h-4" />
-                <span>Controls</span>
-              </button>
-              <button
-                onClick={onClose}
-                aria-label="Return to Court"
-                className="min-w-[44px] min-h-[44px] px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-white"
-              >
-                <X className="w-4 h-4" />
-                <span className="hidden sm:inline">Play</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Primary Featured Row: Play Arena, Cross-Play Multiplayer, Draft Night */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <button
-              onClick={() => {
-                onSelectGameMode("match");
-                onClose();
-              }}
-              className="p-5 rounded-2xl bg-gradient-to-br from-amber-500/20 via-neutral-900 to-neutral-950 border border-amber-500/45 hover:border-amber-400 text-left transition-all flex flex-col justify-between cursor-pointer focus-visible:ring-2 focus-visible:ring-amber-400"
-            >
-              <div className="flex items-center justify-between">
-                <Play className="w-7 h-7 text-amber-400" />
-                <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">
-                  {selectedCity.name}
-                </span>
-              </div>
-              <div className="mt-5">
-                <div className="text-xl font-black uppercase tracking-tight text-white">
-                  Play Arena Match
-                </div>
-                <p className="text-xs text-white/65 mt-1">
-                  5v5 full-court game with Tip-Off, quarter highlights, and postgame leaderboard.
-                </p>
-              </div>
-            </button>
-
-            <button
-              onClick={() => {
-                onClose();
-                onOpenMultiplayer();
-              }}
-              className="p-5 rounded-2xl bg-gradient-to-br from-cyan-500/20 via-neutral-900 to-neutral-950 border border-cyan-500/45 hover:border-cyan-400 text-left transition-all flex flex-col justify-between cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400"
-            >
-              <div className="flex items-center justify-between">
-                <Users className="w-7 h-7 text-cyan-400" />
-                <span className="text-xs font-bold text-cyan-300 uppercase">
-                  {multiplayerTransport !== "disconnected" && multiplayerRoomCode
-                    ? `${multiplayerRoomCode} · ${multiplayerPeerCount} On Court`
-                    : "Cross-Play Live"}
-                </span>
-              </div>
-              <div className="mt-5">
-                <div className="text-xl font-black uppercase tracking-tight text-white">
-                  Multiplayer Lobby
-                </div>
-                <p className="text-xs text-white/65 mt-1">
-                  Play live across Phone, Tablet, Computer, and Smart TV via rooms or Public Court.
-                </p>
-              </div>
-            </button>
-
-            <button
-              onClick={() => {
-                onClose();
-                onOpenDraft();
-              }}
-              className="p-5 rounded-2xl bg-gradient-to-br from-emerald-500/15 via-neutral-900 to-neutral-950 border border-emerald-500/40 hover:border-emerald-400 text-left transition-all flex flex-col justify-between cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400"
-            >
-              <div className="flex items-center justify-between">
-                <Award className="w-7 h-7 text-emerald-400" />
-                <span className="text-xs font-bold text-emerald-300 uppercase">
-                  {athleteProfile.draftRecord?.drafted
-                    ? `Pick #${athleteProfile.draftRecord.pickNumber}`
-                    : "Prospect"}
-                </span>
-              </div>
-              <div className="mt-5">
-                <div className="text-xl font-black uppercase tracking-tight text-white">
-                  Draft Night
-                </div>
-                <p className="text-xs text-white/65 mt-1">
-                  Enter the Draft Room, walk the stage in the cutscene, and tip off your Rookie Debut.
-                </p>
-              </div>
-            </button>
-          </div>
-
-          {/* Core Modes & Studio Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-            <button
-              onClick={() => {
-                onSelectGameMode("training");
-                onClose();
-              }}
-              className={`min-h-[100px] p-4 rounded-2xl border text-left transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-amber-400 ${
-                activeMode === "training"
-                  ? "bg-white/10 border-amber-400"
-                  : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/25"
-              }`}
-            >
-              <Target className="w-6 h-6 text-cyan-400 mb-2.5" />
-              <div className="text-base font-black uppercase text-white">Training Drills</div>
-              <p className="text-xs text-white/60 mt-1">
-                Guided shooting and handles drills to earn Career XP at your own pace.
-              </p>
-            </button>
-
-            <button
-              onClick={() => {
-                onSelectGameMode("streetball");
-                onClose();
-              }}
-              className={`min-h-[100px] p-4 rounded-2xl border text-left transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-amber-400 ${
-                activeMode === "streetball"
-                  ? "bg-white/10 border-amber-400"
-                  : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/25"
-              }`}
-            >
-              <Flame className="w-6 h-6 text-orange-400 mb-2.5" />
-              <div className="text-base font-black uppercase text-white">Streetball</div>
-              <p className="text-xs text-white/60 mt-1">
-                Outdoor playground blacktop court with weathered asphalt and grass tufts.
-              </p>
-            </button>
-
-            <button
-              onClick={() => {
-                onClose();
-                onOpenWorldTour();
-              }}
-              className="min-h-[100px] p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/25 text-left transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-amber-400"
-            >
-              <Globe className="w-6 h-6 text-blue-400 mb-2.5" />
-              <div className="text-base font-black uppercase text-white">World Tour</div>
-              <p className="text-xs text-white/60 mt-1">
-                28 host cities across every continent with localized arenas and jerseys.
-              </p>
-            </button>
-
-            <button
-              onClick={() => {
-                onSelectGameMode("freestyle");
-                onClose();
-              }}
-              className={`min-h-[100px] p-4 rounded-2xl border text-left transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-amber-400 ${
-                activeMode === "freestyle"
-                  ? "bg-white/10 border-amber-400"
-                  : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/25"
-              }`}
-            >
-              <Sparkles className="w-6 h-6 text-purple-400 mb-2.5" />
-              <div className="text-base font-black uppercase text-white">Freestyle</div>
-              <p className="text-xs text-white/60 mt-1">
-                Open-court shootaround for dunks, step-backs, fadeaways, and handles.
-              </p>
-            </button>
-
-            <button
-              onClick={() => {
-                onClose();
-                onOpenCreateAthlete();
-              }}
-              className="min-h-[100px] p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/25 text-left transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-amber-400"
-            >
-              <UserCheck className="w-6 h-6 text-amber-400 mb-2.5" />
-              <div className="text-base font-black uppercase text-white">Create Athlete</div>
-              <p className="text-xs text-white/60 mt-1">
-                {athleteProfile.firstName} {athleteProfile.lastName} · {formatHeight(athleteProfile.heightInches)} · {athleteProfile.archetype}
-              </p>
-            </button>
-
-            <button
-              onClick={() => {
-                onClose();
-                onOpenLockerRoom();
-              }}
-              className="min-h-[100px] p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/25 text-left transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-amber-400"
-            >
-              <Shirt className="w-6 h-6 text-red-400 mb-2.5" />
-              <div className="text-base font-black uppercase text-white">Locker Room</div>
-              <p className="text-xs text-white/60 mt-1">
-                Jerseys, sneakers &amp; gear · Career {careerStats.matchesWon}W - {careerStats.matchesPlayed - careerStats.matchesWon}L
-              </p>
-            </button>
-          </div>
-
-          {/* Match Controls & Game Highlights (Moved off-screen into Main Menu) */}
-          <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-3">
-            <div className="text-xs font-black uppercase tracking-wider text-white/70">
-              In-Game Controls, Highlights &amp; Playbook
-            </div>
-            <div className="flex flex-wrap gap-2.5">
-              <button
-                onClick={() => {
-                  onClose();
-                  onOpenHighlights();
-                }}
-                disabled={highlightsCount === 0}
-                className="min-h-[44px] px-4 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 disabled:opacity-40 border border-amber-500/40 text-amber-200 text-xs font-black uppercase tracking-wider flex items-center gap-2 cursor-pointer"
-              >
-                <Film className="w-4 h-4" />
-                <span>Game Highlights ({highlightsCount}/3)</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  onClose();
-                  onCallTimeout();
-                }}
-                disabled={timeoutsLeft <= 0}
-                className="min-h-[44px] px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 disabled:opacity-40 border border-white/15 text-white text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer"
-              >
-                <Timer className="w-4 h-4 text-amber-400" />
-                <span>Timeout &amp; Tactics ({timeoutsLeft})</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  onClose();
-                  onOpenMovebook();
-                }}
-                className="min-h-[44px] px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 text-cyan-300 text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer"
-              >
-                <BookOpen className="w-4 h-4" />
-                <span>Movebook (101 Moves)</span>
-              </button>
-
-              {(activeMode === "match" || activeMode === "streetball") && (
-                <>
-                  <button
-                    onClick={() => {
-                      onClose();
-                      onEndQuarterNow();
-                    }}
-                    className="min-h-[44px] px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 text-white/85 text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer"
-                  >
-                    <Play className="w-4 h-4 text-emerald-400" />
-                    <span>End Quarter (Play Highlights)</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      onClose();
-                      onEndGame();
-                    }}
-                    className="min-h-[44px] px-4 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-200 text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer"
-                  >
-                    <Flag className="w-4 h-4" />
-                    <span>End Game &amp; Leaderboard</span>
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* Cross-Device Controls & Quarter Length Settings */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2.5">
-              <div className="text-xs font-black uppercase tracking-wider text-white/75 flex items-center justify-between">
-                <span>Input Device Mode</span>
-                <span className="text-[11px] font-normal text-white/50">Detected: {detectedDevice}</span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {([
-                  { id: "auto", label: "Auto", icon: Sparkles },
-                  { id: "touch", label: "Phone / Tablet", icon: Smartphone },
-                  { id: "keyboard", label: "Computer", icon: Monitor },
-                  { id: "tv", label: "TV Remote", icon: Tv },
-                  { id: "gamepad", label: "Controller", icon: Gamepad2 },
-                ] as const).map((opt) => {
-                  const Icon = opt.icon;
-                  const active = inputPreference === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      onClick={() => onChangeInputPreference(opt.id)}
-                      className={`min-h-[40px] px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 cursor-pointer ${
-                        active
-                          ? "bg-amber-500 text-black border-amber-300"
-                          : "bg-black/40 text-white/80 border-white/10 hover:bg-white/10"
-                      }`}
-                    >
-                      <Icon className="w-3.5 h-3.5" />
-                      <span>{opt.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2.5">
-              <div className="text-xs font-black uppercase tracking-wider text-white/75">
-                Quarter Clock Length
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {[
-                  { sec: 60, label: "1 Min" },
-                  { sec: 120, label: "2 Min" },
-                  { sec: 300, label: "5 Min" },
-                  { sec: 720, label: "12 Min" },
-                ].map((opt) => (
-                  <button
-                    key={opt.sec}
-                    onClick={() => onChangeQuarterLength(opt.sec)}
-                    className={`min-h-[40px] px-4 py-1.5 rounded-xl text-xs font-bold border cursor-pointer ${
-                      quarterLengthSec === opt.sec
-                        ? "bg-amber-500 text-black border-amber-300"
-                        : "bg-black/40 text-white/80 border-white/10 hover:bg-white/10"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Arena Audio Mixer (Music, Sound Effects, Crowd Ambience) */}
-          <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-3.5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-xs font-black uppercase tracking-wider text-white/80 flex items-center gap-2">
-                {audioSettings.muted ? (
-                  <VolumeX className="w-4 h-4 text-red-400" />
-                ) : (
-                  <Volume2 className="w-4 h-4 text-amber-400" />
-                )}
-                <span>Arena Audio Mixer</span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <nav className="flex items-center justify-between sm:justify-end gap-2 sm:gap-6 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("home")}
+                  className={`min-h-[40px] px-1.5 font-extrabold text-[10px] sm:text-[11px] tracking-wider uppercase cursor-pointer transition-colors ${
+                    activeTab === "home"
+                      ? "text-[#ff963b]"
+                      : "text-[#aab0bb] hover:text-white"
+                  }`}
+                >
+                  HOME
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleCloseMenu();
+                    onOpenWorldTour();
+                  }}
+                  className="min-h-[40px] px-1.5 font-extrabold text-[10px] sm:text-[11px] tracking-wider uppercase text-[#aab0bb] hover:text-white cursor-pointer transition-colors"
+                >
+                  WORLD TOUR
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleCloseMenu();
+                    onOpenCreateAthlete();
+                  }}
+                  className="min-h-[40px] px-1.5 font-extrabold text-[10px] sm:text-[11px] tracking-wider uppercase text-[#aab0bb] hover:text-white cursor-pointer transition-colors"
+                >
+                  MY PLAYER
+                </button>
                 <button
                   type="button"
                   onClick={() =>
-                    onChangeAudioSettings({ musicEnabled: !audioSettings.musicEnabled })
+                    setActiveTab((prev) => (prev === "settings" ? "home" : "settings"))
                   }
-                  className={`min-h-[36px] px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider border cursor-pointer transition-colors flex items-center gap-1.5 ${
-                    audioSettings.musicEnabled
-                      ? "bg-amber-500/20 border-amber-400/70 text-amber-300 hover:bg-amber-500/30"
-                      : "bg-black/40 border-white/15 text-white/60 hover:bg-white/10"
+                  className={`min-h-[40px] px-1.5 font-extrabold text-[10px] sm:text-[11px] tracking-wider uppercase cursor-pointer transition-colors ${
+                    activeTab === "settings"
+                      ? "text-[#ff963b]"
+                      : "text-[#aab0bb] hover:text-white"
                   }`}
                 >
-                  <Music className="w-3.5 h-3.5" />
-                  <span>Music: {audioSettings.musicEnabled ? "ON" : "OFF"}</span>
+                  SETTINGS
                 </button>
                 <button
                   type="button"
-                  onClick={() => onChangeAudioSettings({ muted: !audioSettings.muted })}
-                  className={`min-h-[36px] px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider border cursor-pointer transition-colors ${
-                    audioSettings.muted
-                      ? "bg-red-600/80 border-red-400 text-white"
-                      : "bg-black/40 border-white/15 text-white/80 hover:bg-white/10"
-                  }`}
+                  onClick={handleCloseMenu}
+                  aria-label="Return to Court"
+                  className="hidden sm:inline-flex min-h-[40px] px-3.5 rounded bg-[#ff963b] hover:bg-[#ffc078] text-[#101014] font-black text-[11px] tracking-wider uppercase items-center gap-1.5 cursor-pointer transition-colors"
                 >
-                  {audioSettings.muted ? "Unmute Audio" : "Mute All"}
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>COURT</span>
                 </button>
-              </div>
-            </div>
+              </nav>
+            </header>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {([
-                { key: "sfx", label: "Sound Effects", value: audioSettings.sfx, disabled: false },
-                { key: "crowd", label: "Crowd Ambience", value: audioSettings.crowd, disabled: false },
-                {
-                  key: "music",
-                  label: "Menu Music · Rise From Nothing",
-                  value: audioSettings.music,
-                  disabled: !audioSettings.musicEnabled,
-                },
-              ] as const).map((ch) => (
-                <label
-                  key={ch.key}
-                  className={`space-y-1.5 block transition-opacity ${
-                    ch.disabled ? "opacity-50" : "opacity-100"
-                  }`}
+            {activeTab === "home" ? (
+              <div className="flex-1 flex flex-col">
+                {/* Hero Section */}
+                <section
+                  className="relative min-h-[380px] sm:min-h-[440px] px-[6%] sm:px-[7%] pt-10 pb-20 sm:py-16 flex items-center overflow-hidden border-b border-[#252a32]"
+                  style={{
+                    background:
+                      "radial-gradient(ellipse at 75% 45%, #59402b 0%, transparent 42%), linear-gradient(110deg, #111720, #25201d 55%, #090b10)",
+                  }}
                 >
-                  <div className="flex items-center justify-between gap-2 text-xs font-bold text-white/75">
-                    <span className="truncate">{ch.label}</span>
-                    <span className="tabular-nums text-amber-300 shrink-0">
-                      {ch.disabled ? "OFF" : `${Math.round(ch.value * 100)}%`}
+                  {/* Watermark Emblem */}
+                  <div className="pointer-events-none absolute right-[6%] top-8 opacity-15 -rotate-12 text-[#ff963b]">
+                    <CircleDot className="w-44 h-44 sm:w-64 sm:h-64" strokeWidth={1.25} />
+                  </div>
+
+                  {/* Hero Gradient Overlay */}
+                  <div
+                    className="pointer-events-none absolute inset-0"
+                    style={{
+                      background:
+                        "linear-gradient(90deg, rgba(8, 10, 15, 0.96), rgba(8, 10, 15, 0.55), transparent)",
+                    }}
+                  />
+
+                  <div className="relative z-10 max-w-[620px]">
+                    <div className="flex items-center text-[#ffab53] text-[10px] sm:text-[11px] font-black tracking-[2px] uppercase mb-4 sm:mb-5">
+                      <span className="inline-block h-2 w-2 bg-[#ff963b] rounded-full mr-2.5 shrink-0" />
+                      <span>THE NEXT GENERATION OF BASKETBALL</span>
+                    </div>
+
+                    <h2 className="text-[46px] sm:text-[74px] md:text-[88px] leading-[0.88] font-black tracking-[-2px] sm:tracking-[-4px] m-0 uppercase">
+                      OWN THE
+                      <br />
+                      <span className="text-[#ff963b]">COURT.</span>
+                    </h2>
+
+                    <p className="text-[#b9c0cb] text-sm sm:text-[15px] leading-relaxed max-w-[380px] my-5">
+                      Build your legacy. Represent your city. Compete against the world.
+                    </p>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSelectGameMode("match");
+                          handleCloseMenu();
+                        }}
+                        className="min-h-[48px] bg-[#ff963b] hover:bg-[#ffc078] hover:-translate-y-0.5 rounded px-8 py-4 text-[#101014] text-xs sm:text-[13px] font-black tracking-wider uppercase inline-flex items-center gap-2 cursor-pointer transition-all"
+                      >
+                        <Play className="w-4 h-4 fill-current" />
+                        <span>PLAY NOW</span>
+                      </button>
+
+                      <div className="px-3.5 py-2.5 rounded bg-black/50 border border-white/15 text-xs text-white/80">
+                        <span className="font-black text-white">
+                          {athleteProfile.firstName} {athleteProfile.lastName}
+                        </span>{" "}
+                        · <span className="text-[#ff963b] font-black">{ovr} OVR</span> ·{" "}
+                        <span>
+                          {selectedCity.flag} {selectedCity.name}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Hero Bottom Strip */}
+                  <div className="absolute bottom-0 left-0 right-0 flex justify-around gap-2 px-3 py-3.5 bg-black/55 border-t border-white/15 text-[#d3d6dc] text-[8px] sm:text-[10px] font-black tracking-wider uppercase text-center">
+                    <span>5V5 BASKETBALL</span>
+                    <span>WORLD TOUR · 28 CITIES</span>
+                    <span>ONLINE MULTIPLAYER</span>
+                  </div>
+                </section>
+
+                {/* Game Modes 01 - 05 */}
+                <section className="px-[5%] py-7 sm:py-9 space-y-6">
+                  <div className="flex items-end justify-between gap-4">
+                    <div>
+                      <small className="block text-[#ff963b] font-black tracking-[2px] text-[10px] uppercase">
+                        CHOOSE YOUR EXPERIENCE
+                      </small>
+                      <h2 className="text-2xl sm:text-[27px] font-black mt-1.5 m-0 uppercase">
+                        GAME MODES
+                      </h2>
+                    </div>
+                    <span className="text-[#78808d] text-xs font-bold tabular-nums">
+                      01 — 05
                     </span>
                   </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={Math.round(ch.value * 100)}
-                    onChange={(e) => {
-                      const nextVal = Number(e.target.value) / 100;
-                      if (ch.key === "music" && !audioSettings.musicEnabled && nextVal > 0) {
-                        onChangeAudioSettings({ music: nextVal, musicEnabled: true });
-                      } else {
-                        onChangeAudioSettings({ [ch.key]: nextVal });
-                      }
-                    }}
-                    className="w-full accent-amber-400 cursor-pointer h-2 bg-white/15 rounded-lg"
-                  />
-                </label>
-              ))}
-            </div>
-          </div>
 
-          {/* Footer */}
-          <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-3 text-xs text-white/60">
-            <button
-              onClick={() => {
-                onClose();
-                onOpenFeatures();
-              }}
-              className="min-h-[40px] flex items-center gap-1.5 text-amber-400 hover:text-amber-300 font-bold cursor-pointer"
-            >
-              <Trophy className="w-4 h-4" />
-              <span>Modes &amp; Features Directory</span>
-            </button>
-            <button
-              onClick={onClose}
-              className="min-h-[40px] px-4 rounded-xl bg-white/10 hover:bg-white/15 text-white font-bold uppercase tracking-wider cursor-pointer"
-            >
-              Return to Court
-            </button>
-          </div>
-        </motion.div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    {/* 01 Arena Match */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectGameMode("match");
+                        handleCloseMenu();
+                      }}
+                      className="group relative min-h-[125px] sm:min-h-[145px] p-5 text-left text-white border border-[#343b46] hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#1b222d] to-[#101319] hover:from-[#30271f] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden"
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <Trophy className="w-6 h-6 text-[#ff963b]" />
+                        <span className="text-[#667080] text-[11px] font-black">01</span>
+                      </div>
+                      <div className="pr-8">
+                        <h3 className="mt-4 mb-1 text-[17px] font-black uppercase">
+                          ARENA MATCH
+                        </h3>
+                        <p className="text-[#9da6b4] text-[11px] m-0">
+                          5v5 full-court competition · {selectedCity.arenaName}
+                        </p>
+                      </div>
+                      <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />
+                    </button>
+
+                    {/* 02 Multiplayer */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleCloseMenu();
+                        onOpenMultiplayer();
+                      }}
+                      className="group relative min-h-[125px] sm:min-h-[145px] p-5 text-left text-white border border-[#176c83] hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#1b222d] to-[#101319] hover:from-[#30271f] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden"
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <Globe className="w-6 h-6 text-cyan-400" />
+                        <span className="text-[#667080] text-[11px] font-black">
+                          {multiplayerTransport !== "disconnected" && multiplayerRoomCode
+                            ? `${multiplayerRoomCode} · ${multiplayerPeerCount}`
+                            : "02"}
+                        </span>
+                      </div>
+                      <div className="pr-8">
+                        <h3 className="mt-4 mb-1 text-[17px] font-black uppercase">
+                          MULTIPLAYER
+                        </h3>
+                        <p className="text-[#9da6b4] text-[11px] m-0">
+                          Compete with players worldwide across Phone, Tablet, PC &amp; TV
+                        </p>
+                      </div>
+                      <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />
+                    </button>
+
+                    {/* 03 Street Ball */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectGameMode("streetball");
+                        handleCloseMenu();
+                      }}
+                      className="group relative min-h-[125px] sm:min-h-[145px] p-5 text-left text-white border border-[#74502b] hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#1b222d] to-[#101319] hover:from-[#30271f] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden"
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <Flame className="w-6 h-6 text-orange-400" />
+                        <span className="text-[#667080] text-[11px] font-black">03</span>
+                      </div>
+                      <div className="pr-8">
+                        <h3 className="mt-4 mb-1 text-[17px] font-black uppercase">
+                          STREET BALL
+                        </h3>
+                        <p className="text-[#9da6b4] text-[11px] m-0">
+                          Take over the neighborhood blacktop courts
+                        </p>
+                      </div>
+                      <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />
+                    </button>
+
+                    {/* 04 World Tour */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleCloseMenu();
+                        onOpenWorldTour();
+                      }}
+                      className="group relative min-h-[125px] sm:min-h-[145px] p-5 text-left text-white border border-[#385e79] hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#1b222d] to-[#101319] hover:from-[#30271f] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden"
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <Globe className="w-6 h-6 text-sky-400" />
+                        <span className="text-[#667080] text-[11px] font-black">04</span>
+                      </div>
+                      <div className="pr-8">
+                        <h3 className="mt-4 mb-1 text-[17px] font-black uppercase">
+                          WORLD TOUR
+                        </h3>
+                        <p className="text-[#9da6b4] text-[11px] m-0">
+                          Explore 28 international cities · Active: {selectedCity.flag}{" "}
+                          {selectedCity.name}
+                        </p>
+                      </div>
+                      <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />
+                    </button>
+
+                    {/* 05 My Athlete */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleCloseMenu();
+                        onOpenCreateAthlete();
+                      }}
+                      className="group relative min-h-[125px] sm:min-h-[145px] p-5 text-left text-white border border-[#66513b] hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#1b222d] to-[#101319] hover:from-[#30271f] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden sm:col-span-2"
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <UserCheck className="w-6 h-6 text-[#ff963b]" />
+                        <span className="text-[#667080] text-[11px] font-black">05</span>
+                      </div>
+                      <div className="pr-8">
+                        <h3 className="mt-4 mb-1 text-[17px] font-black uppercase">
+                          MY ATHLETE
+                        </h3>
+                        <p className="text-[#9da6b4] text-[11px] m-0">
+                          {athleteProfile.firstName} {athleteProfile.lastName} · #
+                          {athleteProfile.jerseyNumber} · {formatHeight(athleteProfile.heightInches)}{" "}
+                          · {athleteProfile.archetype} ({ovr} OVR · Lv.{levelInfo.level})
+                        </p>
+                      </div>
+                      <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />
+                    </button>
+                  </div>
+
+                  {/* Additional Modes, Career Studio & Live Match Controls */}
+                  <div className="pt-2 space-y-3">
+                    <div className="text-[10px] font-black tracking-[2px] uppercase text-[#8e98a8]">
+                      STUDIO, TRAINING &amp; BROADCAST TOOLS
+                    </div>
+
+                    <div className="flex flex-wrap gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleCloseMenu();
+                          onOpenDraft();
+                        }}
+                        className="min-h-[44px] px-4 py-2 rounded-[7px] bg-[#101319] hover:bg-[#1b222d] border border-[#343b46] hover:border-[#ff963b] text-xs font-bold uppercase tracking-wider text-white flex items-center gap-2 cursor-pointer transition-colors"
+                      >
+                        <Award className="w-4 h-4 text-emerald-400" />
+                        <span>
+                          Draft Night
+                          {athleteProfile.draftRecord?.drafted
+                            ? ` (#${athleteProfile.draftRecord.pickNumber})`
+                            : ""}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleCloseMenu();
+                          onOpenLockerRoom();
+                        }}
+                        className="min-h-[44px] px-4 py-2 rounded-[7px] bg-[#101319] hover:bg-[#1b222d] border border-[#343b46] hover:border-[#ff963b] text-xs font-bold uppercase tracking-wider text-white flex items-center gap-2 cursor-pointer transition-colors"
+                      >
+                        <Shirt className="w-4 h-4 text-red-400" />
+                        <span>
+                          Locker Room ({careerStats.matchesWon}W-
+                          {careerStats.matchesPlayed - careerStats.matchesWon}L)
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSelectGameMode("training");
+                          handleCloseMenu();
+                        }}
+                        className={`min-h-[44px] px-4 py-2 rounded-[7px] border text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer transition-colors ${
+                          activeMode === "training"
+                            ? "bg-[#30271f] border-[#ff963b] text-[#ffab53]"
+                            : "bg-[#101319] hover:bg-[#1b222d] border-[#343b46] hover:border-[#ff963b] text-white"
+                        }`}
+                      >
+                        <Target className="w-4 h-4 text-cyan-400" />
+                        <span>Training Drills</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSelectGameMode("freestyle");
+                          handleCloseMenu();
+                        }}
+                        className={`min-h-[44px] px-4 py-2 rounded-[7px] border text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer transition-colors ${
+                          activeMode === "freestyle"
+                            ? "bg-[#30271f] border-[#ff963b] text-[#ffab53]"
+                            : "bg-[#101319] hover:bg-[#1b222d] border-[#343b46] hover:border-[#ff963b] text-white"
+                        }`}
+                      >
+                        <Sparkles className="w-4 h-4 text-purple-400" />
+                        <span>Freestyle</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleCloseMenu();
+                          onOpenScreenMirroring();
+                        }}
+                        className={`min-h-[44px] px-4 py-2 rounded-[7px] border text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer transition-colors ${
+                          isMirroring
+                            ? "bg-cyan-500/20 border-cyan-400 text-cyan-200"
+                            : "bg-[#101319] hover:bg-[#1b222d] border-[#343b46] hover:border-cyan-400 text-cyan-300"
+                        }`}
+                      >
+                        <Cast className="w-4 h-4" />
+                        <span>{isMirroring ? "Screen Mirroring (LIVE)" : "Screen Mirroring"}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleCloseMenu();
+                          onOpenMovebook();
+                        }}
+                        className="min-h-[44px] px-4 py-2 rounded-[7px] bg-[#101319] hover:bg-[#1b222d] border border-[#343b46] hover:border-[#ff963b] text-xs font-bold uppercase tracking-wider text-white flex items-center gap-2 cursor-pointer transition-colors"
+                      >
+                        <BookOpen className="w-4 h-4 text-sky-400" />
+                        <span>Movebook (101)</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleCloseMenu();
+                          onOpenHighlights();
+                        }}
+                        disabled={highlightsCount === 0}
+                        className="min-h-[44px] px-4 py-2 rounded-[7px] bg-[#101319] hover:bg-[#1b222d] disabled:opacity-40 border border-[#343b46] text-xs font-bold uppercase tracking-wider text-amber-200 flex items-center gap-2 cursor-pointer transition-colors"
+                      >
+                        <Film className="w-4 h-4 text-[#ff963b]" />
+                        <span>Highlights ({highlightsCount}/3)</span>
+                      </button>
+
+                      {(activeMode === "match" || activeMode === "streetball") && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleCloseMenu();
+                              onCallTimeout();
+                            }}
+                            disabled={timeoutsLeft <= 0}
+                            className="min-h-[44px] px-4 py-2 rounded-[7px] bg-[#101319] hover:bg-[#1b222d] disabled:opacity-40 border border-[#343b46] text-xs font-bold uppercase tracking-wider text-white flex items-center gap-2 cursor-pointer transition-colors"
+                          >
+                            <Timer className="w-4 h-4 text-[#ff963b]" />
+                            <span>Timeout ({timeoutsLeft})</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleCloseMenu();
+                              onEndQuarterNow();
+                            }}
+                            className="min-h-[44px] px-4 py-2 rounded-[7px] bg-[#101319] hover:bg-[#1b222d] border border-[#343b46] text-xs font-bold uppercase tracking-wider text-white/90 flex items-center gap-2 cursor-pointer transition-colors"
+                          >
+                            <Play className="w-4 h-4 text-emerald-400" />
+                            <span>End Quarter</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleCloseMenu();
+                              onEndGame();
+                            }}
+                            className="min-h-[44px] px-4 py-2 rounded-[7px] bg-emerald-950/50 hover:bg-emerald-900/60 border border-emerald-500/40 text-xs font-bold uppercase tracking-wider text-emerald-200 flex items-center gap-2 cursor-pointer transition-colors"
+                          >
+                            <Flag className="w-4 h-4" />
+                            <span>End Game</span>
+                          </button>
+                        </>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleCloseMenu();
+                          onOpenControls();
+                        }}
+                        className="min-h-[44px] px-4 py-2 rounded-[7px] bg-[#101319] hover:bg-[#1b222d] border border-[#343b46] text-xs font-bold uppercase tracking-wider text-white/85 flex items-center gap-2 cursor-pointer transition-colors"
+                      >
+                        <Info className="w-4 h-4 text-[#aab0bb]" />
+                        <span>Controls</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleCloseMenu();
+                          onOpenFeatures();
+                        }}
+                        className="min-h-[44px] px-4 py-2 rounded-[7px] bg-[#101319] hover:bg-[#1b222d] border border-[#343b46] text-xs font-bold uppercase tracking-wider text-[#ffab53] flex items-center gap-2 cursor-pointer transition-colors"
+                      >
+                        <Users className="w-4 h-4" />
+                        <span>Features Directory</span>
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            ) : (
+              /* SETTINGS TAB: Audio Mixer, Input Device Mode, Quarter Clock & Controls */
+              <section className="flex-1 px-[5%] py-7 sm:py-9 space-y-6 max-w-5xl w-full mx-auto">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#252a32] pb-4">
+                  <div className="flex items-center gap-3">
+                    <SlidersHorizontal className="w-6 h-6 text-[#ff963b]" />
+                    <div>
+                      <small className="block text-[#ff963b] font-black tracking-[2px] text-[10px] uppercase">
+                        SYSTEM PREFERENCES
+                      </small>
+                      <h2 className="text-2xl font-black uppercase m-0">
+                        GAME SETTINGS &amp; AUDIO
+                      </h2>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("home")}
+                    className="min-h-[42px] px-4 rounded bg-[#1b222d] hover:bg-[#252d3b] border border-[#343b46] text-xs font-black uppercase tracking-wider flex items-center gap-2 cursor-pointer"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    <span>Back to Home</span>
+                  </button>
+                </div>
+
+                {/* Input Device & Quarter Clock */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-5 rounded-[7px] bg-[#101319] border border-[#343b46] space-y-3">
+                    <div className="text-xs font-black uppercase tracking-wider text-white/80 flex items-center justify-between">
+                      <span>Input Device Mode</span>
+                      <span className="text-[11px] font-normal text-white/50">
+                        Detected: {detectedDevice}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {([
+                        { id: "auto", label: "Auto", icon: Sparkles },
+                        { id: "touch", label: "Phone / Tablet", icon: Smartphone },
+                        { id: "keyboard", label: "Computer", icon: Monitor },
+                        { id: "tv", label: "TV Remote", icon: Tv },
+                        { id: "gamepad", label: "Controller", icon: Gamepad2 },
+                      ] as const).map((opt) => {
+                        const Icon = opt.icon;
+                        const active = inputPreference === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => onChangeInputPreference(opt.id)}
+                            className={`min-h-[42px] px-3.5 py-2 rounded text-xs font-bold border flex items-center gap-1.5 cursor-pointer ${
+                              active
+                                ? "bg-[#ff963b] text-[#101014] border-[#ffc078]"
+                                : "bg-[#090b10] text-white/80 border-[#343b46] hover:bg-[#1b222d]"
+                            }`}
+                          >
+                            <Icon className="w-3.5 h-3.5" />
+                            <span>{opt.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="p-5 rounded-[7px] bg-[#101319] border border-[#343b46] space-y-3">
+                    <div className="text-xs font-black uppercase tracking-wider text-white/80">
+                      Quarter Clock Length
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { sec: 60, label: "1 Min" },
+                        { sec: 120, label: "2 Min" },
+                        { sec: 300, label: "5 Min" },
+                        { sec: 720, label: "12 Min" },
+                      ].map((opt) => (
+                        <button
+                          key={opt.sec}
+                          type="button"
+                          onClick={() => onChangeQuarterLength(opt.sec)}
+                          className={`min-h-[42px] px-4 py-2 rounded text-xs font-bold border cursor-pointer ${
+                            quarterLengthSec === opt.sec
+                              ? "bg-[#ff963b] text-[#101014] border-[#ffc078]"
+                              : "bg-[#090b10] text-white/80 border-[#343b46] hover:bg-[#1b222d]"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Arena Audio Mixer (Music, Sound Effects, Crowd Ambience) */}
+                <div className="p-5 rounded-[7px] bg-[#101319] border border-[#343b46] space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs font-black uppercase tracking-wider text-white/85 flex items-center gap-2">
+                      {audioSettings.muted ? (
+                        <VolumeX className="w-4 h-4 text-red-400" />
+                      ) : (
+                        <Volume2 className="w-4 h-4 text-[#ff963b]" />
+                      )}
+                      <span>Arena Audio Mixer</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onChangeAudioSettings({ musicEnabled: !audioSettings.musicEnabled })
+                        }
+                        className={`min-h-[38px] px-3.5 py-1.5 rounded text-xs font-black uppercase tracking-wider border cursor-pointer transition-colors flex items-center gap-1.5 ${
+                          audioSettings.musicEnabled
+                            ? "bg-[#ff963b]/20 border-[#ff963b] text-[#ffab53]"
+                            : "bg-[#090b10] border-[#343b46] text-white/60 hover:bg-[#1b222d]"
+                        }`}
+                      >
+                        <Music className="w-3.5 h-3.5" />
+                        <span>Music: {audioSettings.musicEnabled ? "ON" : "OFF"}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onChangeAudioSettings({ muted: !audioSettings.muted })}
+                        className={`min-h-[38px] px-3.5 py-1.5 rounded text-xs font-black uppercase tracking-wider border cursor-pointer transition-colors ${
+                          audioSettings.muted
+                            ? "bg-red-600/80 border-red-400 text-white"
+                            : "bg-[#090b10] border-[#343b46] text-white/80 hover:bg-[#1b222d]"
+                        }`}
+                      >
+                        {audioSettings.muted ? "Unmute Audio" : "Mute All"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {([
+                      { key: "sfx", label: "Sound Effects", value: audioSettings.sfx, disabled: false },
+                      {
+                        key: "crowd",
+                        label: "Crowd Ambience",
+                        value: audioSettings.crowd,
+                        disabled: false,
+                      },
+                      {
+                        key: "music",
+                        label: "Menu Music · Rise From Nothing",
+                        value: audioSettings.music,
+                        disabled: !audioSettings.musicEnabled,
+                      },
+                    ] as const).map((ch) => (
+                      <label
+                        key={ch.key}
+                        className={`space-y-1.5 block transition-opacity ${
+                          ch.disabled ? "opacity-50" : "opacity-100"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 text-xs font-bold text-white/75">
+                          <span className="truncate">{ch.label}</span>
+                          <span className="tabular-nums text-[#ff963b] shrink-0">
+                            {ch.disabled ? "OFF" : `${Math.round(ch.value * 100)}%`}
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          value={Math.round(ch.value * 100)}
+                          onChange={(e) => {
+                            const nextVal = Number(e.target.value) / 100;
+                            if (ch.key === "music" && !audioSettings.musicEnabled && nextVal > 0) {
+                              onChangeAudioSettings({ music: nextVal, musicEnabled: true });
+                            } else {
+                              onChangeAudioSettings({ [ch.key]: nextVal });
+                            }
+                          }}
+                          className="w-full accent-[#ff963b] cursor-pointer h-2 bg-white/15 rounded-lg"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Quick Links from Settings */}
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleCloseMenu();
+                      onOpenScreenMirroring();
+                    }}
+                    className="min-h-[44px] px-4 py-2 rounded bg-[#101319] hover:bg-[#1b222d] border border-[#176c83] text-cyan-300 text-xs font-black uppercase tracking-wider flex items-center gap-2 cursor-pointer"
+                  >
+                    <Cast className="w-4 h-4" />
+                    <span>Screen Mirroring &amp; TV Cast</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleCloseMenu();
+                      onOpenControls();
+                    }}
+                    className="min-h-[44px] px-4 py-2 rounded bg-[#101319] hover:bg-[#1b222d] border border-[#343b46] text-white text-xs font-black uppercase tracking-wider flex items-center gap-2 cursor-pointer"
+                  >
+                    <Info className="w-4 h-4" />
+                    <span>Controls Guide</span>
+                  </button>
+                </div>
+              </section>
+            )}
+
+            {/* Footer */}
+            <footer className="flex flex-wrap items-center justify-between gap-3 px-[5%] py-5 border-t border-[#292e38] text-[#737d8c] text-[9px] font-extrabold tracking-wider uppercase">
+              <span>COURTLEGENDS © 2026</span>
+              <span>BUILT FOR THE LOVE OF BASKETBALL</span>
+              <span>ONLINE • OFFLINE</span>
+            </footer>
+          </motion.main>
         </motion.div>
       )}
     </AnimatePresence>
