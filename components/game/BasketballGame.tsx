@@ -1660,7 +1660,7 @@ export default function BasketballGame() {
     crowdMesh.instanceColor!.needsUpdate = true;
 
     // --- BALL (1024x512 Pebbled Leather + Recessed Channel Bump Map) ---
-    function ballTexture(baseHex = "#e8681c", seamHex = "#161412") {
+    function ballTexture(baseHex = "#e8681c", seamHex = "#161412", stampText = "WORLD TOUR") {
       const c = document.createElement("canvas");
       c.width = 1024;
       c.height = 512;
@@ -1690,13 +1690,13 @@ export default function BasketballGame() {
       g.beginPath(); g.arc(0, 256, 280, -1.12, 1.12); g.stroke();
       g.beginPath(); g.arc(1024, 256, 280, Math.PI - 1.12, Math.PI + 1.12); g.stroke();
 
-      // Official game ball gold stamp
-      g.fillStyle = "rgba(24, 16, 10, 0.72)";
-      g.font = "900 28px sans-serif";
+      // Country custom basketball stamp
+      g.fillStyle = "rgba(24, 16, 10, 0.85)";
+      g.font = "900 24px sans-serif";
       g.textAlign = "center";
-      g.fillText("APBA PRO", 370, 198);
-      g.font = "700 13px sans-serif";
-      g.fillText("CHAMPIONSHIP BALL", 370, 220);
+      g.fillText(stampText, 370, 198);
+      g.font = "700 12px sans-serif";
+      g.fillText("OFFICIAL INTERNATIONAL", 370, 220);
 
       const tex = new THREE.CanvasTexture(c);
       tex.colorSpace = THREE.SRGBColorSpace;
@@ -3031,6 +3031,17 @@ export default function BasketballGame() {
         }
         updateEntityJerseyPlates(p, city.jerseyPrimary, city.jerseySecondary, p.jerseyNumber, p.lastName);
       });
+
+      if (ballMat && ballColorTex) {
+        const oldTex = ballColorTex;
+        const newTex = ballTexture(city.ballBaseHex || "#e8681c", city.ballSeamHex || "#161412", city.ballStamp || "WORLD TOUR");
+        if (newTex) {
+          ballColorTex = newTex;
+          ballMat.map = ballColorTex;
+          ballMat.needsUpdate = true;
+          oldTex.dispose();
+        }
+      }
 
       if (!silent) {
         Audio.whistle();

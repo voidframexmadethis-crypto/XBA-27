@@ -147,7 +147,7 @@ export class CrossPlayMultiplayerClient {
     try {
       const res = await fetchWithTimeout("/api/multiplayer?action=list", { cache: "no-store" }, 1800);
       if (!res.ok) return localRooms;
-      const data = await res.json();
+      const data = (await res.json()) as any;
       const onlineRooms: MultiplayerRoomSummary[] = Array.isArray(data?.rooms) ? data.rooms : [];
       if (onlineRooms.length === 0) return localRooms;
       // Merge online rooms with any locally hosted offline rooms (preserving unique roomCodes)
@@ -180,7 +180,7 @@ export class CrossPlayMultiplayerClient {
           },
           2200
         );
-        const data = await res.json();
+        const data = (await res.json()) as any;
         if (data?.ok && data.room) {
           saveOfflineRoomSnapshot(data.room as MultiplayerRoomState);
           return await this.joinRoom({
@@ -240,7 +240,7 @@ export class CrossPlayMultiplayerClient {
         },
         2200
       );
-      const data = await res.json();
+      const data = (await res.json()) as any;
       if (data?.ok && data.room) {
         onlineRegistered = true;
         const room = data.room as MultiplayerRoomState;
@@ -405,7 +405,7 @@ export class CrossPlayMultiplayerClient {
             2000
           );
           if (!res.ok) throw new Error("HTTP sync failed");
-          const data = await res.json();
+          const data = (await res.json()) as any;
           if (data?.ok && data.room) room = data.room;
         } else {
           const res = await fetchWithTimeout(
@@ -414,7 +414,7 @@ export class CrossPlayMultiplayerClient {
             2000
           );
           if (!res.ok) throw new Error("HTTP poll failed");
-          const data = await res.json();
+          const data = (await res.json()) as any;
           if (data?.ok && data.room) room = data.room;
         }
 
@@ -430,7 +430,7 @@ export class CrossPlayMultiplayerClient {
               },
               2000
             );
-            const rejoinData = await rejoinRes.json();
+            const rejoinData = (await rejoinRes.json()) as any;
             if (rejoinData?.ok && rejoinData.room) {
               room = rejoinData.room as MultiplayerRoomState;
             }
@@ -576,7 +576,7 @@ export class CrossPlayMultiplayerClient {
         1800
       );
       if (!res.ok) return;
-      const data = await res.json();
+      const data = (await res.json()) as any;
       if (data?.ok && data.room) {
         this.httpFailureStreak = 0;
         this.stopOfflineFallback();

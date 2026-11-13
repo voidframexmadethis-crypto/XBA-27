@@ -60,7 +60,7 @@ export async function listActiveMirrorSessions(): Promise<MirrorSessionSummary[]
   try {
     const res = await fetch("/api/mirror?action=list", { cache: "no-store" });
     if (!res.ok) return [];
-    const data = await res.json();
+    const data = (await res.json()) as any;
     return Array.isArray(data?.sessions) ? data.sessions : [];
   } catch {
     return [];
@@ -170,7 +170,7 @@ export class MirrorBroadcaster {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "start", code: this.code, meta: this.latestMeta }),
       });
-      const data = await res.json();
+      const data = (await res.json()) as any;
       if (data?.ok) {
         if (data.code) this.code = data.code;
         this.viewerCount = Number(data.viewerCount || 0);
@@ -195,7 +195,7 @@ export class MirrorBroadcaster {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action: "meta", code: this.code, meta: this.latestMeta }),
           });
-          const data = await res.json();
+          const data = (await res.json()) as any;
           if (data?.ok && typeof data.viewerCount === "number") {
             if (this.viewerCount !== data.viewerCount) {
               this.viewerCount = data.viewerCount;
@@ -581,7 +581,7 @@ export class MirrorViewerClient {
       body: JSON.stringify({ action: "join_viewer", code: this.code, viewerId: this.viewerId }),
     })
       .then((r) => r.json())
-      .then((data) => {
+      .then((data: any) => {
         if (this.disposed) return;
         if (data?.active && data.session) {
           if (data.session.meta) this.callbacks.onMeta?.(data.session.meta);
@@ -738,7 +738,7 @@ export class MirrorViewerClient {
           `/api/mirror?code=${encodeURIComponent(this.code)}&viewerId=${encodeURIComponent(this.viewerId)}`,
           { cache: "no-store" }
         );
-        const data = await res.json();
+        const data = (await res.json()) as any;
         if (data?.active && data.session) {
           if (data.session.meta) this.callbacks.onMeta?.(data.session.meta);
           if (data.session.latestFrame && data.session.seq !== this.lastSeq) {
