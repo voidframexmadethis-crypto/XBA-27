@@ -26,6 +26,12 @@ import CareerHubModal from "./CareerHubModal";
 import FranchiseModal from "./FranchiseModal";
 import CustomizationStudioModal from "./CustomizationStudioModal";
 import TrainingAcademyModal from "./TrainingAcademyModal";
+import AdventureForgeUniverseModal from "./AdventureForgeUniverseModal";
+import {
+  AdventureForgeUniverseState,
+  loadUniverseState,
+  saveUniverseState,
+} from "@/lib/adventureForgeUniverse";
 import BroadcastOverlays, { BroadcastSceneData } from "./BroadcastOverlays";
 import {
   SHOT_CLOCK_FULL,
@@ -310,6 +316,8 @@ export default function BasketballGame() {
   const [showFranchise, setShowFranchise] = useState(false);
   const [showCustomization, setShowCustomization] = useState(false);
   const [showTrainingAcademy, setShowTrainingAcademy] = useState(false);
+  const [showUniverseHub, setShowUniverseHub] = useState(false);
+  const [universeState, setUniverseState] = useState<AdventureForgeUniverseState>(loadUniverseState);
 
   const [leagueState, setLeagueState] = useState<LeagueState>(() => createInitialLeagueState(2027, "apba_nyc_monarchs"));
   const leagueStateRef = useRef<LeagueState>(leagueState);
@@ -756,6 +764,7 @@ export default function BasketballGame() {
     const savedCustom = loadStudioCustomization();
     const savedTraining = loadTrainingState();
     const savedCup = loadWorldTourTournamentState();
+    const savedUniverse = loadUniverseState();
 
     athleteProfileRef.current = savedProfile;
     setAthleteProfile(savedProfile);
@@ -772,6 +781,7 @@ export default function BasketballGame() {
     setTrainingAcademy(savedTraining);
     worldTournamentRef.current = savedCup;
     setWorldTournament(savedCup);
+    setUniverseState(savedUniverse);
 
     if (gameRef.current?.applyCustomization) gameRef.current.applyCustomization(savedCareer);
     if (gameRef.current?.applyAthleteProfile) gameRef.current.applyAthleteProfile(savedProfile);
@@ -9029,7 +9039,17 @@ export default function BasketballGame() {
         leagueSummaryLabel={`Season ${leagueState.seasonYear} · Round ${Math.min(82, leagueState.currentRound)}/82 (${leagueState.phase.replace("_", " ")})`}
         careerSummaryLabel={`${athleteProfile.firstName} ${athleteProfile.lastName} · ${myCareer.reputation} Rep · ${myCareer.championshipRings} Rings`}
         franchiseSummaryLabel={`${APBA_TEAMS.find((t) => t.id === franchiseState.teamId)?.abbr || "NYM"} Front Office · Cap & Draft`}
+        onOpenUniverse={() => setShowUniverseHub(true)}
+        universeSummaryLabel={`Day ${universeState.currentDay} · ${universeState.properties.filter((p) => p.owned).length} Properties · ${universeState.vehicles.filter((v) => v.owned).length} Cars`}
         onSavesImported={reloadAllSavedStates}
+      />
+
+      {/* AdventureForge Basketball Universe Hub (Properties, Vehicles & Businesses) */}
+      <AdventureForgeUniverseModal
+        isOpen={showUniverseHub}
+        onClose={() => setShowUniverseHub(false)}
+        universe={universeState}
+        onUpdateUniverse={setUniverseState}
       />
 
       {/* Screen Mirroring & TV Cast Modal */}

@@ -96,6 +96,8 @@ interface MainMenuModalProps {
   leagueSummaryLabel?: string;
   careerSummaryLabel?: string;
   franchiseSummaryLabel?: string;
+  onOpenUniverse?: () => void;
+  universeSummaryLabel?: string;
   onSavesImported?: () => void;
 }
 
@@ -144,6 +146,8 @@ export default function MainMenuModal({
   leagueSummaryLabel,
   careerSummaryLabel,
   franchiseSummaryLabel,
+  onOpenUniverse,
+  universeSummaryLabel,
   onSavesImported,
 }: MainMenuModalProps) {
   const [activeTab, setActiveTab] = useState<"home" | "settings">("home");
@@ -643,6 +647,30 @@ export default function MainMenuModal({
                         </h3>
                         <p className="text-[#9da6b4] text-[11px] m-0">
                           All-Star Game, 3-Point Contest, Dunk Contest &amp; MVP Trophies
+                        </p>
+                      </div>
+                      <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />
+                    </button>
+
+                    {/* 11 AdventureForge Universe Hub */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleCloseMenu();
+                        onOpenUniverse?.();
+                      }}
+                      className="group relative min-h-[125px] p-5 text-left text-white border border-emerald-400/45 hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#122a22] to-[#101319] hover:from-[#1b3d31] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden"
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <Globe className="w-6 h-6 text-emerald-400" />
+                        <span className="text-[#667080] text-[11px] font-black">11</span>
+                      </div>
+                      <div className="pr-8">
+                        <h3 className="mt-4 mb-1 text-[16px] font-black uppercase">
+                          ADVENTUREFORGE UNIVERSE HUB
+                        </h3>
+                        <p className="text-[#9da6b4] text-[11px] m-0">
+                          {universeSummaryLabel || "Real Estate, Luxury Garages, Businesses & Living World"}
                         </p>
                       </div>
                       <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />

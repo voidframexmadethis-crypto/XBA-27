@@ -15,6 +15,7 @@ export const SAVE_KEYS = {
   CUSTOMIZATION: "apba_customization_studio_v1",
   TRAINING: "apba_training_academy_v1",
   SETTINGS: "apba_game_settings_v1",
+  UNIVERSE_V1: "adventureforge_universe_v1",
   // Legacy keys preserved for full backward compatibility
   LEGACY_ATHLETE: "hoops_created_athlete_v1",
   LEGACY_PROGRESSION: "hoops_career_progression_v1",
