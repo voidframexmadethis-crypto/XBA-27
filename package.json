@@ -7,8 +7,8 @@
     "dev": "node server.ts",
     "build": "next build",
     "start": "node server.ts",
-    "lint": "eslint .",
-    "clean": "next clean"
+    "lint": "npx eslint .",
+    "clean": "npx next clean"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
