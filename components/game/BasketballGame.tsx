@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { motion, AnimatePresence } from "motion/react";
-import { Clock, Keyboard, Gamepad2, Info, Trophy, Sparkles, Shirt, Flag, Globe, Timer, MapPin, Menu, Tv, Play, Flame, Shield, X, ChevronRight, BookOpen, Cast, Layers } from "lucide-react";
+import { Clock, Keyboard, Gamepad2, Info, Trophy, Sparkles, Shirt, Flag, Globe, Timer, MapPin, Menu, Tv, Play, Flame, Shield, X, ChevronRight, ChevronUp, ChevronDown, Target, BookOpen, Cast, Layers } from "lucide-react";
 import LockerRoomModal from "./LockerRoomModal";
 import TimeoutModal, { TacticalSettings } from "./TimeoutModal";
 import WorldTourMenu from "./WorldTourMenu";
@@ -147,6 +147,30 @@ import {
   computeDefenseAiDecision,
   computeDynamicOffBallTarget,
 } from "@/lib/defenseAi";
+import {
+  buildStrandHairGroup,
+  attachFacialExpressionRig,
+  updateFacialExpression,
+  createSubsurfaceSkinMaterial,
+  updateSkinExertion,
+  createJerseyClothMaterial,
+  createJerseyFabricBumpTexture,
+  createContactShadowTexture,
+  createDeformableNet,
+  triggerNetSwish,
+  stepDeformableNet,
+  createBroadcastComposer,
+  getLikenessPreset,
+  type FacialRig,
+  type DeformableNet,
+  type BroadcastComposerPipeline,
+  type PlayerLikenessPreset,
+} from "@/lib/nba2kGraphics";
+import {
+  SHOT_FEEDBACK_DURATION_SEC,
+  evaluateShotTimingFromGameClock,
+  tickShotFeedbackTimer,
+} from "@/lib/shotTiming";
 
 // Game Constants
 const COURT_W = 28, COURT_H = 15;
@@ -174,6 +198,19 @@ export default function BasketballGame() {
   const [quarter, setQuarter] = useState(1);
   const [message, setMessage] = useState({ text: "", color: "#fff", visible: false });
   const [label, setLabel] = useState({ text: "", visible: false });
+  const [shotFeedback, setShotFeedback] = useState({
+    text: "",
+    color: "#22c55e",
+    accuracyPct: 100,
+    deltaSec: 0,
+    normalizedMeter: 0.5,
+    x: 50,
+    y: 26,
+    visible: false,
+    isGreen: false,
+  });
+  const activeTagRef = useRef<HTMLDivElement>(null);
+  const staminaBarRef = useRef<HTMLDivElement>(null);
   const [showMeter, setShowMeter] = useState(false);
   const [meterFill, setMeterFill] = useState(0);
   const [showHelp, setShowHelp] = useState(false);
@@ -226,6 +263,14 @@ export default function BasketballGame() {
   const [finalStats, setFinalStats] = useState<any[]>([]);
   const [isMobileUI, setIsMobileUI] = useState(false);
   const [hasTouchInput, setHasTouchInput] = useState(false);
+  const [showOnScreenPad, setShowOnScreenPad] = useState(true);
+  const [showExpandedMoves, setShowExpandedMoves] = useState(true);
+  const [showDesktopStick, setShowDesktopStick] = useState(false);
+  const [padSideOverride, setPadSideOverride] = useState<"auto" | "offense" | "defense">("auto");
+  const [isUserOffenseUI, setIsUserOffenseUI] = useState(true);
+  const isUserOffenseRef = useRef(true);
+  const [isUiDefending, setIsUiDefending] = useState(false);
+  const isUiDefendingRef = useRef(false);
   const [showTipOff, setShowTipOff] = useState(false);
   const isOverlayOpenRef = useRef(true);
   const audioManagerRef = useRef<BasketballAudioManager | null>(null);
@@ -569,6 +614,21 @@ export default function BasketballGame() {
   const handleChangeInputPreference = useCallback((pref: InputPreference) => {
     setInputPreference(pref);
     inputPreferenceRef.current = pref;
+    if (pref === "keyboard") {
+      setShowOnScreenPad(false);
+    } else if (pref === "touch" || pref === "gamepad") {
+      setShowOnScreenPad(true);
+    }
+  }, []);
+
+  const handleTouchButtonState = useCallback((btnKey: string, pressed: boolean) => {
+    const g = gameRef.current;
+    if (!g?.state) return;
+    g.state.touchButtons[btnKey] = pressed;
+    if (pressed) {
+      g.state.touchPulses[btnKey] = true;
+      void audioManagerRef.current?.unlock().catch(() => {});
+    }
   }, []);
 
   const handleContinueFromHighlights = useCallback(() => {
@@ -862,6 +922,7 @@ export default function BasketballGame() {
     if (open && gameRef.current?.state) {
       gameRef.current.state.keys = {};
       gameRef.current.state.touchButtons = {};
+      gameRef.current.state.touchPulses = {};
       gameRef.current.state.joystick = { x: 0, y: 0, active: false, autoSprint: false };
     }
   }, [
@@ -1065,12 +1126,12 @@ export default function BasketballGame() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     mountRef.current.appendChild(renderer.domElement);
 
-    // --- LIGHTING (2K Arena Rafter Spotlight + Ambient Fill + Rim & Key Light) ---
-    const ambientLight = new THREE.AmbientLight(0x1a233a, 0.8);
+    // --- LIGHTING (2K Arena Rafter Spotlights + GI Maple Bounce + Volumetric Cones) ---
+    const ambientLight = new THREE.AmbientLight(0x1a233a, 0.85);
     scene.add(ambientLight);
-    scene.add(new THREE.HemisphereLight(0x9fb4dd, 0x201a12, 0.55));
+    scene.add(new THREE.HemisphereLight(0xaec8ff, 0xc78242, 0.85));
 
-    const arenaSpot = new THREE.SpotLight(0xffffff, 2.5, 130, Math.PI / 4, 0.5, 0.85);
+    const arenaSpot = new THREE.SpotLight(0xfff8ee, 2.75, 130, Math.PI / 4, 0.48, 0.82);
     arenaSpot.position.set(0, 40, 0);
     arenaSpot.target.position.set(0, 0, 0);
     arenaSpot.castShadow = !isSoftwareGl;
@@ -1078,17 +1139,50 @@ export default function BasketballGame() {
     arenaSpot.shadow.bias = -0.0005;
     scene.add(arenaSpot, arenaSpot.target);
 
-    const rimLight = new THREE.DirectionalLight(0xff9a4a, 0.65);
+    const rimLight = new THREE.DirectionalLight(0xff9a4a, 0.72);
     rimLight.position.set(-18, 12, -10);
     scene.add(rimLight);
 
-    const sun = new THREE.DirectionalLight(0xffffff, 0.55);
+    const sun = new THREE.DirectionalLight(0xffffff, 0.62);
     sun.position.set(8, 28, 12);
     sun.castShadow = !isSoftwareGl;
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.camera.left = -20; sun.shadow.camera.right = 20;
     sun.shadow.camera.top = 10; sun.shadow.camera.bottom = -10;
     scene.add(sun);
+
+    // Shadowless warm hardwood upward bounce lights + subtle volumetric arena light cones
+    const courtBouncePositions: [number, number, number][] = [
+      [0, 1.2, 0],
+      [-9.5, 1.2, 0],
+      [9.5, 1.2, 0],
+    ];
+    courtBouncePositions.forEach(([bx, by, bz]) => {
+      const bouncePt = new THREE.PointLight(0xd99b5e, 1.35, 24, 1.4);
+      bouncePt.position.set(bx, by, bz);
+      scene.add(bouncePt);
+    });
+
+    const arenaVolumetricGroup = new THREE.Group();
+    const beamConeGeo = new THREE.CylinderGeometry(1.1, 5.2, 12.2, 16, 1, true);
+    const beamConeMat = new THREE.MeshBasicMaterial({
+      color: 0xfff5e4,
+      transparent: true,
+      opacity: 0.032,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    [
+      [-7.5, -2.5],
+      [0, 0],
+      [7.5, 2.5],
+    ].forEach(([vx, vz]) => {
+      const beam = new THREE.Mesh(beamConeGeo, beamConeMat);
+      beam.position.set(vx, 6.2, vz);
+      arenaVolumetricGroup.add(beam);
+    });
+    scene.add(arenaVolumetricGroup);
 
     // --- PROCEDURAL REALISTIC WOODGRAIN & WEAR TEXTURE ---
     const createWoodgrainTexture = (lightHex = "#c99256", darkHex = "#b9803f") => {
@@ -1212,15 +1306,17 @@ export default function BasketballGame() {
     apronFloor.receiveShadow = true;
     scene.add(apronFloor);
 
-    // Hardwood Court with realistic woodgrain and wear & tear
+    // Hardwood Court with high-gloss polyurethane clearcoat finish & woodgrain wear
     let floorTex = createWoodgrainTexture();
     const asphaltTex = createAsphaltTexture();
-    const floorMat = new THREE.MeshStandardMaterial({
+    const floorMat = new THREE.MeshPhysicalMaterial({
       color: floorTex ? 0xffffff : 0xd4a373,
       map: floorTex || undefined,
-      roughness: 0.3,
-      metalness: 0.1,
-      envMapIntensity: 1.15,
+      roughness: 0.24,
+      metalness: 0.08,
+      clearcoat: 0.9,
+      clearcoatRoughness: 0.14,
+      envMapIntensity: 1.35,
     });
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(COURT_W, COURT_H),
@@ -1294,6 +1390,8 @@ export default function BasketballGame() {
     ring(1.75, 1.85, 0, 0, 0, Math.PI * 2);
 
     const shotClock3DMats: THREE.MeshBasicMaterial[] = [];
+    let leftNet: DeformableNet | undefined;
+    let rightNet: DeformableNet | undefined;
 
     [1, -1].forEach(side => {
       const x = 14 * side;
@@ -1398,13 +1496,12 @@ export default function BasketballGame() {
       boardBracket.position.set(x - 0.77 * side, 3.42, 0);
       scene.add(boardBracket);
 
-      // Tapered Braided Basketball Net (higher ring/height detail)
-      const netMesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(RIM_R * 0.96, 0.115, 0.44, 24, 4, true),
-        new THREE.MeshBasicMaterial({ color: 0xf8fafc, wireframe: true, transparent: true, opacity: 0.68 })
-      );
-      netMesh.position.set(x - 1.2 * side, RIM_Y - 0.22, 0);
-      scene.add(netMesh);
+      // Deformable vertex-animated braided nylon net
+      const netObj = createDeformableNet(RIM_R);
+      netObj.mesh.position.set(x - 1.2 * side, RIM_Y - 0.22, 0);
+      scene.add(netObj.mesh);
+      if (side > 0) rightNet = netObj;
+      else leftNet = netObj;
     });
 
     // --- STADIUM BLEACHERS (TIERED CONCRETE RISERS & CHAIRS) ---
@@ -1727,12 +1824,14 @@ export default function BasketballGame() {
 
     let ballColorTex = ballTexture();
     const ballBumpTex = ballBumpTexture();
-    const ballMat = new THREE.MeshStandardMaterial({
+    const ballMat = new THREE.MeshPhysicalMaterial({
       map: ballColorTex,
       bumpMap: ballBumpTex,
-      bumpScale: 0.011,
-      roughness: 0.44,
+      bumpScale: 0.012,
+      roughness: 0.4,
       metalness: 0.04,
+      clearcoat: 0.24,
+      clearcoatRoughness: 0.34,
     });
     const ball = new THREE.Mesh(
       new THREE.SphereGeometry(BALL_R, 36, 24),
@@ -1793,25 +1892,34 @@ export default function BasketballGame() {
 
     const SKIN_PRESETS = [0x8d5524, 0xc68642, 0xf1c27d, 0x5c3818, 0xe0ac69];
 
+    const jerseyBumpTex = createJerseyFabricBumpTexture();
+    const contactShadowTex = createContactShadowTexture();
+
     function makeHuman(
       color: number,
       logoTex?: THREE.Texture,
-      opts?: { jerseyNumber?: string; lastName?: string; hairStyle?: number; skinHex?: number; accentHex?: number }
+      opts?: { jerseyNumber?: string; lastName?: string; hairStyle?: number; skinHex?: number; accentHex?: number; preset?: PlayerLikenessPreset }
     ) {
       const root = new THREE.Group();
       scene.add(root);
+      const preset = opts?.preset ?? getLikenessPreset(opts?.lastName || "PLAYER", opts?.hairStyle ?? 0);
       const mat = (c: number, r = 0.6, m = 0.04) =>
         new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: m });
 
-      const jerseyMat = mat(color, 0.56, 0.04);
-      const trimMat = mat(opts?.accentHex ?? 0xf59e0b, 0.48, 0.08);
-      const skinMat = mat(opts?.skinHex ?? 0x8d5524, 0.66, 0.02);
-      const shortsMat = mat(0x161616, 0.62, 0.03);
-      const shoeMat = mat(0xf5f5f5, 0.38, 0.08);
+      const jerseyMat = createJerseyClothMaterial(color, opts?.accentHex ?? 0xf59e0b, jerseyBumpTex, false);
+      const trimMat = mat(opts?.accentHex ?? 0xf59e0b, 0.45, 0.08);
+      const skinMat = createSubsurfaceSkinMaterial(opts?.skinHex ?? preset.skinHex);
+      const shortsMat = createJerseyClothMaterial(0x161616, opts?.accentHex ?? 0xf59e0b, jerseyBumpTex, true);
+      const shoeMat = new THREE.MeshPhysicalMaterial({
+        color: 0xf5f5f5,
+        roughness: 0.24,
+        metalness: 0.08,
+        clearcoat: 0.65,
+        clearcoatRoughness: 0.22,
+      });
       const sockMat = mat(0xf8fafc, 0.72, 0.01);
       const soleMat = mat(0x18181b, 0.8, 0.02);
-      const midsoleMat = mat(0xfefefe, 0.45, 0.04);
-      const hairMat = mat(0x141210, 0.88, 0.02);
+      const midsoleMat = mat(0xfefefe, 0.38, 0.04);
 
       const box = (w: number, h: number, d: number, m: THREE.Material, p: THREE.Object3D, x: number, y: number, z: number) => {
         const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
@@ -1820,21 +1928,48 @@ export default function BasketballGame() {
         p.add(mesh);
         return mesh;
       };
+      const limb = (rTop: number, rBot: number, h: number, m: THREE.Material, p: THREE.Object3D, x: number, y: number, z: number) => {
+        const mesh = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, h, 14), m);
+        mesh.position.set(x, y, z);
+        mesh.castShadow = true;
+        p.add(mesh);
+        return mesh;
+      };
+
+      // Grounded radial contact shadow anchored directly to court surface
+      const contactShadow = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.95, 0.95),
+        new THREE.MeshBasicMaterial({ map: contactShadowTex, transparent: true, opacity: 0.75, depthWrite: false })
+      );
+      contactShadow.rotation.x = -Math.PI / 2;
+      contactShadow.position.set(0, 0.014, 0);
+      root.add(contactShadow);
 
       const pelvis = new THREE.Group();
       pelvis.position.y = 0.95;
       root.add(pelvis);
-      box(0.47, 0.3, 0.29, shortsMat, pelvis, 0, 0, 0);
-      // Shorts elastic waistband trim
-      box(0.485, 0.055, 0.302, trimMat, pelvis, 0, 0.135, 0);
+      // Tapered athletic shorts hip block + rounded glutes
+      const pelvisMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.215, 0.235, 0.3, 14), shortsMat);
+      pelvisMesh.scale.set(1.06, 1, 0.68);
+      pelvisMesh.castShadow = true;
+      pelvis.add(pelvisMesh);
+      const waistband = new THREE.Mesh(new THREE.CylinderGeometry(0.222, 0.222, 0.058, 14), trimMat);
+      waistband.scale.set(1.06, 1, 0.69);
+      waistband.position.set(0, 0.135, 0);
+      pelvis.add(waistband);
 
       const torso = new THREE.Group();
       pelvis.add(torso);
-      box(0.5, 0.62, 0.28, jerseyMat, torso, 0, 0.31, 0);
+      // Sculpted V-taper athletic chest + lats
+      const chestMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.265, 0.215, 0.62, 16), jerseyMat);
+      chestMesh.scale.set(1.02, 1, 0.62);
+      chestMesh.position.set(0, 0.31, 0);
+      chestMesh.castShadow = true;
+      torso.add(chestMesh);
       // V-neck collar & side jersey piping
-      box(0.22, 0.05, 0.292, trimMat, torso, 0, 0.605, 0);
-      box(0.03, 0.58, 0.29, trimMat, torso, -0.245, 0.31, 0);
-      box(0.03, 0.58, 0.29, trimMat, torso, 0.245, 0.31, 0);
+      box(0.22, 0.05, 0.295, trimMat, torso, 0, 0.605, 0);
+      box(0.032, 0.56, 0.275, trimMat, torso, -0.242, 0.31, 0);
+      box(0.032, 0.56, 0.275, trimMat, torso, 0.242, 0.31, 0);
 
       // Front & Back Jersey Number / Nameplate decals
       const numStr = opts?.jerseyNumber || "27";
@@ -1845,11 +1980,11 @@ export default function BasketballGame() {
       const backPlateTex = createJerseyPlateTexture(numStr, lastStr, jerseyHexStr, accentHexStr, true);
       const frontPlateMat = new THREE.MeshBasicMaterial({ map: frontPlateTex, transparent: true });
       const backPlateMat = new THREE.MeshBasicMaterial({ map: backPlateTex, transparent: true });
-      const frontPlate = new THREE.Mesh(new THREE.PlaneGeometry(0.36, 0.42), frontPlateMat);
-      frontPlate.position.set(0, 0.34, 0.143);
+      const frontPlate = new THREE.Mesh(new THREE.PlaneGeometry(0.35, 0.4), frontPlateMat);
+      frontPlate.position.set(0, 0.34, 0.168);
       torso.add(frontPlate);
-      const backPlate = new THREE.Mesh(new THREE.PlaneGeometry(0.38, 0.46), backPlateMat);
-      backPlate.position.set(0, 0.35, -0.143);
+      const backPlate = new THREE.Mesh(new THREE.PlaneGeometry(0.37, 0.44), backPlateMat);
+      backPlate.position.set(0, 0.35, -0.168);
       backPlate.rotation.y = Math.PI;
       torso.add(backPlate);
 
@@ -1859,12 +1994,12 @@ export default function BasketballGame() {
           new THREE.PlaneGeometry(0.11, 0.11),
           new THREE.MeshBasicMaterial({ map: logoTex, transparent: true })
         );
-        logoMesh.position.set(0.15, 0.51, 0.144);
+        logoMesh.position.set(0.15, 0.51, 0.17);
         torso.add(logoMesh);
       }
 
-      // Neck & Detailed Head with Facial Features + Hair
-      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.068, 0.12, 12), skinMat);
+      // Neck & Detailed Sculpted Head + Likeness Hair + Facial Morph Rig
+      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.056, 0.072, 0.13, 12), skinMat);
       neck.position.set(0, 0.66, 0);
       torso.add(neck);
 
@@ -1872,108 +2007,111 @@ export default function BasketballGame() {
       headGroup.position.y = 0.8;
       torso.add(headGroup);
 
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.132, 20, 16), skinMat);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.134, 22, 18), skinMat);
+      head.scale.set(0.95, 1.06, 1.0);
       head.castShadow = true;
       headGroup.add(head);
 
-      // Eyes, eyebrows, nose, ears
-      const eyeWhiteMat = mat(0xf8fafc, 0.3);
-      const pupilMat = mat(0x0f172a, 0.2);
-      const browMat = hairMat;
+      const eyeWhiteMat = mat(0xf8fafc, 0.25);
+      const pupilMat = mat(0x0f172a, 0.15);
       [-0.044, 0.044].forEach((ex) => {
         const eye = new THREE.Mesh(new THREE.SphereGeometry(0.017, 10, 8), eyeWhiteMat);
         eye.position.set(ex, 0.018, 0.118);
         headGroup.add(eye);
         const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.009, 8, 8), pupilMat);
-        pupil.position.set(ex, 0.018, 0.13);
+        pupil.position.set(ex, 0.018, 0.131);
         headGroup.add(pupil);
-        const brow = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.01, 0.015), browMat);
-        brow.position.set(ex, 0.044, 0.122);
-        headGroup.add(brow);
       });
-      const nose = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.036, 0.025), skinMat);
-      nose.position.set(0, -0.006, 0.131);
+      const nose = new THREE.Mesh(new THREE.ConeGeometry(0.017, 0.042, 6), skinMat);
+      nose.rotation.x = Math.PI * 0.16;
+      nose.position.set(0, -0.004, 0.132);
       headGroup.add(nose);
-      [-0.132, 0.132].forEach((earX) => {
+      [-0.128, 0.128].forEach((earX) => {
         const ear = new THREE.Mesh(new THREE.SphereGeometry(0.024, 8, 8), skinMat);
-        ear.scale.set(0.55, 1, 0.75);
+        ear.scale.set(0.5, 1.05, 0.75);
         ear.position.set(earX, 0, -0.005);
         headGroup.add(ear);
       });
 
-      // Hair Cap (4 distinct athletic silhouettes)
-      const hStyle = (opts?.hairStyle ?? 0) % 4;
-      if (hStyle === 0) {
-        // Tapered high-top fade
-        const hairTop = new THREE.Mesh(new THREE.CylinderGeometry(0.122, 0.13, 0.085, 16), hairMat);
-        hairTop.position.set(0, 0.095, -0.01);
-        headGroup.add(hairTop);
-      } else if (hStyle === 1) {
-        // Textured afro crown
-        const hairCrown = new THREE.Mesh(new THREE.SphereGeometry(0.146, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.62), hairMat);
-        hairCrown.position.set(0, 0.022, -0.018);
-        headGroup.add(hairCrown);
-      } else if (hStyle === 2) {
-        // Clean buzz / low cut
-        const hairBuzz = new THREE.Mesh(new THREE.SphereGeometry(0.135, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.54), hairMat);
-        hairBuzz.position.set(0, 0.014, -0.012);
-        headGroup.add(hairBuzz);
-      } else {
-        // Swept waves / braids crown
-        const hairMain = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.07, 0.25), hairMat);
-        hairMain.position.set(0, 0.105, -0.015);
-        headGroup.add(hairMain);
-      }
+      const hairColorHex = preset.hairHex ?? 0x151210;
+      const hairGroup = buildStrandHairGroup(preset.hairStyle, hairColorHex);
+      headGroup.add(hairGroup);
+
+      const facialRig = attachFacialExpressionRig(headGroup, skinMat, hairColorHex, preset.facialHair);
 
       // Headband accessory mesh
       const headbandMat = mat(0xffffff, 0.5);
-      const headbandMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.044, 20), headbandMat);
-      headbandMesh.position.y = 0.835;
+      const headbandMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.138, 0.138, 0.044, 22), headbandMat);
+      headbandMesh.position.y = 0.84;
       torso.add(headbandMesh);
-      headbandMesh.visible = false;
+      headbandMesh.visible = Boolean(preset.headband);
 
       const legs: any = {}, arms: any = {}, hands: any = {};
       [["R", -1], ["L", 1]].forEach(([key, side]: any) => {
         const hip = new THREE.Group();
         hip.position.set(side * 0.13, -0.05, 0);
         pelvis.add(hip);
-        box(0.195, 0.44, 0.205, shortsMat, hip, 0, -0.22, 0);
-        // Vertical shorts side stripe
-        box(0.02, 0.42, 0.12, trimMat, hip, side * 0.095, -0.22, 0);
+        // Sculpted shorts thigh & trim stripe
+        limb(0.112, 0.095, 0.44, shortsMat, hip, 0, -0.22, 0);
+        box(0.02, 0.4, 0.11, trimMat, hip, side * 0.1, -0.22, 0);
 
         const knee = new THREE.Group();
         knee.position.y = -0.44;
         hip.add(knee);
-        box(0.155, 0.34, 0.17, skinMat, knee, 0, -0.17, 0);
+        // Anatomical knee cap & tapered athletic calf
+        const kneeCap = new THREE.Mesh(new THREE.SphereGeometry(0.072, 12, 10), skinMat);
+        kneeCap.position.set(0, -0.01, 0.01);
+        knee.add(kneeCap);
+        limb(0.086, 0.062, 0.34, skinMat, knee, 0, -0.17, 0);
         // Crew basketball socks
-        box(0.165, 0.11, 0.18, sockMat, knee, 0, -0.38, 0);
-        // Articulated Ankle Joint + Multi-part High-Top Basketball Sneaker
+        limb(0.068, 0.064, 0.115, sockMat, knee, 0, -0.38, 0);
+        // Articulated Ankle Joint + Multi-part Contoured High-Top Sneaker
         const ankle = new THREE.Group();
         ankle.position.y = -0.455;
         knee.add(ankle);
-        box(0.206, 0.024, 0.32, soleMat, ankle, 0, -0.035, 0.052);
-        box(0.202, 0.028, 0.31, midsoleMat, ankle, 0, -0.013, 0.05);
-        box(0.195, 0.075, 0.29, shoeMat, ankle, 0, 0.029, 0.044);
-        box(0.018, 0.036, 0.17, trimMat, ankle, side * 0.096, 0.029, 0.045);
+        box(0.204, 0.024, 0.32, soleMat, ankle, 0, -0.035, 0.052);
+        box(0.2, 0.028, 0.31, midsoleMat, ankle, 0, -0.013, 0.05);
+        const upperShoe = new THREE.Mesh(new THREE.CapsuleGeometry(0.082, 0.135, 6, 12), shoeMat);
+        upperShoe.rotation.x = Math.PI / 2;
+        upperShoe.scale.set(1.06, 1.0, 0.68);
+        upperShoe.position.set(0, 0.026, 0.055);
+        upperShoe.castShadow = true;
+        ankle.add(upperShoe);
+        box(0.185, 0.055, 0.12, trimMat, ankle, 0, 0.042, -0.028);
+        box(0.018, 0.032, 0.16, trimMat, ankle, side * 0.092, 0.029, 0.05);
         legs[key] = { hip, knee, ankle };
       });
+
       [["R", -1], ["L", 1]].forEach(([key, side]: any) => {
         const sh = new THREE.Group();
         sh.position.set(side * 0.32, 0.55, 0);
         torso.add(sh);
-        // Sleeveless shoulder cap + upper arm
-        box(0.145, 0.1, 0.15, trimMat, sh, 0, -0.04, 0);
-        box(0.135, 0.3, 0.135, skinMat, sh, 0, -0.21, 0);
+        // Rounded deltoid cap + muscular bicep
+        const delt = new THREE.Mesh(new THREE.SphereGeometry(0.082, 12, 10), skinMat);
+        delt.position.set(0, -0.02, 0);
+        delt.castShadow = true;
+        sh.add(delt);
+        const jerseyShoulder = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.08, 0.16), trimMat);
+        jerseyShoulder.position.set(-side * 0.045, 0.02, 0);
+        sh.add(jerseyShoulder);
+        limb(0.072, 0.06, 0.3, skinMat, sh, 0, -0.2, 0);
+
         const el = new THREE.Group();
         el.position.y = -0.36;
         sh.add(el);
-        // Compression arm sleeve on shooting arm (R) + athletic wristband
-        box(0.12, 0.34, 0.12, key === "R" ? trimMat : skinMat, el, 0, -0.17, 0);
-        box(0.128, 0.055, 0.128, trimMat, el, 0, -0.3, 0);
+        const elJoint = new THREE.Mesh(new THREE.SphereGeometry(0.058, 10, 8), skinMat);
+        el.add(elJoint);
+        const hasSleeve = preset.sleeveArm ? preset.sleeveArm === key : key === "R";
+        limb(0.058, 0.046, 0.33, hasSleeve ? trimMat : skinMat, el, 0, -0.17, 0);
+        limb(0.052, 0.052, 0.052, trimMat, el, 0, -0.3, 0);
+
         const hand = new THREE.Group();
         hand.position.y = -0.34;
         el.add(hand);
-        box(0.135, 0.095, 0.15, skinMat, hand, 0, -0.04, 0.03);
+        const palm = new THREE.Mesh(new THREE.SphereGeometry(0.062, 10, 8), skinMat);
+        palm.scale.set(0.95, 0.72, 1.15);
+        palm.position.set(0, -0.035, 0.025);
+        hand.add(palm);
         arms[key] = { sh, el };
         hands[key] = hand;
       });
@@ -1995,6 +2133,8 @@ export default function BasketballGame() {
         logoMesh,
         frontPlateMat,
         backPlateMat,
+        facialRig,
+        contactShadow,
         jerseyNumber: numStr,
         lastName: lastStr,
       };
@@ -2066,21 +2206,31 @@ export default function BasketballGame() {
       root: THREE.Group; pelvis: THREE.Group; torso: THREE.Group; headGroup: THREE.Group; legs: any; arms: any; hands: any;
       name: string; isUser: boolean; vel: THREE.Vector3; h: number; vy: number; hand: "R"|"L"; dribPhase: number; runPhase: number; spin: number; faceYaw: number;
       act: any; holdT: number; shield: boolean; cur: any; squeak?: any;
+      stamina: number;
+      maxStamina: number;
+      currentStamina: number;
+      isExhausted: boolean;
+      exhaustionTimer: number;
+      bumpCoolT: number;
+      hypeT: number;
+      landingT?: number;
       stats: { pts: number, ast: number, reb: number, fouls: number };
       pos: string;
       isBench: boolean;
       defState: EntityDefenseState;
       offState: EntityOffenseState;
       logoMesh?: THREE.Mesh;
-      jerseyMat: THREE.MeshStandardMaterial;
+      jerseyMat: THREE.MeshPhysicalMaterial;
       trimMat: THREE.MeshStandardMaterial;
-      skinMat: THREE.MeshStandardMaterial;
-      shortsMat: THREE.MeshStandardMaterial;
-      shoeMat: THREE.MeshStandardMaterial;
+      skinMat: THREE.MeshPhysicalMaterial;
+      shortsMat: THREE.MeshPhysicalMaterial;
+      shoeMat: THREE.MeshPhysicalMaterial;
       headbandMat: THREE.MeshStandardMaterial;
       headbandMesh: THREE.Mesh;
       frontPlateMat?: THREE.MeshBasicMaterial;
       backPlateMat?: THREE.MeshBasicMaterial;
+      facialRig?: FacialRig;
+      contactShadow?: THREE.Mesh;
       jerseyNumber: string;
       lastName: string;
     }
@@ -2135,14 +2285,19 @@ export default function BasketballGame() {
     ): GameEntity {
       const idxSeed = entitySpawnIdx++;
       const lastToken = name.split(" ")[0].replace(/#\d+/, "").trim() || "PLAYER";
+      const preset = getLikenessPreset(name, idxSeed);
       const H = makeHuman(color, logoTex, {
         jerseyNumber: jerseyNum || String(((idxSeed * 7 + 3) % 90) + 1),
         lastName: lastToken,
-        hairStyle: idxSeed % 4,
-        skinHex: SKIN_PRESETS[idxSeed % SKIN_PRESETS.length],
+        hairStyle: idxSeed % 5,
+        skinHex: preset.skinHex,
         accentHex: color === 0xc8102e ? 0xf59e0b : 0x38bdf8,
+        preset,
       });
       H.root.position.set(x, 0, z);
+      if (!isUser) {
+        H.root.scale.set(preset.buildScale, preset.heightScale, preset.buildScale);
+      }
       if (isBench) H.root.visible = false;
       return {
         ...H,
@@ -2161,6 +2316,13 @@ export default function BasketballGame() {
         act: null as any,
         holdT: 0,
         shield: false,
+        stamina: 1,
+        maxStamina: 100,
+        currentStamina: 100,
+        isExhausted: false,
+        exhaustionTimer: 0,
+        bumpCoolT: 0,
+        hypeT: 0,
         cur: { shR: -0.25, elR: -0.5, shL: -0.25, elL: -0.5, hipR: 0, kneeR: 0.05, hipL: 0, kneeL: 0.05, lean: 0, crouch: 0, ankR: 0, ankL: 0, hipRollR: 0, hipRollL: 0, shRollR: 0, shRollL: 0, twist: 0, pelvYaw: 0, pelvRoll: 0, bob: 0 },
         stats: { pts: 0, ast: 0, reb: 0, fouls: 0 },
         defState: {
@@ -2202,6 +2364,8 @@ export default function BasketballGame() {
         shoeMat: H.shoeMat,
         headbandMat: H.headbandMat,
         headbandMesh: H.headbandMesh,
+        facialRig: H.facialRig,
+        contactShadow: H.contactShadow,
       };
     }
 
@@ -2234,6 +2398,15 @@ export default function BasketballGame() {
       makeEntity(0x1d428a, 0, 0, "Pippen", "SG", awayLogoTex, false, true, "33"),
     ];
     const entities: GameEntity[] = [...teamA, ...teamB];
+
+    // Active User Ground Team Ring Indicator
+    const playerGroundRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.46, 0.58, 32),
+      new THREE.MeshBasicMaterial({ color: 0xf59e0b, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
+    );
+    playerGroundRing.rotation.x = -Math.PI / 2;
+    playerGroundRing.position.set(ME.root.position.x, 0.025, ME.root.position.z);
+    scene.add(playerGroundRing);
 
     // Seat reserve bench players on sideline chairs in realistic seated postures
     teamA.slice(5).forEach((p, i) => {
@@ -2424,7 +2597,7 @@ export default function BasketballGame() {
     const state = {
       owner: null as any, ballMode: "held" as any, flight: null as any, 
       scoreHome: 0, scoreAway: 0, shotClock: 24, 
-      gameClock: quarterLengthRef.current, quarter: 1, isGameOver: false,
+      gameClock: quarterLengthRef.current, simClock: 0, shotFeedbackTimer: 0, quarter: 1, isGameOver: false,
       isPaused: false, pauseT: 0,
       crowdCheer: 0,
       lastPasser: null as GameEntity | null,
@@ -2435,10 +2608,11 @@ export default function BasketballGame() {
       lastScoringTeam: null as "Home" | "Away" | null,
       fastTransitionT: 0,
       prevPossessionTeam: null as "Home" | "Away" | null,
-      looseT: 0, lbUsed: false, rbUsed: false, ballVel: V(),
+      looseT: 0, lbUsed: false, rbUsed: false, stealGraceT: 0, ballVel: V(),
       ballStallT: 0, ballStallX: 0, ballStallZ: 0, tripleBreakT: 0,
       keys: {} as any, prevKeys: {} as any, joystick: { x: 0, y: 0, active: false, autoSprint: false }, 
-      touchButtons: {} as any, lastTime: performance.now(), camLook: V(0, 1.4, 0)
+      touchButtons: {} as any, touchPulses: {} as Record<string, boolean>, rightStickCoolT: 0,
+      isDefending: false, uiDefenseToggle: false, lastTime: performance.now(), camLook: V(0, 1.4, 0)
     };
 
     // --- HELPERS ---
@@ -2448,6 +2622,59 @@ export default function BasketballGame() {
     const handPos = (P: any) => P.hands[P.hand].getWorldPosition(V());
     const isNearHoop = (pos: THREE.Vector3) =>
       Math.hypot(pos.x - HOOP_X, pos.z) < 3.0 || Math.hypot(pos.x + HOOP_X, pos.z) < 3.0;
+    const MOVEMENT_SETTINGS = {
+      moveSpeed: 6.2,
+      defenseMoveSpeed: 3.65,
+      sprintMultiplier: 1.45,
+      rotationSpeed: 15,
+      fixedStep: 1 / 60,
+    };
+    const STAMINA_SETTINGS = {
+      maxStamina: 100,
+      staminaDrainRate: 25,
+      staminaRecoveryRate: 20,
+      exhaustionRecoveryDelay: 1.5,
+      exhaustedSpeedMultiplier: 0.78,
+    };
+    const getStaminaNormalized = (P: GameEntity): number =>
+      P.maxStamina > 0 ? clamp(P.currentStamina / P.maxStamina, 0, 1) : 0;
+    const resetEntityStamina = (P: GameEntity) => {
+      P.maxStamina = STAMINA_SETTINGS.maxStamina;
+      P.currentStamina = STAMINA_SETTINGS.maxStamina;
+      P.isExhausted = false;
+      P.exhaustionTimer = 0;
+      P.stamina = 1;
+    };
+    const consumeStamina = (P: GameEntity, wantsToSprint: boolean, dt: number): boolean => {
+      if (P.isExhausted) {
+        wantsToSprint = false;
+        P.exhaustionTimer -= dt;
+        if (P.exhaustionTimer <= 0) {
+          P.isExhausted = false;
+          P.exhaustionTimer = 0;
+        }
+      }
+      if (wantsToSprint && P.currentStamina > 0) {
+        P.currentStamina = Math.max(0, P.currentStamina - STAMINA_SETTINGS.staminaDrainRate * dt);
+        P.stamina = getStaminaNormalized(P);
+        if (P.currentStamina <= 0) {
+          P.isExhausted = true;
+          P.exhaustionTimer = STAMINA_SETTINGS.exhaustionRecoveryDelay;
+          if (P.isUser) {
+            triggerLabel("EXHAUSTED! SPEED PENALIZED");
+          }
+        }
+        return true;
+      }
+      P.stamina = getStaminaNormalized(P);
+      return false;
+    };
+    const handleStaminaRecovery = (P: GameEntity, isActivelySprinting: boolean, dt: number) => {
+      if (!P.isExhausted && !isActivelySprinting && P.currentStamina < P.maxStamina) {
+        P.currentStamina = Math.min(P.maxStamina, P.currentStamina + STAMINA_SETTINGS.staminaRecoveryRate * dt);
+      }
+      P.stamina = getStaminaNormalized(P);
+    };
     const avoidStanchions = (P: any) => {
       for (const sx of [HOOP_X + 0.95, -HOOP_X - 0.95]) {
         const dx = P.root.position.x - sx;
@@ -2458,7 +2685,25 @@ export default function BasketballGame() {
           const nz = dist > 0.01 ? dz / dist : 0;
           P.root.position.x = clamp(sx + nx * 0.8, -13.65, 13.65);
           P.root.position.z = clamp(nz * 0.8, -7.15, 7.15);
+          // Project inward velocity onto tangent for clean collision sliding around stanchions
+          const vn = P.vel.x * nx + P.vel.z * nz;
+          if (vn < 0) {
+            P.vel.x -= vn * nx;
+            P.vel.z -= vn * nz;
+          }
         }
+      }
+    };
+    const slideBoundaries = (P: any) => {
+      const nextX = clamp(P.root.position.x, -13.85, 13.85);
+      const nextZ = clamp(P.root.position.z, -7.35, 7.35);
+      if (nextX !== P.root.position.x) {
+        if ((nextX <= -13.85 && P.vel.x < 0) || (nextX >= 13.85 && P.vel.x > 0)) P.vel.x = 0;
+        P.root.position.x = nextX;
+      }
+      if (nextZ !== P.root.position.z) {
+        if ((nextZ <= -7.35 && P.vel.z < 0) || (nextZ >= 7.35 && P.vel.z > 0)) P.vel.z = 0;
+        P.root.position.z = nextZ;
       }
     };
     const applyVel = (P: any, want: THREE.Vector3, dt: number) => {
@@ -2466,26 +2711,52 @@ export default function BasketballGame() {
       if (!Number.isFinite(P.root.position.z)) P.root.position.z = 0;
       if (!Number.isFinite(P.vel.x) || !Number.isFinite(P.vel.z)) P.vel.set(0, 0, 0);
 
+      // Freeze pitch/roll rotation so player rigidbody never tips over on contact
+      P.root.rotation.x = 0;
+      P.root.rotation.z = 0;
+
       if (P.act && (!Number.isFinite(P.act.t) || P.act.t >= P.act.dur || P.act.t > 1.75)) {
         if (P.act.end) P.act.end();
         P.act = null;
         P.shield = false;
       }
-      if (P.act && P.act.lock) {
-        // Carry decaying horizontal momentum during shots/dunks/step-backs instead of freezing mid-air or post-release
-        const drag = P.act.released ? 10 : 4.5;
-        P.vel.multiplyScalar(Math.exp(-drag * dt));
-        P.root.position.x = clamp(P.root.position.x + P.vel.x * dt, -13.85, 13.85);
-        P.root.position.z = clamp(P.root.position.z + P.vel.z * dt, -7.35, 7.35);
-        avoidStanchions(P);
-        return;
+
+      if (P.bumpCoolT > 0) P.bumpCoolT = Math.max(0, P.bumpCoolT - dt);
+      const curSp = Math.hypot(P.vel.x, P.vel.z);
+      const wantSp = Math.hypot(want.x, want.z);
+      if (!P.isUser) {
+        const aiWantsSprint = wantSp > 7.2 && curSp > 6.4;
+        const aiCanSprint = consumeStamina(P, aiWantsSprint, dt);
+        handleStaminaRecovery(P, aiCanSprint, dt);
       }
-      const isStoppingOrCutting = want.lengthSq() < 0.01 || P.vel.dot(want) < 0;
-      const responseRate = P.isUser ? (isStoppingOrCutting ? 28 : 22) : (isStoppingOrCutting ? 24 : 18);
-      P.vel.lerp(want, 1 - Math.exp(-responseRate * dt));
-      P.root.position.x = clamp(P.root.position.x + P.vel.x * dt, -13.85, 13.85);
-      P.root.position.z = clamp(P.root.position.z + P.vel.z * dt, -7.35, 7.35);
-      avoidStanchions(P);
+
+      // Fixed-timestep continuous substeps to guarantee buttery-smooth motion & prevent fast-sprint tunneling
+      const fixedDt = MOVEMENT_SETTINGS.fixedStep;
+      const steps = Math.max(1, Math.min(4, Math.ceil(dt / fixedDt)));
+      const subDt = dt / steps;
+
+      for (let s = 0; s < steps; s++) {
+        if (P.act && P.act.lock) {
+          // Carry decaying horizontal momentum during shots/dunks/step-backs
+          const drag = P.act.released ? 10 : 4.5;
+          P.vel.multiplyScalar(Math.exp(-drag * subDt));
+        } else {
+          // Foot-plant sliding friction when braking abruptly from high speed or cutting hard across the hardwood
+          const dotVel = curSp > 0.5 && wantSp > 0.5 ? (P.vel.x * want.x + P.vel.z * want.z) / (curSp * wantSp) : 1;
+          const isStoppingOrCutting = want.lengthSq() < 0.01 || dotVel < 0.35;
+          const isHighSpeedPlant = curSp > 4.2 && isStoppingOrCutting;
+          const responseRate = isHighSpeedPlant
+            ? (P.isUser ? 14.5 : 13.5)
+            : P.isUser
+              ? (isStoppingOrCutting ? 24 : 22)
+              : (isStoppingOrCutting ? 21 : 17);
+          P.vel.lerp(want, 1 - Math.exp(-responseRate * subDt));
+        }
+        P.root.position.x += P.vel.x * subDt;
+        P.root.position.z += P.vel.z * subDt;
+        slideBoundaries(P);
+        avoidStanchions(P);
+      }
     };
     const _aiWant = V();
     const aiSteer = (P: any, tx: number, tz: number, sp: number, dt: number) => {
@@ -2538,44 +2809,116 @@ export default function BasketballGame() {
     };
 
     const resolvePlayerCollisions = () => {
-      const MIN_SEP = 0.72;
-      for (let i = 0; i < entities.length; i++) {
-        const a = entities[i];
-        if (a.isBench || !a.root.visible) continue;
-        for (let j = i + 1; j < entities.length; j++) {
-          const b = entities[j];
-          if (b.isBench || !b.root.visible) continue;
-          let dx = b.root.position.x - a.root.position.x;
-          let dz = b.root.position.z - a.root.position.z;
-          let dist = Math.hypot(dx, dz);
-          if (dist < MIN_SEP) {
-            if (dist < 0.001) {
-              const angle = (i * 1.7 + j * 2.3) % (Math.PI * 2);
-              dx = Math.cos(angle);
-              dz = Math.sin(angle);
-              dist = 1;
-            }
-            const overlap = MIN_SEP - dist;
-            const nx = dx / dist;
-            const nz = dz / dist;
-            const aRemote = remoteDrivenEntities.has(a);
-            const bRemote = remoteDrivenEntities.has(b);
-            const aAir = a.h > 0.15;
-            const bAir = b.h > 0.15;
-            let wA = 0.5;
-            let wB = 0.5;
-            if (aRemote && !bRemote) { wA = 0; wB = 1; }
-            else if (bRemote && !aRemote) { wA = 1; wB = 0; }
-            else if (aAir && !bAir) { wA = 0.2; wB = 0.8; }
-            else if (bAir && !aAir) { wA = 0.8; wB = 0.2; }
+      const MIN_SEP = 0.74;
+      for (let pass = 0; pass < 2; pass++) {
+        for (let i = 0; i < entities.length; i++) {
+          const a = entities[i];
+          if (a.isBench || !a.root.visible) continue;
+          for (let j = i + 1; j < entities.length; j++) {
+            const b = entities[j];
+            if (b.isBench || !b.root.visible) continue;
+            let dx = b.root.position.x - a.root.position.x;
+            let dz = b.root.position.z - a.root.position.z;
+            let dist = Math.hypot(dx, dz);
+            if (dist < MIN_SEP) {
+              if (dist < 0.001) {
+                const angle = (i * 1.7 + j * 2.3) % (Math.PI * 2);
+                dx = Math.cos(angle);
+                dz = Math.sin(angle);
+                dist = 1;
+              }
+              const overlap = MIN_SEP - dist;
+              const nx = dx / dist;
+              const nz = dz / dist;
+              const aRemote = remoteDrivenEntities.has(a);
+              const bRemote = remoteDrivenEntities.has(b);
+              const aAir = a.h > 0.15;
+              const bAir = b.h > 0.15;
+              let wA = 0.5;
+              let wB = 0.5;
+              if (aRemote && !bRemote) { wA = 0; wB = 1; }
+              else if (bRemote && !aRemote) { wA = 1; wB = 0; }
+              else if (aAir && !bAir) { wA = 0.2; wB = 0.8; }
+              else if (bAir && !aAir) { wA = 0.8; wB = 0.2; }
 
-            if (wA > 0) {
-              a.root.position.x = clamp(a.root.position.x - nx * overlap * wA, -13.85, 13.85);
-              a.root.position.z = clamp(a.root.position.z - nz * overlap * wA, -7.35, 7.35);
-            }
-            if (wB > 0) {
-              b.root.position.x = clamp(b.root.position.x + nx * overlap * wB, -13.85, 13.85);
-              b.root.position.z = clamp(b.root.position.z + nz * overlap * wB, -7.35, 7.35);
+              if (wA > 0) {
+                a.root.position.x = clamp(a.root.position.x - nx * overlap * wA, -13.85, 13.85);
+                a.root.position.z = clamp(a.root.position.z - nz * overlap * wA, -7.35, 7.35);
+              }
+              if (wB > 0) {
+                b.root.position.x = clamp(b.root.position.x + nx * overlap * wB, -13.85, 13.85);
+                b.root.position.z = clamp(b.root.position.z + nz * overlap * wB, -7.35, 7.35);
+              }
+
+              // Clean collision velocity sliding along tangent plane (prevents sticking/oscillating)
+              const relVx = b.vel.x - a.vel.x;
+              const relVz = b.vel.z - a.vel.z;
+              const relNormal = relVx * nx + relVz * nz;
+              if (relNormal < 0) {
+                if (wA > 0) {
+                  a.vel.x += nx * relNormal * wA;
+                  a.vel.z += nz * relNormal * wA;
+                }
+                if (wB > 0) {
+                  b.vel.x -= nx * relNormal * wB;
+                  b.vel.z -= nz * relNormal * wB;
+                }
+              }
+
+              // Shoulder-to-Shoulder "The Bump": ball-handler driving into an intense/stance defender absorbs momentum & triggers body-up
+              if (pass === 0 && (state.owner === a || state.owner === b)) {
+                const driver = state.owner === a ? a : b;
+                const defender = state.owner === a ? b : a;
+                const sameTeam = (teamA.includes(driver) && teamA.includes(defender)) || (teamB.includes(driver) && teamB.includes(defender));
+                const defIntense =
+                  defender.defState.stanceActive ||
+                  (defender === ME && state.isDefending) ||
+                  defender.defState.hipRideT > 0;
+                const driverSp = Math.hypot(driver.vel.x, driver.vel.z);
+                if (!sameTeam && defIntense && driverSp > 3.6 && driver.bumpCoolT <= 0 && !driver.act && !defender.act) {
+                  driver.bumpCoolT = 0.72;
+                  defender.bumpCoolT = 0.72;
+                  driver.vel.multiplyScalar(0.28);
+                  driver.currentStamina = Math.max(0, (driver.currentStamina ?? STAMINA_SETTINGS.maxStamina) - 8);
+                  driver.stamina = getStaminaNormalized(driver);
+                  if (driver.currentStamina <= 0 && !driver.isExhausted) {
+                    driver.isExhausted = true;
+                    driver.exhaustionTimer = STAMINA_SETTINGS.exhaustionRecoveryDelay;
+                  }
+                  driver.act = {
+                    kind: "bump",
+                    name: "BODY UP",
+                    t: 0,
+                    dur: 0.34,
+                    lock: false,
+                    pose: (u: number, T: any) => {
+                      const recoil = Math.sin(u * Math.PI);
+                      T.lean = -0.18 * recoil;
+                      T.crouch = 0.16 * recoil;
+                      T.shL = -0.95;
+                      T.elL = -1.45;
+                    },
+                  };
+                  defender.act = {
+                    kind: "bump_brace",
+                    name: "CLAMP",
+                    t: 0,
+                    dur: 0.3,
+                    lock: false,
+                    pose: (u: number, T: any) => {
+                      const brace = Math.sin(u * Math.PI);
+                      T.crouch = 0.24 * brace;
+                      T.lean = 0.22 * brace;
+                      T.shR = -1.45;
+                      T.shL = -1.45;
+                    },
+                  };
+                  Audio.squeak({ pan: clamp(driver.root.position.z / 7.5, -1, 1), vol: 0.85, entityKey: driver.name });
+                  if (driver.isUser || defender.isUser) {
+                    triggerLabel(defender.isUser ? "BODY UP! CLAMPED" : "DEFENSIVE BUMP!");
+                  }
+                }
+              }
             }
           }
         }
@@ -2583,6 +2926,7 @@ export default function BasketballGame() {
     };
     
     // --- CENTRALIZED AUDIO MANAGER ADAPTER (Uses only uploaded audio files) ---
+    let lastSpeechEndMs = 0;
     const Audio = (() => {
       const phrases = {
         swish: ["Swish!", "Beautiful jump shot!", "Nothing but net!", "Count it!", "He's heating up!", "Got it!"],
@@ -2599,6 +2943,9 @@ export default function BasketballGame() {
         gameover: "That's the buzzer! Ball game over!"
       };
       const random = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
+      const markSpeechWindow = (text: string) => {
+        lastSpeechEndMs = performance.now() + Math.min(2800, Math.max(950, text.length * 64));
+      };
 
       return {
         unlock: () => { void audioMgr.unlock().catch(() => {}); },
@@ -2622,22 +2969,34 @@ export default function BasketballGame() {
         buzzer: (kind: "quarter" | "game" | "shotclock" = "quarter") => audioMgr.buzzer(kind),
         shotResetSound: () => {},
         updateCheer: (val: number) => audioMgr.updateCrowdAmbience(val),
-        speak: (text: string) => audioMgr.speak(text),
+        speak: (text: string) => {
+          markSpeechWindow(text);
+          audioMgr.speak(text);
+        },
         commentary: (type: keyof typeof phrases, val?: any) => {
           const p = phrases[type];
           const text = typeof p === "function" ? p(val) : random(p as string[]);
+          markSpeechWindow(text);
           audioMgr.speak(text);
         },
       };
     })();
-    const jumpAct = (P: any, name: string, dur: number) => { if (P.act || P.h > 0.05) return; P.vy = 3.4; P.act = { kind: "jump", name, t: 0, dur, lock: false, pose: (u: any, T: any) => { T.shL = T.shR = -2.5; T.elL = T.elR = -1.4; } }; };
+    const jumpAct = (P: any, name: string, dur: number) => { if (P.act || P.h > 0.05) return; P.vy = 5.0; P.act = { kind: "jump", name, t: 0, dur, lock: false, pose: (u: any, T: any) => { T.shL = T.shR = -2.55; T.elL = T.elR = -1.1; } }; };
 
     function triggerMsg(text: string, color = "#fff") { setMessage({ text, color, visible: true }); setTimeout(() => setMessage(m => ({ ...m, visible: false })), 1500); }
     function triggerLabel(text: string) { setLabel({ text, visible: true }); setTimeout(() => setLabel(l => ({ ...l, visible: false })), 1000); }
 
     function fire(P: any, from: THREE.Vector3, aim: THREE.Vector3, FT: number, type: string, ex: any = {}) {
+      const targetPos =
+        type === "pass" && ex.passTo && !ex.fromRemote
+          ? V(
+              aim.x + ex.passTo.vel.x * FT * 0.42,
+              aim.y,
+              aim.z + ex.passTo.vel.z * FT * 0.42
+            )
+          : aim;
       state.flight = { kind: type, shooter: P, passTo: ex.passTo || null, pts: ex.pts || 0, perfect: !!ex.perfect, dunk: !!ex.dunk, layup: !!ex.layup, t: 0, T: FT, rim: 0 };
-      ball.position.copy(from); state.ballVel.set((aim.x - from.x) / FT, (aim.y - from.y) / FT + 0.5 * G * FT, (aim.z - from.z) / FT);
+      ball.position.copy(from); state.ballVel.set((targetPos.x - from.x) / FT, (targetPos.y - from.y) / FT + 0.5 * G * FT, (targetPos.z - from.z) / FT);
       state.owner = null; state.ballMode = "flight";
       const pan = clamp(from.z / 7.5, -1, 1);
       if (type === "pass") {
@@ -2654,7 +3013,7 @@ export default function BasketballGame() {
           mpClientRef.current.sendEvent("move_executed", {
             action: "shot",
             from: [from.x * sign, from.y, from.z * sign],
-            aim: [aim.x * sign, aim.y, aim.z * sign],
+            aim: [targetPos.x * sign, targetPos.y, targetPos.z * sign],
             ft: FT,
             pts: ex.pts || 2,
             dunk: !!ex.dunk,
@@ -2664,7 +3023,7 @@ export default function BasketballGame() {
           mpClientRef.current.sendEvent("move_executed", {
             action: "pass",
             from: [from.x * sign, from.y, from.z * sign],
-            aim: [aim.x * sign, aim.y, aim.z * sign],
+            aim: [targetPos.x * sign, targetPos.y, targetPos.z * sign],
             ft: FT,
             targetKey: getOwnerEntityKey(ex.passTo),
           });
@@ -2676,21 +3035,80 @@ export default function BasketballGame() {
       const isHomeTeam = teamA.includes(P);
       const hoopX = isHomeTeam ? HOOP_X : -HOOP_X;
       const d = Math.hypot(P.root.position.x - hoopX, P.root.position.z);
-      const e = Math.abs((a.c || 0.5) - 0.5);
+      const greenWindow = isHomeTeam ? 0.105 : 0.075;
+
+      // Use existing game clock logic (start vs release delta) to compute jump shot timing & accuracy
+      const clockEval = evaluateShotTimingFromGameClock({
+        startGameClockSec: a.startGameClock ?? state.gameClock,
+        releaseGameClockSec: state.gameClock,
+        startSimClockSec: a.startSimClock ?? state.simClock,
+        releaseSimClockSec: state.simClock,
+        idealReleaseSec: a.idealReleaseSec ?? 0.34,
+        cyclePeriodSec: 0.68,
+        greenWindowNormalized: greenWindow,
+        forgiveQuickTap: P.isUser && !a.auto && !a.dunk && !a.layup,
+      });
+
+      const releaseC =
+        P.isUser && !a.dunk && !a.layup
+          ? a.auto && a.c === 0.5
+            ? 0.5
+            : clockEval.normalizedMeter
+          : a.c ?? 0.5;
+      const e = Math.abs(releaseC - 0.5);
       const isCornerThree =
         Math.abs(P.root.position.z) >= 6.6 &&
         (isHomeTeam ? P.root.position.x > 11.0 : P.root.position.x < -11.0);
       const isArcThree = d >= 6.74;
       let spread, FT, pts = isCornerThree || isArcThree ? 3 : 2;
-      if (a.dunk) { spread = 0.03; FT = 0.42; pts = 2; } else if (a.layup) { spread = 0.1; FT = 0.5 + d * 0.03; pts = 2; }
-      else { spread = 0.05 + e * 0.85; FT = 0.8 + d * 0.045; }
+      if (a.dunk) {
+        spread = isHomeTeam ? 0.015 : 0.03;
+        FT = 0.48;
+        pts = 2;
+      } else if (a.layup) {
+        spread = isHomeTeam ? 0.045 : 0.085;
+        FT = 0.62 + d * 0.036;
+        pts = 2;
+      } else {
+        spread =
+          e <= greenWindow
+            ? isHomeTeam
+              ? 0.015
+              : 0.025
+            : isHomeTeam
+              ? 0.025 + e * 0.42
+              : 0.045 + e * 0.78;
+        FT = 1.02 + d * 0.056;
+      }
       if (P.isUser) {
         const shootRating = athleteProfileRef.current.attributes.shooting;
-        const shootFactor = clamp(1 - (shootRating - 72) / 90, 0.45, 1.15);
+        const shootFactor = clamp(1 - (shootRating - 68) / 85, 0.35, 0.92);
         spread *= shootFactor;
+      } else if (isHomeTeam) {
+        // Red Team AI shooters get crisp NBA-caliber release precision
+        spread *= 0.56;
       }
-      spread += getContestPenalty(P) * (a.contestFactor ?? 1);
-      const from = handPos(P); const aim = V(hoopX + rnd(spread), RIM_Y + rnd(spread * 0.4), rnd(spread));
+      const contestPenalty = getContestPenalty(P) * (a.contestFactor ?? 1);
+      spread += isHomeTeam ? contestPenalty * (P.isUser ? 0.65 : 0.58) : contestPenalty;
+      if (isHomeTeam && !a.dunk) {
+        spread = Math.min(spread, e <= greenWindow ? 0.11 : 0.24);
+      }
+      const from = handPos(P);
+      // Aim directly at rim plane (RIM_Y) so the parabolic arc passes through (aim.x, aim.z) cleanly without backboard bounce errors
+      const aim = V(hoopX + rnd(spread), RIM_Y, rnd(spread));
+
+      // Queue timing feedback to pop for 1.5s immediately once the jump shot animation finishes
+      if (P.isUser && !a.dunk && !a.layup) {
+        a.pendingFeedback = {
+          text: clockEval.label,
+          color: clockEval.color,
+          accuracyPct: clockEval.accuracyPct,
+          deltaSec: clockEval.deltaSec,
+          normalizedMeter: clockEval.normalizedMeter,
+          isGreen: clockEval.isGreen,
+          hoopX,
+        };
+      }
 
       const pan = clamp(P.root.position.z / 7.5, -1, 1);
       if (a.dunk) {
@@ -2704,7 +3122,7 @@ export default function BasketballGame() {
       setShotClockResetPulse(k => k + 1);
       setLastShotResetReason("shot_attempt");
 
-      fire(P, from, aim, FT, "shot", { perfect: e < 0.06, dunk: a.dunk, layup: a.layup, pts });
+      fire(P, from, aim, FT, "shot", { perfect: e <= 0.075, dunk: a.dunk, layup: a.layup, pts });
     }
     function startShot(P: any, o: any = {}) {
       if (P.act && (!Number.isFinite(P.act.t) || P.act.t >= P.act.dur)) P.act = null;
@@ -2727,22 +3145,40 @@ export default function BasketballGame() {
         kind: "shot",
         name: shotName,
         t: 0,
-        dur: o.dur || 1.25,
+        dur: o.dur || (useDunk || useLayup ? 0.95 : 0.92),
         lock: !o.move,
         released: false,
         layup: useLayup,
         dunk: useDunk,
         auto: !!o.auto,
+        startGameClock: state.gameClock,
+        startSimClock: state.simClock,
+        idealReleaseSec: o.releaseAt ?? 0.34,
+        pendingFeedback: null as any,
         c: o.perfectRelease ? 0.5 : 0.5,
         stepback: !!o.stepback,
         style: o.style || null,
         dunkStyle: o.dunkStyle || null,
         contestFactor: o.contestFactor ?? 1,
       };
-      if (o.auto) a.c = o.perfectRelease ? 0.5 : 0.5 + rnd(0.25);
+      if (o.auto) {
+        const autoVar = teamA.includes(P) ? 0.085 : 0.18;
+        a.c = o.perfectRelease ? 0.5 : 0.5 + (rnd(autoVar) + rnd(autoVar)) * 0.5;
+      }
       if (o.stepback) { P.vel.addScaledVector(fwd(P), -4.5); }
       a.pose = (u: number, T: any) => {
         const k = P.hand, opp = k === "R" ? "L" : "R";
+        // Visible airborne knee tuck & gather crouch before lift-off
+        if (P.h > 0.03) {
+          const lift = clamp(P.h / 0.52, 0, 1);
+          T.crouch = 0;
+          T.hipR = -0.36 - 0.6 * lift;
+          T.kneeR = 0.48 + 1.05 * lift;
+          T.hipL = -0.3 - 0.52 * lift;
+          T.kneeL = 0.42 + 0.96 * lift;
+          T.ankR = 0.42 * lift;
+          T.ankL = 0.42 * lift;
+        }
         if (a.dunk) {
           if (a.dunkStyle === "windmill") {
             T.shR = -0.6 - u * Math.PI * 2;
@@ -2802,10 +3238,30 @@ export default function BasketballGame() {
           T["el" + k] = -0.2;
         }
       };
-      a.update = () => { if (a.released) return; if ((a.layup && a.t >= 0.35) || (a.dunk && a.t >= 0.3) || (a.auto && a.t >= (o.releaseAt || 0.4))) return releaseShot(P, a, false); if (P.isUser && !a.auto && !a.layup && !a.dunk) a.c = (((a.t / 0.55) % 2 + 2) % 2) < 1 ? ((a.t / 0.55) % 2) : 2 - ((a.t / 0.55) % 2); };
-      a.end = () => { if (!a.released) releaseShot(P, a, true); };
+      a.update = () => { if (a.released) return; if ((a.layup && a.t >= 0.35) || (a.dunk && a.t >= 0.3) || (a.auto && a.t >= (o.releaseAt || 0.38))) return releaseShot(P, a, false); if (P.isUser && !a.auto && !a.layup && !a.dunk) a.c = (((a.t / 0.68) % 2 + 2) % 2) < 1 ? ((a.t / 0.68) % 2) : 2 - ((a.t / 0.68) % 2); };
+      a.end = () => {
+        if (!a.released) releaseShot(P, a, true);
+        if (P.isUser && !a.dunk && !a.layup && a.pendingFeedback) {
+          const fb = a.pendingFeedback;
+          const anchorProj = V(fb.hoopX, RIM_Y + 1.15, 0).project(camera);
+          const sx = clamp((anchorProj.x * 0.5 + 0.5) * 100, 16, 84);
+          const sy = clamp((-anchorProj.y * 0.5 + 0.5) * 100, 14, 70);
+          state.shotFeedbackTimer = SHOT_FEEDBACK_DURATION_SEC;
+          setShotFeedback({
+            text: fb.text,
+            color: fb.color,
+            accuracyPct: fb.accuracyPct,
+            deltaSec: fb.deltaSec,
+            normalizedMeter: fb.normalizedMeter,
+            x: sx,
+            y: sy,
+            visible: true,
+            isGreen: fb.isGreen,
+          });
+        }
+      };
       const finishBoost = P.isUser ? 1 + (athleteProfileRef.current.attributes.finishing - 75) / 260 : 1;
-      P.act = a; P.shield = false; state.ballMode = "held"; P.vy = (a.dunk ? 5.4 : a.stepback ? 3.5 : 4.6) * finishBoost; if (P.isUser) triggerLabel(a.name); return a;
+      P.act = a; P.shield = false; state.ballMode = "held"; P.vy = (a.dunk ? 6.0 : a.stepback ? 4.4 : a.layup ? 4.8 : 5.2) * finishBoost; if (P.isUser) triggerLabel(a.name); return a;
     }
     function performFoul(defender: GameEntity, attacker: GameEntity) {
       if (state.deadT > 0) return;
@@ -2839,7 +3295,7 @@ export default function BasketballGame() {
           if (def.defState.handCheckT > 0) mult += 0.2;
           if (def.defState.stanceActive) mult += 0.15;
           if (def.h > 0.12) mult += 0.3;
-          penalty = Math.max(penalty, proximity * mult * 0.65);
+          penalty = Math.max(penalty, proximity * mult * 0.42);
         }
       }
       return penalty;
@@ -2898,6 +3354,7 @@ export default function BasketballGame() {
     }
     function triggerShotBlock(blocker: GameEntity, labelText = "REJECTED!") {
       const dirX = teamA.includes(blocker) ? 1 : -1;
+      blocker.hypeT = 1.4;
       state.ballVel.x = dirX * (4.5 + Math.random() * 2.5);
       state.ballVel.y = 2.2;
       state.ballVel.z += rnd(2.2);
@@ -2961,6 +3418,7 @@ export default function BasketballGame() {
       pIn.isBench = false;
       pIn.root.visible = true;
       pIn.root.position.copy(oldCourtPos);
+      resetEntityStamina(pIn);
       pIn.pelvis.position.y = 0.95;
       pIn.pelvis.rotation.set(0, 0, 0);
       pIn.torso.rotation.set(0, 0, 0);
@@ -3166,6 +3624,8 @@ export default function BasketballGame() {
       state.hadRimContact = false;
       state.lastPasser = null;
       state.ballVel.set(0, 0, 0);
+      state.shotFeedbackTimer = 0;
+      setShotFeedback((prev) => (prev.visible ? { ...prev, visible: false } : prev));
       setShowMeter(false);
       isBallLooseRef.current = false;
       setIsBallLoose(false);
@@ -3177,6 +3637,7 @@ export default function BasketballGame() {
         p.shield = false;
         p.holdT = 0;
         p.vel.set(0, 0, 0);
+        resetEntityStamina(p);
         p.defState.stanceActive = false;
         p.defState.stanceT = 0;
         p.defState.chargePlantedT = 0;
@@ -3198,6 +3659,8 @@ export default function BasketballGame() {
         floorMat.map = asphaltTex || floorTex || null;
         floorMat.roughness = 0.85;
         floorMat.metalness = 0.02;
+        floorMat.clearcoat = 0;
+        floorMat.clearcoatRoughness = 0.8;
         floorMat.needsUpdate = true;
         scene.background = new THREE.Color(0x1b2b3a);
         scene.fog = new THREE.Fog(0x1b2b3a, 35, 110);
@@ -3205,13 +3668,16 @@ export default function BasketballGame() {
         apronMat.needsUpdate = true;
         marginGroup.visible = true;
         arenaOverheadGroup.visible = false;
+        arenaVolumetricGroup.visible = false;
         ledBoardGroup.visible = false;
       } else {
         floorMat.color.setHex(floorTex ? 0xffffff : 0xd4a373);
         floorMat.map = floorTex || null;
-        floorMat.roughness = 0.3;
-        floorMat.metalness = 0.1;
-        floorMat.envMapIntensity = 1.15;
+        floorMat.roughness = 0.24;
+        floorMat.metalness = 0.08;
+        floorMat.clearcoat = 0.9;
+        floorMat.clearcoatRoughness = 0.14;
+        floorMat.envMapIntensity = 1.35;
         floorMat.needsUpdate = true;
         scene.background = new THREE.Color(0x0b0f19);
         scene.fog = new THREE.FogExp2(0x0b0f19, 0.015);
@@ -3219,6 +3685,7 @@ export default function BasketballGame() {
         apronMat.needsUpdate = true;
         marginGroup.visible = true;
         arenaOverheadGroup.visible = true;
+        arenaVolumetricGroup.visible = true;
         ledBoardGroup.visible = true;
       }
 
@@ -5667,11 +6134,201 @@ export default function BasketballGame() {
         state.shotClock = resetShotClock("quarter_start");
         setShotClockResetPulse(k => k + 1);
       },
+      playerController: {
+        onSprintButtonDown: (active = true) => {
+          state.touchButtons.RT = active;
+          if (active) state.touchPulses.RT = true;
+        },
+        onShootButton: () => {
+          Audio.unlock();
+          if (state.owner === ME) {
+            if (!ME.act) startShot(ME);
+            else if (ME.act.kind === "shot" && !ME.act.released && !ME.act.auto) {
+              releaseShot(ME, ME.act, false);
+            }
+          } else {
+            const distBall = ME.root.position.distanceTo(ball.position);
+            if (distBall < 4.5 && (state.ballMode === "loose" || state.flight?.reboundable || (isNearHoop(ball.position) && ball.position.y < 3.45))) {
+              scoopBall();
+            } else {
+              if (ME.h <= 0.08) ME.vy = Math.max(ME.vy, 4.9);
+              executeMove(state.flight?.kind === "shot" ? DefenseMove.BOX_OUT : DefenseMove.SHOT_CONTEST);
+            }
+          }
+        },
+        onPassButton: () => {
+          Audio.unlock();
+          if (state.owner === ME) {
+            const teammates = teamA.filter((p) => !p.isBench && p !== ME);
+            if (teammates.length > 0) {
+              const openPick = findOpenTeammate(ME, teammates, teamB, HOOP_X);
+              const target = openPick ? openPick.mate : teammates[0];
+              state.lastPasser = ME;
+              state.lastPassTime = performance.now();
+              fire(ME, handPos(ME), torsoPos(target), 0.36, "pass", { passTo: target });
+            }
+          } else if (state.owner && teamA.includes(state.owner) && state.ballMode === "dribble") {
+            const holder = state.owner;
+            state.lastPasser = holder;
+            state.lastPassTime = performance.now();
+            fire(holder, handPos(holder), torsoPos(ME), 0.36, "pass", { passTo: ME });
+            triggerLabel("CALL FOR PASS");
+          } else {
+            executeMove(DefenseMove.SWITCH);
+          }
+        },
+        onCrossoverButton: () => {
+          Audio.unlock();
+          if (state.owner === ME) {
+            executeMove(state.touchButtons.RT || state.keys["ShiftLeft"] ? OffenseMove.KILLER_CROSSOVER : OffenseMove.CROSSOVER);
+          } else {
+            executeMove(state.touchButtons.RT || state.keys["ShiftLeft"] ? DefenseMove.STUNT_DIG : DefenseMove.SHADING_FORCING);
+          }
+        },
+        onDunkButton: () => {
+          Audio.unlock();
+          if (state.owner === ME) {
+            executeMove(state.touchButtons.RT || state.keys["ShiftLeft"] ? OffenseMove.TWO_HAND_DUNK : OffenseMove.TOMAHAWK_DUNK);
+          } else {
+            const distBall = ME.root.position.distanceTo(ball.position);
+            if (distBall < 4.2 && (state.ballMode === "loose" || state.flight?.reboundable)) {
+              scoopBall();
+              return;
+            }
+            const ballOwner = state.owner && !teamA.includes(state.owner) ? state.owner : null;
+            const distOwnHoop = Math.hypot(ME.root.position.x + HOOP_X, ME.root.position.z);
+            if (ME.h <= 0.08) ME.vy = Math.max(ME.vy, 5.2);
+            if (ballOwner && ME.root.position.x > ballOwner.root.position.x + 0.65) {
+              executeMove(DefenseMove.CHASE_DOWN_BLOCK);
+            } else if (distOwnHoop < 4.4) {
+              executeMove(DefenseMove.WALL_UP);
+            } else {
+              executeMove(DefenseMove.SHOT_CONTEST);
+            }
+          }
+        },
+        onDefenseButtonToggle: (defendingState?: boolean) => {
+          Audio.unlock();
+          const next = typeof defendingState === "boolean" ? defendingState : !state.uiDefenseToggle;
+          state.uiDefenseToggle = next;
+          state.isDefending = next;
+          if (state.owner !== ME) {
+            ME.defState.stanceActive = next;
+            if (next) executeMove(DefenseMove.DEFENSIVE_STANCE);
+          }
+          if (isUiDefendingRef.current !== next) {
+            isUiDefendingRef.current = next;
+            setIsUiDefending(next);
+          }
+          triggerLabel(next ? "DEFENSE STANCE ON" : "DEFENSE STANCE OFF");
+        },
+        // Expanded Offensive Actions
+        onSpinButton: () => {
+          executeMove(state.touchButtons.RT || state.keys["ShiftLeft"] ? OffenseMove.SHAMMGOD : OffenseMove.SPIN_MOVE);
+        },
+        onBehindBackButton: () => {
+          executeMove(state.touchButtons.RT || state.keys["ShiftLeft"] ? OffenseMove.BETWEEN_THE_LEGS : OffenseMove.BEHIND_THE_BACK);
+        },
+        onStepbackButton: () => {
+          executeMove(state.touchButtons.RT || state.keys["ShiftLeft"] ? OffenseMove.SNATCH_BACK : OffenseMove.STEPBACK_JUMPER);
+        },
+        onFakeJabButton: () => {
+          executeMove(state.touchButtons.RT || state.keys["ShiftLeft"] ? OffenseMove.JAB_STEP : OffenseMove.PUMP_FAKE);
+        },
+        onLobPassButton: () => {
+          executeMove(OffenseMove.LOB_PASS);
+        },
+        onProtectHookButton: () => {
+          const hoopX = teamA.includes(ME) ? HOOP_X : -HOOP_X;
+          const dHoop = Math.hypot(ME.root.position.x - hoopX, ME.root.position.z);
+          executeMove(dHoop < 5.5 ? OffenseMove.HOOK_SHOT : OffenseMove.PROTECT_DRIBBLE);
+        },
+        onCallPlayButton: () => {
+          executeMove(state.touchButtons.RT || state.keys["ShiftLeft"] ? OffenseMove.GIVE_AND_GO : OffenseMove.PICK_AND_ROLL);
+        },
+        // Expanded Defensive Actions
+        onBlockButton: () => {
+          const distBall = ME.root.position.distanceTo(ball.position);
+          if (distBall < 4.2 && (state.ballMode === "loose" || state.flight?.reboundable)) {
+            scoopBall();
+            return;
+          }
+          const ballOwner = state.owner && !teamA.includes(state.owner) ? state.owner : null;
+          const distOwnHoop = Math.hypot(ME.root.position.x + HOOP_X, ME.root.position.z);
+          if (ME.h <= 0.08) ME.vy = Math.max(ME.vy, 5.2);
+          if (ballOwner && ME.root.position.x > ballOwner.root.position.x + 0.65) {
+            executeMove(DefenseMove.CHASE_DOWN_BLOCK);
+          } else if (distOwnHoop < 4.4) {
+            executeMove(DefenseMove.WALL_UP);
+          } else {
+            executeMove(DefenseMove.SHOT_CONTEST);
+          }
+        },
+        onStealButton: () => {
+          const distBall = ME.root.position.distanceTo(ball.position);
+          if (distBall < 4.5 && (state.ballMode === "loose" || (state.owner && !teamA.includes(state.owner) && isNearHoop(ball.position)))) {
+            scoopBall();
+            return;
+          }
+          executeMove(state.touchButtons.RT || state.keys["ShiftLeft"] ? DefenseMove.JUMP_PASSING_LANE : DefenseMove.POKE_STEAL);
+        },
+        onContestButton: () => {
+          const distBall = ME.root.position.distanceTo(ball.position);
+          if (distBall < 4.2 && state.ballMode === "loose") {
+            scoopBall();
+            return;
+          }
+          if (ME.h <= 0.08) ME.vy = Math.max(ME.vy, 4.7);
+          executeMove(state.flight?.kind === "shot" ? DefenseMove.BOX_OUT : DefenseMove.CLOSEOUT);
+        },
+        onShadeButton: () => {
+          executeMove(state.touchButtons.RT || state.keys["ShiftLeft"] ? DefenseMove.STUNT_DIG : DefenseMove.SHADING_FORCING);
+        },
+        onBoxOutButton: () => {
+          executeMove(state.touchButtons.RT || state.keys["ShiftLeft"] ? DefenseMove.WEDGE_CRASH : DefenseMove.BOX_OUT);
+        },
+        onChargeButton: () => {
+          const distOwnHoop = Math.hypot(ME.root.position.x + HOOP_X, ME.root.position.z);
+          executeMove(state.touchButtons.RT || state.keys["ShiftLeft"] ? (distOwnHoop < 5.5 ? DefenseMove.PULL_CHAIR_POST : DefenseMove.PULL_CHAIR_PERIMETER) : DefenseMove.CHARGE_DRAW);
+        },
+        onTrapPressButton: () => {
+          executeMove(state.touchButtons.RT || state.keys["ShiftLeft"] ? DefenseMove.FULL_COURT_PRESS : DefenseMove.BLITZ_TRAP);
+        },
+        onHedgeRideButton: () => {
+          executeMove(state.touchButtons.RT || state.keys["ShiftLeft"] ? DefenseMove.HAND_CHECK_ARM_BAR : DefenseMove.HIP_RIDE);
+        },
+        onSwitchDefenseButton: () => {
+          executeMove(DefenseMove.SWITCH);
+        },
+        onZoneHelpButton: () => {
+          executeMove(state.touchButtons.RT || state.keys["ShiftLeft"] ? DefenseMove.ZONE_2_3 : DefenseMove.HELP_AND_RECOVER);
+        },
+      },
+      playerStamina: {
+        consumeStamina: (wantsToSprint: boolean, dt = MOVEMENT_SETTINGS.fixedStep) =>
+          consumeStamina(ME, wantsToSprint, dt),
+        handleStaminaRecovery: (dt = MOVEMENT_SETTINGS.fixedStep, isActivelySprinting = false) =>
+          handleStaminaRecovery(ME, isActivelySprinting, dt),
+        getStaminaNormalized: () => getStaminaNormalized(ME),
+        getCurrentStamina: () => ME.currentStamina,
+        getMaxStamina: () => ME.maxStamina,
+        isExhausted: () => ME.isExhausted,
+      },
       endMatch: endGameAndRecordStats,
     };
 
-    // --- LOOP ---
-    let frameId: number; let prevInput: any = {};
+    // --- POST-PROCESSING BROADCAST PIPELINE & LOOP ---
+    const broadcastComposer: BroadcastComposerPipeline | null = isSoftwareGl
+      ? null
+      : createBroadcastComposer(renderer, scene, camera);
+    if (!isSoftwareGl) {
+      renderer.compile(scene, camera);
+    }
+
+    let frameId = 0;
+    let softwareTimerId = 0;
+    let isUnmounted = false;
+    let prevInput: any = {};
     let lastOpenCallMs = 0;
     // Interactive Drag-to-Orbit & Scroll-to-Zoom Camera State (tight player-follow framing)
     let orbitTheta = 1.48;
@@ -5692,6 +6349,7 @@ export default function BasketballGame() {
     const onWindowBlur = () => {
       state.keys = {};
       state.touchButtons = {};
+      state.touchPulses = {};
       state.joystick = { x: 0, y: 0, active: false, autoSprint: false };
       orbitPointerId = null;
     };
@@ -5704,6 +6362,26 @@ export default function BasketballGame() {
     );
     state.camLook.set(ME.root.position.x, 1.15, ME.root.position.z);
     camera.lookAt(state.camLook);
+
+    const renderAndSchedule = (speedBlur: number, replayDof: number, allowMirror: boolean) => {
+      if (isUnmounted) return;
+      if (broadcastComposer) {
+        broadcastComposer.updateFrame({ speedBlur, replayDof });
+        broadcastComposer.composer.render();
+      } else {
+        renderer.render(scene, camera);
+      }
+      if (allowMirror) {
+        mirrorFrameHookRef.current?.(renderer.domElement);
+      }
+      if (isSoftwareGl) {
+        softwareTimerId = window.setTimeout(() => {
+          if (!isUnmounted) frameId = requestAnimationFrame(loop);
+        }, 16);
+      } else {
+        frameId = requestAnimationFrame(loop);
+      }
+    };
 
     const loop = (now: number) => {
       const dt = Math.min((now - state.lastTime) / 1000, 0.05); state.lastTime = now;
@@ -5743,14 +6421,12 @@ export default function BasketballGame() {
           state.camLook.lerp(ball.position, 1 - Math.exp(-5 * dt));
           camera.lookAt(state.camLook);
         }
-        renderer.render(scene, camera);
-        frameId = requestAnimationFrame(loop);
+        renderAndSchedule(0.08, 1.0, false);
         return;
       }
 
       if (state.isGameOver || (isOverlayOpenRef.current && !state.isPaused)) {
-        renderer.render(scene, camera);
-        frameId = requestAnimationFrame(loop);
+        renderAndSchedule(0.0, 0.25, false);
         return;
       }
 
@@ -5766,8 +6442,7 @@ export default function BasketballGame() {
         );
         state.camLook.set(-2, 1.1, 7.5);
         camera.lookAt(state.camLook);
-        renderer.render(scene, camera);
-        frameId = requestAnimationFrame(loop);
+        renderAndSchedule(0.0, 0.65, false);
         return;
       }
 
@@ -5820,6 +6495,15 @@ export default function BasketballGame() {
         lastClockRef.current = displayKey;
       }
       
+      state.simClock += dt;
+      if (state.shotFeedbackTimer > 0) {
+        const fbStep = tickShotFeedbackTimer(state.shotFeedbackTimer, dt);
+        state.shotFeedbackTimer = fbStep.remainingSec;
+        if (!fbStep.visible) {
+          setShotFeedback((prev) => (prev.visible ? { ...prev, visible: false } : prev));
+        }
+      }
+
       if (!isPracticeMode && !mpGuestMode) {
         state.gameClock -= dt;
         if (state.gameClock <= 0) {
@@ -5834,27 +6518,60 @@ export default function BasketballGame() {
       if (ME.act && ME.act.kind === "shot" && !ME.act.released && !ME.act.auto && !ME.act.layup && !ME.act.dunk) { setShowMeter(true); setMeterFill((ME.act.c || 0.5) * 100); } else setShowMeter(false);
 
       const pads = navigator.getGamepads ? navigator.getGamepads() : []; let gp = pads[0];
-      const b = (i: number) => !!(gp && gp.buttons[i]?.pressed); const ax = (i: number) => (gp && Math.abs(gp.axes[i]) > 0.15) ? gp.axes[i] : 0;
+      const b = (i: number) => !!(gp && (gp.buttons[i]?.pressed || (gp.buttons[i]?.value ?? 0) > 0.25));
+      const ax = (i: number) => (gp && Math.abs(gp.axes[i]) > 0.15) ? gp.axes[i] : 0;
       if (b(9) && !prevInput.START) {
         setShowMainMenu(true);
       }
-      const k = (c: string) => !!state.keys[c]; const tb = (c: string) => !!state.touchButtons[c];
+      if (b(8) && !prevInput.BACK) {
+        setShowQuickMoves((prev) => !prev);
+      }
+      const k = (c: string) => !!state.keys[c];
+      const tb = (c: string) => !!(state.touchButtons[c] || state.touchPulses[c]);
+      if (state.owner === ME && state.uiDefenseToggle) {
+        state.uiDefenseToggle = false;
+      }
+      const isDefending =
+        (k("ControlLeft") ||
+          k("ControlRight") ||
+          k("KeyQ") ||
+          b(6) ||
+          tb("LT") ||
+          !!state.uiDefenseToggle) &&
+        state.owner !== ME;
+      state.isDefending = isDefending;
+      if (isUiDefendingRef.current !== isDefending) {
+        isUiDefendingRef.current = isDefending;
+        setIsUiDefending(isDefending);
+      }
+      if (state.owner !== ME) {
+        if (isDefending) ME.defState.stanceActive = true;
+        else if (!k("KeyZ") && prevInput.defHold && !isDefending) ME.defState.stanceActive = false;
+      }
       const input = {
         A: b(0) || k("Space") || k("Enter") || k("NumpadEnter") || tb("A"),
-        B: b(1) || k("KeyK") || tb("B"),
-        X: b(2) || k("KeyU") || tb("X"),
-        Y: b(3) || k("KeyI") || tb("Y"),
-        LB: b(4) || k("KeyQ") || tb("LB"),
+        B: b(1) || k("KeyK") || k("KeyP") || tb("B"),
+        X: b(2) || k("KeyU") || k("KeyX") || tb("X"),
+        Y: b(3) || k("KeyI") || (k("KeyF") && state.owner === ME) || tb("Y"),
+        LB: b(4) || k("Tab") || tb("LB"),
         RB: b(5) || k("KeyE") || tb("RB"),
         LT: b(6) || k("KeyZ") || tb("LT"),
-        RT: b(7) || k("ShiftLeft") || tb("RT"),
+        RT: b(7) || k("ShiftLeft") || k("ShiftRight") || tb("RT"),
+        BACK: b(8),
         START: b(9),
+        L3: b(10),
+        R3: b(11),
+        DPAD_UP: b(12),
+        DPAD_DOWN: b(13),
+        DPAD_LEFT: b(14),
+        DPAD_RIGHT: b(15),
+        defHold: isDefending,
         mx: clamp(ax(0) + (k("KeyD") || k("ArrowRight") ? 1 : 0) - (k("KeyA") || k("ArrowLeft") ? 1 : 0) + (state.joystick.active ? state.joystick.x : 0), -1, 1),
         my: clamp(ax(1) + (k("KeyS") || k("ArrowDown") ? 1 : 0) - (k("KeyW") || k("ArrowUp") ? 1 : 0) + (state.joystick.active ? state.joystick.y : 0), -1, 1)
       };
       const edge = (k: keyof typeof input) => !!input[k] && !prevInput[k];
 
-      // USER (Camera-Relative Ultra-Responsive Movement & Controls)
+      // USER (Camera-Relative Fixed-Step Normalized Movement, Defense Speed & Sprint Multiplier)
       const camDir = V();
       camera.getWorldDirection(camDir);
       camDir.y = 0;
@@ -5889,9 +6606,14 @@ export default function BasketballGame() {
         ME.act = null;
       }
 
-      const stanceAgilBoost = ME.defState.stanceActive && state.owner !== ME ? 1.18 : 1;
+      const stanceLocked = (isDefending || ME.defState.stanceActive) && state.owner !== ME;
       const chargeAnchor = ME.defState.chargePlantedT > 0 || ME.offState.tripleThreatActive ? 0.35 : 1;
-      const sp = 6.5 * handleBoost * stanceAgilBoost * chargeAnchor * (input.RT || joystickSprint || isTransitionSprint ? 1.62 : 1);
+      const wantsToSprint = (input.RT || joystickSprint || isTransitionSprint) && moveMag > 0.08;
+      const isSprinting = consumeStamina(ME, wantsToSprint, dt);
+      handleStaminaRecovery(ME, isSprinting, dt);
+      const exhaustionPenalty = ME.isExhausted ? STAMINA_SETTINGS.exhaustedSpeedMultiplier : 1;
+      const baseSpeed = stanceLocked && !isSprinting ? MOVEMENT_SETTINGS.defenseMoveSpeed : MOVEMENT_SETTINGS.moveSpeed;
+      const sp = baseSpeed * handleBoost * chargeAnchor * exhaustionPenalty * (isSprinting ? MOVEMENT_SETTINGS.sprintMultiplier : 1);
       const wantVel = V()
         .addScaledVector(camDir, moveForward * normScale * sp)
         .addScaledVector(camRight, moveRight * normScale * sp);
@@ -5917,15 +6639,29 @@ export default function BasketballGame() {
 
       if ((edge("A") || k("KeyF")) && canTakeOrStealFromHoop) {
         scoopBall();
-      } else if (edge("A") && state.owner === ME) {
+      } else if (edge("A") && state.owner === ME && !isDefending) {
         if (moveTowardHoopDot < -0.3) startShot(ME, { name: "FADEAWAY", stepback: true, dur: 1.5 });
         else startShot(ME);
+      } else if (edge("A") && state.owner !== ME) {
+        if (ME.h <= 0.08) ME.vy = Math.max(ME.vy, 4.7);
+        executeMove(state.flight?.kind === "shot" ? DefenseMove.BOX_OUT : DefenseMove.SHOT_CONTEST);
       }
       if (!input.A && prevInput.A && ME.act?.kind === "shot" && !ME.act.released && !ME.act.auto) releaseShot(ME, ME.act, false);
       if (edge("Y") && state.owner === ME) {
         executeMove(input.RT ? OffenseMove.TWO_HAND_DUNK : OffenseMove.TOMAHAWK_DUNK);
       } else if (edge("Y") && canTakeOrStealFromHoop) {
         scoopBall();
+      } else if (edge("Y") && state.owner !== ME) {
+        const ballOwner = state.owner && !teamA.includes(state.owner) ? state.owner : null;
+        const distOwnHoop = Math.hypot(ME.root.position.x + HOOP_X, ME.root.position.z);
+        if (ME.h <= 0.08) ME.vy = Math.max(ME.vy, 5.2);
+        if (ballOwner && ME.root.position.x > ballOwner.root.position.x + 0.65) {
+          executeMove(DefenseMove.CHASE_DOWN_BLOCK);
+        } else if (distOwnHoop < 4.4) {
+          executeMove(DefenseMove.WALL_UP);
+        } else {
+          executeMove(DefenseMove.SHOT_CONTEST);
+        }
       }
       if (edge("X") && state.owner === ME) {
         if (input.RT) {
@@ -5939,6 +6675,8 @@ export default function BasketballGame() {
         } else {
           executeMove(OffenseMove.CROSSOVER);
         }
+      } else if (edge("X") && state.owner !== ME && !k("KeyX")) {
+        executeMove(input.RT ? DefenseMove.STUNT_DIG : DefenseMove.SHADING_FORCING);
       }
       if (edge("B") && state.owner === ME) {
         const teammates = teamA.filter((p) => !p.isBench && p !== ME);
@@ -5972,11 +6710,36 @@ export default function BasketballGame() {
         state.lastPassTime = now;
         fire(holder, handPos(holder), torsoPos(ME), 0.36, "pass", { passTo: ME });
         triggerLabel("CALL FOR PASS");
+      } else if (edge("B") && state.owner !== ME) {
+        executeMove(input.LT ? DefenseMove.CHARGE_DRAW : DefenseMove.SWITCH);
       }
-      if (edge("LB")) {
+      if (edge("LB") || edge("L3")) {
         const benchIdx = teamA.findIndex(p => p.isBench);
         const activeIdx = teamA.findIndex(p => !p.isBench && p !== ME);
         if (benchIdx !== -1 && activeIdx !== -1) substitute(teamA, benchIdx, activeIdx);
+      }
+      if (edge("R3")) {
+        if (state.owner === ME) executeMove(OffenseMove.PROTECT_DRIBBLE);
+        else executeMove(DefenseMove.PULL_CHAIR_POST);
+      }
+      // Gamepad D-Pad & Right Stick Pro-Moves
+      if (edge("DPAD_UP")) executeMove(state.owner === ME ? OffenseMove.PICK_AND_ROLL : DefenseMove.FULL_COURT_PRESS);
+      if (edge("DPAD_DOWN")) executeMove(state.owner === ME ? OffenseMove.PICK_AND_POP : DefenseMove.ZONE_2_3);
+      if (edge("DPAD_LEFT")) executeMove(state.owner === ME ? OffenseMove.GIVE_AND_GO : DefenseMove.BLITZ_TRAP);
+      if (edge("DPAD_RIGHT")) executeMove(state.owner === ME ? OffenseMove.FAST_BREAK : DefenseMove.SWITCH);
+
+      if (state.rightStickCoolT > 0) state.rightStickCoolT = Math.max(0, state.rightStickCoolT - dt);
+      const rsX = ax(2);
+      const rsY = ax(3);
+      if (Math.hypot(rsX, rsY) > 0.68 && state.rightStickCoolT <= 0) {
+        state.rightStickCoolT = 0.34;
+        if (state.owner === ME) {
+          if (rsY > 0.55) executeMove(OffenseMove.STEPBACK_JUMPER);
+          else if (rsY < -0.55) executeMove(OffenseMove.HESITATION);
+          else executeMove(input.RT ? OffenseMove.BEHIND_THE_BACK : OffenseMove.CROSSOVER);
+        } else {
+          executeMove(DefenseMove.SHOT_CONTEST);
+        }
       }
 
       // Expanded Offense & Defense Move Key Bindings
@@ -6045,7 +6808,7 @@ export default function BasketballGame() {
           executeMove(input.RT ? DefenseMove.STUNT_DIG : DefenseMove.SHADING_FORCING);
         }
       }
-      if (edgeKey("KeyG") || (state.owner !== ME && (tb("LT") && !prevInput.LT))) {
+      if (edgeKey("KeyG")) {
         if (state.owner !== ME) {
           if (canTakeOrStealFromHoop || state.flight?.kind === "shot") {
             executeMove(input.RT ? DefenseMove.WEDGE_CRASH : DefenseMove.BOX_OUT);
@@ -6067,7 +6830,9 @@ export default function BasketballGame() {
       if (edgeKey("KeyE") || edge("RB")) {
         if (canTakeOrStealFromHoop && ME.root.position.distanceTo(ball.position) < 4.5) {
           scoopBall();
-        } else if (state.owner !== ME) {
+        } else if (state.owner === ME) {
+          executeMove(input.RT ? OffenseMove.PROTECT_DRIBBLE : OffenseMove.PUMP_FAKE);
+        } else {
           executeMove(input.RT ? DefenseMove.JUMP_PASSING_LANE : DefenseMove.POKE_STEAL);
         }
       }
@@ -6394,6 +7159,19 @@ export default function BasketballGame() {
             activeOpp[0];
           if (!matchup) return;
 
+          const activeTeammates = ownTeam
+            .map((mate, mateIdx) =>
+              mate.isBench || !mate.root.visible
+                ? null
+                : {
+                    idx: mateIdx,
+                    pos: { x: mate.root.position.x, z: mate.root.position.z },
+                    vel: { x: mate.vel.x, z: mate.vel.z },
+                    role: mate.pos,
+                  }
+            )
+            .filter((t): t is NonNullable<typeof t> => t !== null);
+
           const isOnBall = Boolean(oppBallHandler && (matchup === oppBallHandler || P === nearestToBallHandler));
           const decision = computeDefenseAiDecision({
             defenderIdx: defIdx,
@@ -6417,6 +7195,16 @@ export default function BasketballGame() {
             defenseTactic: currentTactics.defense,
             timeSec,
             cooldownReady: (ds.aiMoveCoolT ?? 0) <= 0,
+            primaryDefenderPos:
+              nearestToBallHandler && nearestToBallHandler !== P
+                ? { x: nearestToBallHandler.root.position.x, z: nearestToBallHandler.root.position.z }
+                : null,
+            primaryDefenderVel:
+              nearestToBallHandler && nearestToBallHandler !== P
+                ? { x: nearestToBallHandler.vel.x, z: nearestToBallHandler.vel.z }
+                : null,
+            teammatePositions: activeTeammates,
+            helpProximityRadius: 6.2,
           });
 
           ds.activeAiDefMove = decision.move;
@@ -6442,7 +7230,7 @@ export default function BasketballGame() {
           // Animate physical jumps / poke steals / stunts / box-outs cleanly without locking movement
           if (decision.triggerJump && P.h <= 0.04 && !P.act) {
             ds.aiMoveCoolT = 1.35;
-            P.vy = decision.jumpVel;
+            P.vy = Math.max(4.6, decision.jumpVel + 1.1);
             P.act = {
               kind: "def_jump",
               name: decision.move,
@@ -6476,9 +7264,10 @@ export default function BasketballGame() {
             if (
               oppBallHandler === state.owner &&
               state.ballMode === "dribble" &&
+              state.stealGraceT <= 0 &&
               !oppBallHandler.shield &&
               P.root.position.distanceTo(oppBallHandler.root.position) < 1.35 &&
-              Math.random() < 0.22
+              Math.random() < 0.2
             ) {
               state.owner = null;
               state.ballMode = "loose";
@@ -6508,19 +7297,20 @@ export default function BasketballGame() {
           const hoopDist = Math.hypot(targetHoopX - P.root.position.x, P.root.position.z);
           const openChoice = findOpenTeammate(P, ownTeam, oppTeam, targetHoopX);
 
-          // Advance ball swiftly across half-court
-          const pastMid = attackDir > 0 ? P.root.position.x >= 3.8 : P.root.position.x <= -3.8;
+          // Advance ball swiftly across half-court timeline
+          const pastMid = attackDir > 0 ? P.root.position.x >= 0.6 : P.root.position.x <= -0.6;
           if (!pastMid) {
-            const weaveZ = Math.sin(timeSec * 2.6 + slotIdx) * 2.6;
-            aiSteer(P, targetHoopX - attackDir * 3.4, weaveZ, 12.2, dt);
+            const weaveZ = Math.sin(timeSec * 2.6 + slotIdx) * 2.4;
+            aiSteer(P, targetHoopX - attackDir * 3.8, weaveZ, 11.8, dt);
             if (
-              P.holdT > 0.38 &&
+              P.holdT > 0.45 &&
               openChoice &&
               openChoice.defDist >= 2.25 &&
               (openChoice.mate.root.position.x - P.root.position.x) * attackDir > 2.2
             ) {
               P.holdT = 0;
               state.ballStallT = 0;
+              state.stealGraceT = 0.85;
               state.lastPasser = P;
               state.lastPassTime = now;
               fire(P, handPos(P), torsoPos(openChoice.mate), 0.34, "pass", { passTo: openChoice.mate });
@@ -6528,52 +7318,71 @@ export default function BasketballGame() {
             return;
           }
 
-          // Attack driving lanes actively instead of standing in one spot
+          const isRedTeam = teamA.includes(P);
+          // Attack driving lanes & perimeter pull-up spots so both teams run genuine offensive sets
           const drivePhase = Math.sin(timeSec * 2.2 + slotIdx * 1.4);
           const driveZ = selfDefDist >= 1.9 ? 0 : clamp(drivePhase * 3.6, -5.2, 5.2);
-          const driveX = targetHoopX - attackDir * (selfDefDist >= 2.0 ? 1.35 : 4.2 + Math.cos(timeSec * 1.7) * 1.6);
-          aiSteer(P, driveX, driveZ, selfDefDist >= 2.0 ? 9.4 : 8.4, dt);
+          const driveX = targetHoopX - attackDir * (selfDefDist >= 1.95 ? 1.45 : 4.6 + Math.cos(timeSec * 1.7) * 1.4);
+          aiSteer(P, driveX, driveZ, selfDefDist >= 1.95 ? 9.4 : 8.4, dt);
 
-          const wideOpenSelf = selfDefDist >= 2.35 && P.holdT > 0.32;
-          const openSelf = selfDefDist >= 1.95 && P.holdT > 0.65;
+          const wideOpenSelf = selfDefDist >= (isRedTeam ? 1.95 : 2.2) && P.holdT > (isRedTeam ? 0.26 : 0.32);
+          const openSelf = selfDefDist >= (isRedTeam ? 1.65 : 1.8) && P.holdT > (isRedTeam ? 0.52 : 0.65);
           const mateIsBetterOption =
             openChoice &&
-            openChoice.defDist >= 2.1 &&
-            (selfDefDist < 2.2 || openChoice.defDist > selfDefDist + 0.45 || (openChoice.mate.isUser && P.holdT > 0.55));
-          const forcedMove = P.holdT > 1.35 || state.ballStallT > 1.0;
+            openChoice.defDist >= (isRedTeam ? 1.9 : 2.25) &&
+            (selfDefDist < (isRedTeam ? 1.75 : 1.95) || openChoice.defDist > selfDefDist + 0.55 || (openChoice.mate.isUser && P.holdT > 0.45));
+          const forcedShot = isRedTeam
+            ? P.holdT > 1.75 || state.ballStallT > 1.2
+            : P.holdT > 1.25 || state.ballStallT > 0.9;
 
-          if (P.h <= 0.05 && hoopDist <= 9.6 && (wideOpenSelf || openSelf) && !(selfDefDist < 2.15 && mateIsBetterOption)) {
+          if (P.h <= 0.05 && hoopDist <= 10.6 && (wideOpenSelf || openSelf) && !(selfDefDist < 1.95 && mateIsBetterOption)) {
             P.holdT = 0;
             state.ballStallT = 0;
-            if (hoopDist <= 3.6 && selfDefDist >= 1.85) {
-              startShot(P, { auto: true, layup: true, name: hoopDist <= 2.3 ? "DRIVING LAYUP" : "FLOATER" });
+            const perfectOpen = isRedTeam && selfDefDist >= 2.15;
+            if (hoopDist <= 2.35 && selfDefDist >= 1.6) {
+              startShot(P, { auto: true, dunk: true, perfectRelease: isRedTeam, name: "DRIVING DUNK" });
+            } else if (hoopDist <= 4.1) {
+              startShot(P, { auto: true, layup: true, perfectRelease: perfectOpen, name: hoopDist <= 2.4 ? "DRIVING LAYUP" : "FLOATER" });
             } else {
               startShot(P, {
                 auto: true,
-                stepback: selfDefDist < 2.25,
-                name: selfDefDist >= 2.45 ? "OPEN JUMP SHOT" : "JUMP SHOT",
+                perfectRelease: perfectOpen,
+                stepback: selfDefDist < 2.05,
+                name: selfDefDist >= 2.2 ? (hoopDist >= 6.75 ? "THREE-POINTER" : "OPEN JUMP SHOT") : "JUMP SHOT",
               });
             }
-          } else if (P.holdT > 0.38 && mateIsBetterOption && openChoice) {
+          } else if (P.holdT > 0.42 && mateIsBetterOption && openChoice) {
             P.holdT = 0;
             state.ballStallT = 0;
             P.h = 0;
             P.vy = 0;
+            state.stealGraceT = 0.85;
             state.lastPasser = P;
             state.lastPassTime = now;
             fire(P, handPos(P), torsoPos(openChoice.mate), 0.34, "pass", { passTo: openChoice.mate });
             if (openChoice.mate.isUser) triggerLabel("PASS TO OPEN MAN!");
-          } else if (forcedMove) {
+          } else if (forcedShot) {
             P.holdT = 0;
             state.ballStallT = 0;
             P.h = 0;
             P.vy = 0;
-            if (openChoice && openChoice.defDist >= 1.45) {
+            if (isRedTeam && openChoice && openChoice.defDist >= 1.75 && selfDefDist < 1.55) {
+              state.stealGraceT = 0.85;
               state.lastPasser = P;
               state.lastPassTime = now;
               fire(P, handPos(P), torsoPos(openChoice.mate), 0.34, "pass", { passTo: openChoice.mate });
-            } else if (hoopDist <= 5.2) {
-              startShot(P, { auto: true, layup: true, name: "DRIVING LAYUP" });
+              if (openChoice.mate.isUser) triggerLabel("PASS TO OPEN MAN!");
+            } else if (hoopDist <= 10.6) {
+              if (hoopDist <= 4.2) {
+                startShot(P, { auto: true, layup: true, perfectRelease: isRedTeam, name: "DRIVING LAYUP" });
+              } else {
+                startShot(P, { auto: true, stepback: selfDefDist < 2.0, name: "CONTESTED JUMPER" });
+              }
+            } else if (openChoice && openChoice.defDist >= 1.45) {
+              state.stealGraceT = 0.85;
+              state.lastPasser = P;
+              state.lastPassTime = now;
+              fire(P, handPos(P), torsoPos(openChoice.mate), 0.34, "pass", { passTo: openChoice.mate });
             } else {
               startShot(P, { auto: true, stepback: true, name: "STEP BACK" });
             }
@@ -6586,7 +7395,7 @@ export default function BasketballGame() {
           if (P === nearestLooseA || (canAiChaseBall && Math.hypot(P.root.position.x - ball.position.x, P.root.position.z - ball.position.z) < 2.7)) {
             aiSteer(P, ball.position.x, ball.position.z, 12.6, dt);
             if (ball.position.y > 1.75 && P.h <= 0.05 && Math.hypot(P.root.position.x - ball.position.x, P.root.position.z - ball.position.z) < 2.2) {
-              P.vy = 4.2;
+              P.vy = 5.0;
             }
             return;
           }
@@ -6620,7 +7429,7 @@ export default function BasketballGame() {
           if (P === nearestLooseB || (canAiChaseBall && Math.hypot(P.root.position.x - ball.position.x, P.root.position.z - ball.position.z) < 2.7)) {
             aiSteer(P, ball.position.x, ball.position.z, 12.6, dt);
             if (ball.position.y > 1.75 && P.h <= 0.05 && Math.hypot(P.root.position.x - ball.position.x, P.root.position.z - ball.position.z) < 2.2) {
-              P.vy = 4.2;
+              P.vy = 5.0;
             }
             return;
           }
@@ -6648,29 +7457,30 @@ export default function BasketballGame() {
           }
         });
 
-        // DEFENSE / FOULS / STEALS (including heightened steals around either hoop)
-        if (state.owner && state.ballMode === "dribble") {
+        // DEFENSE / FOULS / STEALS (realistic steal probability + inbound/catch grace so both teams run sets & shoot)
+        if (state.stealGraceT > 0) state.stealGraceT = Math.max(0, state.stealGraceT - dt);
+        if (state.owner && state.ballMode === "dribble" && state.stealGraceT <= 0) {
           const owner = state.owner;
           const opponentTeam = teamA.includes(owner) ? teamB : teamA;
           const isTeamADefending = !teamA.includes(owner);
           const ownerNearHoop = isNearHoop(owner.root.position);
-          let stealRadius = ownerNearHoop ? 1.4 : 0.9;
-          let stealProb = (ownerNearHoop ? 0.032 : 0.012) * dt * 60;
-          let foulProb = ownerNearHoop ? 0.12 : 0.2;
+          let stealRadius = ownerNearHoop ? 1.15 : 0.85;
+          let stealProb = (ownerNearHoop ? 0.0032 : 0.0014) * dt * 60;
+          let foulProb = ownerNearHoop ? 0.14 : 0.22;
 
           if (isTeamADefending) {
             if (currentTactics.defense === "press") {
-              stealRadius = ownerNearHoop ? 1.65 : 1.35;
-              stealProb = (ownerNearHoop ? 0.05 : 0.028) * dt * 60;
+              stealRadius = ownerNearHoop ? 1.35 : 1.05;
+              stealProb = (ownerNearHoop ? 0.005 : 0.0028) * dt * 60;
               foulProb = 0.28;
             } else if (currentTactics.defense === "conservative") {
-              stealRadius = ownerNearHoop ? 1.15 : 0.65;
-              stealProb = (ownerNearHoop ? 0.02 : 0.004) * dt * 60;
+              stealRadius = ownerNearHoop ? 0.95 : 0.65;
+              stealProb = (ownerNearHoop ? 0.002 : 0.0005) * dt * 60;
               foulProb = 0.0;
             } else if (currentTactics.defense === "zone") {
-              stealRadius = ownerNearHoop ? 1.35 : 0.8;
-              stealProb = (ownerNearHoop ? 0.028 : 0.009) * dt * 60;
-              foulProb = 0.12;
+              stealRadius = ownerNearHoop ? 1.1 : 0.8;
+              stealProb = (ownerNearHoop ? 0.003 : 0.0012) * dt * 60;
+              foulProb = 0.14;
             }
           }
 
@@ -6687,6 +7497,7 @@ export default function BasketballGame() {
                 if (Math.random() < effFoulProb) performFoul(opp, owner);
                 else {
                   state.owner = opp;
+                  state.stealGraceT = 1.2;
                   state.fastTransitionT = 3.6;
                   Audio.squeak({ pan: clamp(opp.root.position.z / 7.5, -1, 1), vol: 0.8, entityKey: opp.name });
                   Audio.crowdReaction({ vol: 0.85 });
@@ -6738,18 +7549,52 @@ export default function BasketballGame() {
         if (state.owner === P && state.ballMode === "held" && !P.act) {
           state.ballMode = "dribble";
         }
-        if(P.h > 0 || P.vy > 0) { P.vy -= G*dt; P.h += P.vy*dt; if(P.h <= 0) { P.h = 0; P.vy = 0; } }
+        // Preserve vertical gravity / jump integration cleanly without tipping
+        const wasAir = P.h > 0.03;
+        if (P.h > 0 || P.vy > 0) {
+          const vSteps = Math.max(1, Math.min(3, Math.ceil(dt / MOVEMENT_SETTINGS.fixedStep)));
+          const vDt = dt / vSteps;
+          for (let vs = 0; vs < vSteps; vs++) {
+            P.vy -= G * vDt;
+            P.h += P.vy * vDt;
+            if (P.h <= 0) { P.h = 0; P.vy = 0; break; }
+          }
+        }
+        if (wasAir && P.h <= 0.02) {
+          (P as any).landingT = 0.16;
+        }
+        if ((P as any).landingT > 0) {
+          (P as any).landingT = Math.max(0, (P as any).landingT - dt);
+        }
         const sp = Math.hypot(P.vel.x, P.vel.z);
         const fa = fwd(P);
         const hoopYaw = Math.atan2(fa.x, fa.z);
         const velYaw = sp > 0.05 ? Math.atan2(P.vel.x, P.vel.z) : hoopYaw;
         const movingTowardHoop = sp > 0.2 ? (P.vel.x * fa.x + P.vel.z * fa.z) / sp : 1;
+        const isDefendingOpponent =
+          Boolean(
+            state.owner &&
+              ((teamA.includes(P) && teamB.includes(state.owner)) ||
+                (teamB.includes(P) && teamA.includes(state.owner)))
+          );
+        const stanceFacingTarget =
+          !P.act && P.defState.stanceActive && isDefendingOpponent && state.owner && sp < 10.6
+            ? Math.atan2(
+                state.owner.root.position.x - P.root.position.x,
+                state.owner.root.position.z - P.root.position.z
+              )
+            : null;
         const targetYaw =
-          !P.act && sp > 0.7 && (state.owner !== P || sp > 4.4 || movingTowardHoop > -0.2)
-            ? velYaw
-            : hoopYaw;
+          stanceFacingTarget !== null
+            ? stanceFacingTarget
+            : !P.act && sp > 0.18 && (state.owner !== P || sp > 3.6 || movingTowardHoop > -0.25)
+              ? velYaw
+              : hoopYaw;
         const yawDiff = Math.atan2(Math.sin(targetYaw - P.faceYaw), Math.cos(targetYaw - P.faceYaw));
-        P.faceYaw += yawDiff * Math.min(1, dt * (sp > 4.5 ? 16 : 13));
+        const rotAlpha = 1 - Math.exp(-MOVEMENT_SETTINGS.rotationSpeed * dt);
+        P.faceYaw += yawDiff * rotAlpha;
+        P.root.rotation.x = 0;
+        P.root.rotation.z = 0;
 
         // Decompose velocity in player-local space (forward/backpedal vs lateral shuffle)
         const faceSin = Math.sin(P.faceYaw);
@@ -6788,17 +7633,29 @@ export default function BasketballGame() {
         };
 
         if (P.h > 0.03) {
-          // Athletic airborne hang / gather posture
-          T.hipR = -0.42;
-          T.hipL = -0.35;
-          T.kneeR = 0.72;
-          T.kneeL = 0.65;
-          T.ankR = 0.28;
-          T.ankL = 0.28;
-          T.shR = -0.55;
-          T.shL = -0.55;
+          // Explosive airborne jump posture: knees bend & lift clearly off the ground
+          const airFrac = clamp(P.h / 0.52, 0, 1);
+          T.crouch = 0;
+          T.bob = 0.08 * airFrac;
+          T.hipR = -0.38 - 0.62 * airFrac;
+          T.hipL = -0.32 - 0.54 * airFrac;
+          T.kneeR = 0.52 + 1.06 * airFrac;
+          T.kneeL = 0.45 + 0.96 * airFrac;
+          T.ankR = 0.44 * airFrac;
+          T.ankL = 0.44 * airFrac;
+          T.shR = -0.65;
+          T.shL = -0.65;
           T.elR = -0.85;
           T.elL = -0.85;
+        } else if ((P as any).landingT > 0) {
+          // Cushioned landing knee-flex absorption
+          const landFrac = (P as any).landingT / 0.16;
+          T.crouch = 0.14 * landFrac;
+          T.hipR = -0.35 * landFrac;
+          T.hipL = -0.35 * landFrac;
+          T.kneeR = 0.65 * landFrac;
+          T.kneeL = 0.65 * landFrac;
+          T.lean = 0.12 * landFrac;
         } else if (isLateralShuffle) {
           // Real basketball defensive slide / lateral shuffle
           const shuf = Math.sin(P.runPhase * 1.15);
@@ -6876,19 +7733,21 @@ export default function BasketballGame() {
         }
 
         if (!P.act && P.h <= 0.03 && P.defState.stanceActive) {
-          T.crouch = Math.max(T.crouch, 0.28);
-          T.lean = Math.max(T.lean, 0.16);
-          T.hipR = -0.42;
-          T.hipL = -0.42;
-          T.kneeR = 0.72;
-          T.kneeL = 0.72;
-          T.hipRollR = -0.18;
-          T.hipRollL = 0.18;
-          T.shR = -2.15;
+          T.crouch = Math.max(T.crouch, 0.24);
+          T.lean = Math.max(T.lean, 0.15);
+          if (!isLateralShuffle) {
+            T.hipR = -0.42;
+            T.hipL = -0.42;
+            T.kneeR = 0.72;
+            T.kneeL = 0.72;
+            T.hipRollR = -0.18;
+            T.hipRollL = 0.18;
+          }
+          T.shR = -2.08;
           T.elR = -0.45;
           T.shL = -1.05;
           T.elL = -0.75;
-          T.shRollL = 0.72;
+          T.shRollL = 0.68;
         }
         if (!P.act && P.offState.openWaveT > 0 && state.owner !== P) {
           T.shR = -2.45;
@@ -6923,6 +7782,13 @@ export default function BasketballGame() {
         A.L.sh.rotation.z = c.shRollL || 0;
         A.L.el.rotation.x = c.elL;
         P.pelvis.position.y = 0.95 - c.crouch + (c.bob || 0);
+        // Analytical Foot-Floor Grounding IK so sneakers stay firmly planted without clipping or hovering
+        if (P.h <= 0.03) {
+          const legH_R = 0.44 * Math.cos(c.hipR) + 0.49 * Math.cos(c.hipR + c.kneeR);
+          const legH_L = 0.44 * Math.cos(c.hipL) + 0.49 * Math.cos(c.hipL + c.kneeL);
+          const groundedPelvisY = clamp(Math.max(legH_R, legH_L) + 0.055 + (c.bob || 0), 0.56, 0.96);
+          P.pelvis.position.y = groundedPelvisY;
+        }
         P.pelvis.rotation.y = c.pelvYaw || 0;
         P.pelvis.rotation.z = c.pelvRoll || 0;
         P.torso.rotation.x = c.lean;
@@ -6932,7 +7798,43 @@ export default function BasketballGame() {
         P.root.position.y = P.h;
         P.root.rotation.y = P.faceYaw;
 
-        // SNEAKER SQUEAKS (movement, sharp cuts/pivots, running strides, and stops)
+        // Analytical Hand Ball-Tracking IK during dribble so the palm pushes/tracks the live basketball
+        if (state.owner === P && state.ballMode === "dribble" && !P.act) {
+          const ballRelY = ball.position.y - P.h;
+          const armReachBias = clamp((1.05 - ballRelY) * 0.52, -0.22, 0.4);
+          A[P.hand].sh.rotation.x += armReachBias * 0.42;
+          A[P.hand].el.rotation.x -= armReachBias * 0.62;
+        }
+
+        // Dynamic Exertion Sweat (SSS specular sheen), Cloth Hem Flutter, Contact Shadow & Facial Morphs
+        const stamVal = P.stamina ?? 1;
+        const exertion = clamp(1 - stamVal * 0.88, 0.06, 1);
+        updateSkinExertion(P.skinMat, exertion);
+        const timeSec = now * 0.001;
+        const clothSpd = clamp(sp / 9.5, 0, 1);
+        if (P.jerseyMat.userData?.uClothTime) {
+          P.jerseyMat.userData.uClothTime.value = timeSec;
+          P.jerseyMat.userData.uClothSpeed.value = clothSpd;
+        }
+        if (P.shortsMat.userData?.uClothTime) {
+          P.shortsMat.userData.uClothTime.value = timeSec;
+          P.shortsMat.userData.uClothSpeed.value = clothSpd;
+        }
+        if (P.contactShadow) {
+          P.contactShadow.scale.setScalar(clamp(1.0 + P.h * 0.35, 0.88, 1.45));
+          (P.contactShadow.material as THREE.MeshBasicMaterial).opacity = clamp(0.76 - P.h * 0.48, 0.12, 0.76);
+        }
+        P.hypeT = Math.max(0, (P.hypeT || 0) - dt);
+        const isSpeakingNow = now < lastSpeechEndMs && (state.owner === P || P.hypeT > 0.25 || P.isUser);
+        updateFacialExpression(P.facialRig, dt, {
+          timeSec,
+          isSpeaking: isSpeakingNow,
+          hype: clamp(P.hypeT, 0, 1),
+          exertion,
+          isDefending: P.defState.stanceActive,
+        });
+
+        // SNEAKER SQUEAKS (movement, rapid direction changes > 4.0, pivots, defensive slides, & hard stops)
         if (!P.squeak) P.squeak = { prevVel: V(), cool: 0 };
         P.squeak.cool -= dt;
         const speed = Math.hypot(P.vel.x, P.vel.z);
@@ -6941,16 +7843,19 @@ export default function BasketballGame() {
           speed > 1.2 && prevSpeed > 1.2
             ? (P.vel.x * P.squeak.prevVel.x + P.vel.z * P.squeak.prevVel.z) / (speed * prevSpeed)
             : 1;
-        const isHardStop = prevSpeed > 3.0 && speed < 1.2;
-        const isSharpCutOrPivot = dotDir < 0.65 && speed > 2.0;
-        const isFastRunStride = speed > 4.6 && P.h <= 0.05;
-        if (P.squeak.cool <= 0 && P.h <= 0.05 && (isHardStop || isSharpCutOrPivot || isFastRunStride)) {
+        const isHardStop = prevSpeed > 3.2 && speed < 1.3;
+        const isRapidDirectionChange = speed > 4.0 && dotDir < 0.72;
+        const isDefSlideCut = P.defState.stanceActive && speed > 2.2 && dotDir < 0.88;
+        const isFastRunStride = speed > 4.8 && P.h <= 0.05;
+        if (P.squeak.cool <= 0 && P.h <= 0.05 && (isHardStop || isRapidDirectionChange || isDefSlideCut || isFastRunStride)) {
           const pan = clamp(P.root.position.z / 7.5, -1, 1);
-          const vol = isHardStop || isSharpCutOrPivot ? clamp(Math.max(speed, prevSpeed) / 5.2, 0.35, 0.95) : 0.42;
+          const vol = isHardStop || isRapidDirectionChange || isDefSlideCut
+            ? clamp(Math.max(speed, prevSpeed) / 5.0, 0.38, 0.95)
+            : 0.4;
           Audio.squeak({ pan, vol, entityKey: P.name });
-          P.squeak.cool = isFastRunStride && !isHardStop && !isSharpCutOrPivot
+          P.squeak.cool = isFastRunStride && !isHardStop && !isRapidDirectionChange && !isDefSlideCut
             ? 0.42 + Math.random() * 0.25
-            : 0.22 + Math.random() * 0.16;
+            : 0.2 + Math.random() * 0.14;
         }
         P.squeak.prevVel.copy(P.vel);
       });
@@ -6971,8 +7876,14 @@ export default function BasketballGame() {
       // BALL
       const stepBall = (h: number) => {
         const p = ball.position; const prevY = p.y; state.ballVel.y -= G*h; p.addScaledVector(state.ballVel, h);
-        ball.rotation.x += h * 8;
-        ball.rotation.z += h * 2.5;
+        // Authentic shooter backspin vs forward roll
+        if (state.flight?.kind === "shot") {
+          ball.rotation.x -= h * 11;
+          ball.rotation.z += h * 1.8;
+        } else {
+          ball.rotation.x += h * 8;
+          ball.rotation.z += h * 2.5;
+        }
         // Keep ball inside playable court perimeter so it never leaves bounds or gets stuck behind walls
         if (p.x > 13.55 || p.x < -13.55) {
           p.x = clamp(p.x, -13.55, 13.55);
@@ -6984,7 +7895,7 @@ export default function BasketballGame() {
         }
         if ((p.x >= BOARD_X - BALL_R && state.ballVel.x > 0) || (p.x <= -BOARD_X + BALL_R && state.ballVel.x < 0)) {
           if (p.y > 2.85 && p.y < 4.0 && Math.abs(p.z) < 0.92) {
-            state.ballVel.x *= -0.5;
+            state.ballVel.x *= -0.52;
             p.x = p.x < 0 ? -BOARD_X + BALL_R + 0.02 : BOARD_X - BALL_R - 0.02;
             if (state.flight) state.flight.reboundable = true;
             state.hadRimContact = true;
@@ -6993,9 +7904,9 @@ export default function BasketballGame() {
         }
         if(!mpGuestMode && state.flight && state.flight.kind !== "pass" && prevY > RIM_Y && p.y <= RIM_Y && state.ballVel.y < 0) {
           const hoopX = teamA.includes(state.flight.shooter) ? HOOP_X : -HOOP_X; const dx = p.x - hoopX, dz = p.z; const d = Math.hypot(dx, dz);
-          if(d < RIM_R - 0.04) {
-            p.x = hoopX + dx * 0.4;
-            p.z = dz * 0.4;
+          if(d < RIM_R - 0.03) {
+            p.x = hoopX + dx * 0.35;
+            p.z = dz * 0.35;
             const shooter = state.flight.shooter;
             shooter.stats.pts += state.flight.pts;
             if (state.lastPasser && state.lastPasser !== shooter && now - state.lastPassTime < 5000) {
@@ -7003,7 +7914,10 @@ export default function BasketballGame() {
             }
             state.lastPasser = null;
 
-            const isHome = teamA.includes(shooter); if(isHome) { state.scoreHome+=state.flight.pts; setScoreHome(state.scoreHome); } else { state.scoreAway+=state.flight.pts; setScoreAway(state.scoreAway); }
+            const isHome = teamA.includes(shooter);
+            shooter.hypeT = 1.85;
+            triggerNetSwish(isHome ? rightNet : leftNet, state.flight.dunk ? 1.25 : 0.95);
+            if(isHome) { state.scoreHome+=state.flight.pts; setScoreHome(state.scoreHome); } else { state.scoreAway+=state.flight.pts; setScoreAway(state.scoreAway); }
             const playTypeLabel = state.flight.dunk ? "SLAM DUNK" : state.flight.layup ? "LAYUP" : state.flight.pts === 3 ? "THREE-POINTER" : "SWISH";
             triggerMsg(playTypeLabel, isHome ? "#ef476f" : "#1d428a");
 
@@ -7094,11 +8008,17 @@ export default function BasketballGame() {
             setLastShotResetReason("basket_made");
             state.flight = null;
             state.crowdCheer = 3.0; // SCREAMING CHEER!
-          } else if (d < RIM_R + 0.1 && state.flight.rim < 3) { 
+          } else if (d < RIM_R + BALL_R + 0.04 && state.flight.rim < 3) { 
             state.flight.rim++;
             state.flight.reboundable = true;
-            p.y = RIM_Y+0.02; state.ballVel.y = 1.5; state.ballVel.x += dx*2.2; state.ballVel.z += dz*2.2;
+            const nx = d > 0.01 ? dx / d : 0;
+            const nz = d > 0.01 ? dz / d : 1;
+            p.y = RIM_Y + 0.03;
+            state.ballVel.y = clamp(Math.abs(state.ballVel.y) * 0.44, 1.35, 2.75);
+            state.ballVel.x = state.ballVel.x * 0.45 + nx * 2.35;
+            state.ballVel.z = state.ballVel.z * 0.45 + nz * 2.35;
             state.hadRimContact = true;
+            triggerNetSwish(p.x > 0 ? rightNet : leftNet, 0.4);
             Audio.rimHit({ pan: clamp(p.z / 7.5, -1, 1), vol: 0.92 });
             if (state.flight.rim === 1) {
               Audio.crowdReaction({ vol: 0.72 });
@@ -7109,6 +8029,7 @@ export default function BasketballGame() {
           p.y = BALL_R;
           if(state.ballVel.y < -1.1) {
             const impactVol = clamp(Math.abs(state.ballVel.y) / 9, 0.35, 0.95);
+            ball.scale.set(1.07, 0.88, 1.07);
             Audio.floorBounce({ pan: clamp(p.z / 7.5, -1, 1), vol: impactVol });
             state.ballVel.y *= -0.58;
             if(state.flight?.kind === "shot") {
@@ -7155,16 +8076,30 @@ export default function BasketballGame() {
         }
       } else if(state.ballMode === "dribble" && state.owner) {
         const P = state.owner;
+        const playerSpeed = Math.hypot(P.vel.x, P.vel.z);
+        const stam = P.stamina ?? 1;
         const prevBounce = Math.abs(Math.cos(P.dribPhase));
-        P.dribPhase += dt * 8;
+        // Tie dribble cadence & weight dynamically to movement speed + stamina (no glued static bounce)
+        const dribFreq = 7.4 + clamp(playerSpeed * 0.62, 0, 5.2) * (0.78 + 0.22 * stam);
+        P.dribPhase += dt * dribFreq;
         const bounce = Math.abs(Math.cos(P.dribPhase));
-        // Trigger dribble right as the ball touches the court floor (bounce crosses near 0)
+        // Trigger dribble & subtle squash right as the ball touches the court floor
         if (prevBounce > 0.2 && bounce <= 0.2) {
           const pan = clamp(P.root.position.z / 7.5, -1, 1);
-          Audio.dribble({ pan, vol: 0.85 });
+          ball.scale.set(1.06, 0.89, 1.06);
+          Audio.dribble({ pan, vol: clamp(0.65 + playerSpeed * 0.04, 0.65, 0.95) });
         }
         const hp = handPos(P);
-        ball.position.set(hp.x, BALL_R + Math.max(0, hp.y-BALL_R)*bounce, hp.z);
+        // Lead ball ahead along velocity so basketball carries independent physical momentum
+        const leadScale = clamp(playerSpeed * 0.0085, 0, 0.09);
+        const dribbleApex = Math.max(0, hp.y - BALL_R) * (1 - clamp(playerSpeed * 0.025, 0, 0.22));
+        ball.position.set(
+          hp.x + P.vel.x * leadScale,
+          BALL_R + dribbleApex * bounce,
+          hp.z + P.vel.z * leadScale
+        );
+        ball.rotation.x += dt * (4.5 + playerSpeed * 0.8);
+        ball.rotation.z -= dt * (playerSpeed * 0.35);
       }
       else if(state.ballMode === "held" && state.owner) { const hp = handPos(state.owner); ball.position.set(hp.x, hp.y+0.03, hp.z); }
       else {
@@ -7176,7 +8111,7 @@ export default function BasketballGame() {
             if (!isPractice && state.deadReason === "score" && state.lastScoringTeam === "Home") {
               const inbounder = teamB.find((p) => !p.isBench && p.root.visible) || teamB[0];
               inbounder.root.position.set(12.2, 0, clamp(ball.position.z, -2.5, 2.5));
-              inbounder.holdT = 0.2;
+              inbounder.holdT = 0.15;
               state.owner = inbounder;
             } else {
               if (!isPractice && state.deadReason === "score" && state.lastScoringTeam === "Away") {
@@ -7187,6 +8122,7 @@ export default function BasketballGame() {
             }
             state.ballMode = "dribble";
             state.deadReason = null;
+            state.stealGraceT = 1.35;
             state.ballVel.set(0, 0, 0);
             state.fastTransitionT = 3.6;
           }
@@ -7196,32 +8132,26 @@ export default function BasketballGame() {
         state.flight.t += dt;
         if(state.flight.kind === "pass") {
           const t = state.flight.passTo;
-          // Smooth horizontal homing toward moving pass receiver so passes stay crisp in motion
-          if (t && !t.isBench && t.root.visible && state.flight.t < state.flight.T * 1.15) {
-            const targetPos = torsoPos(t);
-            const remainT = Math.max(0.08, state.flight.T - state.flight.t);
-            const desiredVx = clamp((targetPos.x - ball.position.x) / remainT, -22, 22);
-            const desiredVz = clamp((targetPos.z - ball.position.z) / remainT, -22, 22);
-            const steerGain = Math.min(1, dt * 10);
-            state.ballVel.x += (desiredVx - state.ballVel.x) * steerGain;
-            state.ballVel.z += (desiredVz - state.ballVel.z) * steerGain;
-          }
-          // Check defenders jumping/deflecting passing lanes (NEVER return early from loop!)
+          // Passes travel through 3D space as physical projectiles with independent momentum (no auto-lock homing)
+          // Check defenders' extended arm & body passing-lane reach for dynamic deflections & steals
           let interceptedOrDeflected = false;
-          if (state.flight.t > 0.06) {
+          if (state.flight.t > 0.05) {
             const passerIsHome = teamA.includes(state.flight.shooter);
             const laneDefenders = passerIsHome ? teamB : teamA;
             for (const def of laneDefenders) {
               if (def.isBench || !def.root.visible || def.defState.stumbleT > 0) continue;
-              const laneReach = def.defState.passLaneHunterT > 0 ? 2.45 : def.defState.stanceActive ? 1.45 : 0.95;
-              if (ball.position.distanceTo(torsoPos(def)) < laneReach && ball.position.y < 2.65 + def.h) {
+              const isUserDef = def === ME && state.isDefending;
+              const laneReach =
+                def.defState.passLaneHunterT > 0 ? 2.45 : isUserDef || def.defState.stanceActive ? 1.55 : 1.1;
+              if (ball.position.distanceTo(torsoPos(def)) < laneReach && ball.position.y < 2.75 + def.h) {
                 const wantIntercept =
                   (def.defState.passLaneHunterT > 0 && def.defState.passLaneMode === "intercept") ||
-                  (def.isUser && def.defState.passLaneHunterT > 0 && Math.random() < 0.72);
+                  (isUserDef && Math.random() < 0.72);
                 if (wantIntercept) {
                   state.owner = def;
                   state.ballMode = "dribble";
                   state.flight = null;
+                  state.stealGraceT = 1.2;
                   state.fastTransitionT = 3.6;
                   state.shotClock = resetShotClock("turnover");
                   setShotClockResetPulse((k) => k + 1);
@@ -7231,7 +8161,7 @@ export default function BasketballGame() {
                   triggerMsg("PASS INTERCEPTED!", "#10b981");
                   interceptedOrDeflected = true;
                   break;
-                } else if (def.defState.passLaneHunterT > 0 || (def.isUser && def.defState.stanceActive) || Math.random() < 0.22) {
+                } else if (def.defState.passLaneHunterT > 0 || isUserDef || def.defState.stanceActive || Math.random() < 0.28) {
                   state.flight = null;
                   state.ballMode = "loose";
                   state.ballVel.set(rnd(4.5), 2.6, rnd(4.5));
@@ -7243,8 +8173,8 @@ export default function BasketballGame() {
               }
             }
           }
-          if (!interceptedOrDeflected && state.flight && t && ball.position.distanceTo(torsoPos(t)) < 0.95) {
-            state.owner = t; state.ballMode = "dribble"; state.flight = null; t.holdT = 0;
+          if (!interceptedOrDeflected && state.flight && t && ball.position.distanceTo(torsoPos(t)) < 1.15) {
+            state.owner = t; state.ballMode = "dribble"; state.flight = null; t.holdT = 0; state.stealGraceT = 0.85;
             Audio.catchBall({ pan: clamp(t.root.position.z / 7.5, -1, 1), vol: 0.8 });
             if(t.isUser) triggerLabel("GOT IT");
           } else if (!interceptedOrDeflected && state.flight && state.flight.t > state.flight.T + 0.45) {
@@ -7274,11 +8204,12 @@ export default function BasketballGame() {
         }
         else if(state.flight && state.flight.t > 3.5) { state.flight = null; state.ballMode = "loose"; }
       }
-      // Take / Rebound / Steal Basketball directly from the hoop (or loose on floor)
+      // Take / Rebound Basketball directly from the hoop or loose on floor (respecting opponent scored inbounds in matches)
+      const isPracticeDeadInbound = gameModeRef.current === "freestyle" || gameModeRef.current === "training";
       const canGrabOrTakeFromHoop =
         !mpGuestMode &&
         (state.ballMode === "loose" ||
-        (state.ballMode === "dead" && state.deadReason === "score" && state.deadT < 0.5) ||
+        (isPracticeDeadInbound && state.ballMode === "dead" && state.deadReason === "score" && state.deadT < 0.5) ||
         (state.ballMode === "flight" &&
           state.flight?.kind === "shot" &&
           (state.flight.reboundable || (isNearHoop(ball.position) && state.ballVel.y < 1.2 && ball.position.y <= 3.35))));
@@ -7325,6 +8256,7 @@ export default function BasketballGame() {
           state.deadT = 0;
           state.deadReason = null;
           state.looseT = 0;
+          state.stealGraceT = 1.1;
           state.fastTransitionT = 3.6;
           Audio.catchBall({ pan: clamp(grabber.root.position.z / 7.5, -1, 1), vol: 0.85 });
           if (grabber.isUser) {
@@ -7439,20 +8371,69 @@ export default function BasketballGame() {
         });
       }
 
-      // CAMERA (Moves tightly with the player ME as they move, with optional drag-to-orbit & scroll-to-zoom)
-      const focusX = ME.root.position.x + ME.vel.x * 0.08;
-      const focusY = 1.15 + ME.h * 0.45;
-      const focusZ = ME.root.position.z + ME.vel.z * 0.08;
-      const camTarget = V(
-        focusX + orbitRadius * Math.sin(orbitPhi) * Math.cos(orbitTheta),
-        focusY + orbitRadius * Math.cos(orbitPhi),
-        focusZ + orbitRadius * Math.sin(orbitPhi) * Math.sin(orbitTheta)
+      // Ground team ring indicator under active user player
+      playerGroundRing.position.set(ME.root.position.x, 0.025, ME.root.position.z);
+      (playerGroundRing.material as THREE.MeshBasicMaterial).color.setHex(
+        state.isDefending ? 0x38bdf8 : state.owner === ME ? 0xf59e0b : 0xef4444
       );
-      camera.position.lerp(camTarget, 1 - Math.exp(-16 * dt));
-      state.camLook.lerp(V(focusX, focusY, focusZ), 1 - Math.exp(-20 * dt));
+
+      // 2K WEIGHTED BROADCAST CAMERA PIVOT (Sweeps smoothly down court + subtle zoom shift on offense/defense)
+      const isUserOffense = state.owner ? teamA.includes(state.owner) : state.lastScoringTeam === "Away";
+      const targetFov = isUserOffense ? 47.5 : 52.0;
+      if (Math.abs(camera.fov - targetFov) > 0.05) {
+        camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 3.5);
+        camera.updateProjectionMatrix();
+      }
+      const focusX = ME.root.position.x * 0.78 + ball.position.x * 0.22 + ME.vel.x * 0.12;
+      const focusY = 1.18 + ME.h * 0.42;
+      const focusZ = ME.root.position.z * 0.78 + ball.position.z * 0.22 + ME.vel.z * 0.12;
+      const sideZoomShift = isUserOffense ? -0.45 : 0.65;
+      const effectiveRadius = orbitRadius + sideZoomShift;
+      const camTarget = V(
+        focusX + effectiveRadius * Math.sin(orbitPhi) * Math.cos(orbitTheta),
+        focusY + effectiveRadius * Math.cos(orbitPhi),
+        focusZ + effectiveRadius * Math.sin(orbitPhi) * Math.sin(orbitTheta)
+      );
+      camera.position.lerp(camTarget, 1 - Math.exp(-7.2 * dt));
+      state.camLook.lerp(V(focusX, focusY, focusZ), 1 - Math.exp(-9.5 * dt));
       camera.lookAt(state.camLook);
 
-      prevInput = { ...input, rawKeys: { ...state.keys } }; renderer.render(scene, camera); mirrorFrameHookRef.current?.(renderer.domElement); frameId = requestAnimationFrame(loop);
+      // Project Floating Player Name, Stamina Bar & Team Ring Tag above ME's head at 60fps without React re-renders
+      if (activeTagRef.current) {
+        const tagPos = V(ME.root.position.x, 2.38 + ME.h, ME.root.position.z).project(camera);
+        if (tagPos.z < 1) {
+          const px = (tagPos.x * 0.5 + 0.5) * window.innerWidth;
+          const py = (-tagPos.y * 0.5 + 0.5) * window.innerHeight;
+          activeTagRef.current.style.opacity = isOverlayOpenRef.current ? "0" : "1";
+          activeTagRef.current.style.transform = `translate3d(${px}px, ${py}px, 0) translate(-50%, -100%)`;
+          if (staminaBarRef.current) {
+            const stamNorm = getStaminaNormalized(ME);
+            staminaBarRef.current.style.width = `${Math.round(stamNorm * 100)}%`;
+            staminaBarRef.current.style.backgroundColor = ME.isExhausted
+              ? "#ef4444"
+              : stamNorm < 0.3
+              ? "#f97316"
+              : "#22c55e";
+          }
+        } else {
+          activeTagRef.current.style.opacity = "0";
+        }
+      }
+
+      if (isUserOffense !== isUserOffenseRef.current) {
+        isUserOffenseRef.current = isUserOffense;
+        setIsUserOffenseUI(isUserOffense);
+      }
+
+      // Step deformable vertex-animated nets & recover ball squash/stretch smoothly
+      if (leftNet) stepDeformableNet(leftNet, dt);
+      if (rightNet) stepDeformableNet(rightNet, dt);
+      ball.scale.lerp(V(1, 1, 1), Math.min(1, dt * 16));
+
+      state.touchPulses = {};
+      prevInput = { ...input, rawKeys: { ...state.keys } };
+      const meSpeedBlur = clamp((Math.hypot(ME.vel.x, ME.vel.z) - 6.5) / 6.0, 0, 0.42);
+      renderAndSchedule(meSpeedBlur, 0.0, true);
     };
 
     // Interactive Drag-to-Orbit & Scroll-to-Zoom Event Bindings on Court Canvas
@@ -7489,11 +8470,13 @@ export default function BasketballGame() {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
+      broadcastComposer?.setSize(window.innerWidth, window.innerHeight, renderer.getPixelRatio());
       orbitRadius = window.innerWidth < window.innerHeight ? 17.5 : 13.5;
     };
     window.addEventListener("resize", onResize);
     const mountNode = mountRef.current;
     return () => {
+      isUnmounted = true;
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onWindowBlur);
@@ -7507,11 +8490,15 @@ export default function BasketballGame() {
       window.removeEventListener("pointercancel", onOrbitUp);
       window.removeEventListener("pointermove", onOrbitMove);
       window.removeEventListener("wheel", onOrbitWheel);
+      if (softwareTimerId) clearTimeout(softwareTimerId);
       cancelAnimationFrame(frameId);
       audioMgr.dispose();
       if (audioManagerRef.current === audioMgr) {
         audioManagerRef.current = null;
       }
+      broadcastComposer?.dispose();
+      jerseyBumpTex.dispose();
+      contactShadowTex.dispose();
       envRT.dispose();
       floorTex?.dispose();
       asphaltTex?.dispose();
@@ -7536,9 +8523,13 @@ export default function BasketballGame() {
     return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
   };
 
-  const showTouchControls =
+  const showTouchJoystick =
     inputPreference === "touch" ||
+    showDesktopStick ||
     (inputPreference === "auto" && (isMobileUI || hasTouchInput || detectedDevice === "phone" || detectedDevice === "tablet"));
+
+  const showTouchControls = showOnScreenPad && inputPreference !== "keyboard";
+  const effectivePadSide = padSideOverride === "auto" ? (isUserOffenseUI ? "offense" : "defense") : padSideOverride;
 
   const mpPeerCount = mpRoom ? Object.keys(mpRoom.players).length : 0;
 
@@ -7597,12 +8588,71 @@ export default function BasketballGame() {
         </div>
       )}
 
+      {/* Floating Active Player Name, Team Indicator & Live Stamina Bar */}
+      {!showMainMenu && !showHighlights && (
+        <div
+          ref={activeTagRef}
+          className="fixed top-0 left-0 pointer-events-none z-20 flex flex-col gap-0.5 px-2.5 py-1 rounded-lg bg-neutral-950/80 border border-amber-400/50 backdrop-blur-sm shadow-md transition-opacity duration-150"
+          style={{ opacity: 0 }}
+        >
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+            <span className="text-[10px] sm:text-xs font-black tracking-wide text-white whitespace-nowrap">
+              {athleteProfile.firstName} {athleteProfile.lastName}
+            </span>
+          </div>
+          <div className="w-full h-1 bg-white/15 rounded-full overflow-hidden">
+            <div
+              ref={staminaBarRef}
+              className="h-full rounded-full transition-[background-color] duration-150"
+              style={{ width: "100%", backgroundColor: "#22c55e" }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Shot Release Timing Feedback Pop-Up (1.5s immediately after jump shot completes) */}
+      <AnimatePresence>
+        {shotFeedback.visible && !showMainMenu && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.85, y: 10 }}
+            animate={{ opacity: 1, scale: shotFeedback.isGreen ? 1.08 : 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            className="fixed z-30 pointer-events-none -translate-x-1/2 -translate-y-full px-3.5 py-2 rounded-xl bg-neutral-950/90 border border-white/20 backdrop-blur-md shadow-2xl min-w-[175px]"
+            style={{ left: `${shotFeedback.x}%`, top: `${shotFeedback.y}%`, color: shotFeedback.color }}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs sm:text-sm font-black italic uppercase tracking-wider whitespace-nowrap drop-shadow">
+                {shotFeedback.text}
+              </span>
+              <span className="text-[11px] font-bold text-white/90 tabular-nums">
+                {shotFeedback.accuracyPct}%
+              </span>
+            </div>
+            <div className="mt-1.5 relative h-1.5 w-full rounded-full bg-white/15 overflow-hidden">
+              <div className="absolute inset-y-0 left-[40%] w-[20%] bg-emerald-500/45" />
+              <div
+                className="absolute top-0 bottom-0 w-1.5 -translate-x-1/2 rounded-full shadow"
+                style={{
+                  left: `${Math.round(shotFeedback.normalizedMeter * 100)}%`,
+                  backgroundColor: shotFeedback.color,
+                }}
+              />
+            </div>
+            <div className="mt-1 text-[10px] font-medium text-neutral-300 text-right tabular-nums">
+              {shotFeedback.deltaSec >= 0 ? "+" : ""}
+              {shotFeedback.deltaSec.toFixed(2)}s vs ideal
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence>{message.visible && <motion.div initial={{ opacity: 0, y: -30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="absolute top-[18%] left-0 right-0 text-center pointer-events-none z-30 font-black italic text-4xl sm:text-6xl uppercase drop-shadow-[0_4px_20px_rgba(0,0,0,0.85)]" style={{ color: message.color }}>{message.text}</motion.div>}</AnimatePresence>
       <AnimatePresence>{label.visible && <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="absolute top-[30%] left-0 right-0 text-center pointer-events-none z-30 text-lg sm:text-2xl font-black tracking-widest text-amber-300 italic uppercase drop-shadow">{label.text}</motion.div>}</AnimatePresence>
       {showMeter && (
         <div
           className={`absolute left-1/2 -translate-x-1/2 w-56 sm:w-80 h-5 bg-black/80 rounded-full border border-white/25 overflow-hidden pointer-events-none z-30 ${
-            showTouchControls ? "bottom-[calc(14.5rem+env(safe-area-inset-bottom))] sm:bottom-44" : "bottom-36 sm:bottom-44"
+            showTouchControls ? "bottom-[calc(15.5rem+env(safe-area-inset-bottom))] sm:bottom-48" : "bottom-36 sm:bottom-44"
           }`}
         >
           <div className="h-full bg-gradient-to-r from-red-600 via-green-400 to-red-600" style={{ width: `${meterFill}%` }} />
@@ -7620,7 +8670,7 @@ export default function BasketballGame() {
             onClick={handlePickUpBall}
             className={`fixed left-1/2 -translate-x-1/2 z-40 min-h-[44px] sm:min-h-[48px] px-4 sm:px-6 py-2 sm:py-3 bg-amber-400 hover:bg-amber-300 text-black font-black uppercase tracking-wider text-xs sm:text-sm rounded-xl border border-yellow-100 shadow-xl active:scale-95 flex items-center gap-2 pointer-events-auto cursor-pointer whitespace-nowrap ${
               showTouchControls
-                ? "bottom-[calc(11.25rem+env(safe-area-inset-bottom))] sm:bottom-12"
+                ? "bottom-[calc(13.25rem+env(safe-area-inset-bottom))] sm:bottom-12"
                 : "bottom-[max(2.5rem,env(safe-area-inset-bottom))]"
             }`}
           >
@@ -7630,36 +8680,182 @@ export default function BasketballGame() {
         )}
       </AnimatePresence>
 
-      {/* Auto-Responsive Multi-Touch Controls for Phone / Tablet / Touchscreen */}
+      {/* Universal Virtual Joystick & Expanded Offense/Defense Controller Pad */}
       {showTouchControls && !showHighlights && !showMainMenu && (
         <>
-          <div className="fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-[max(0.5rem,env(safe-area-inset-left))] z-40">
-            <Joystick
-              onChange={(x: number, y: number, active: boolean, autoSprint: boolean) => {
-                if (gameRef.current) {
-                  gameRef.current.state.joystick = { x, y, active, autoSprint };
-                }
-              }}
-            />
-          </div>
-          <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(0.65rem,env(safe-area-inset-right))] grid grid-cols-3 gap-1.5 sm:gap-3 z-40">
-            <ActionButton label="Sprint" icon="RT" color="bg-orange-600" onStateChange={(s: boolean) => { if(gameRef.current) gameRef.current.state.touchButtons.RT = s; }} />
-            <ActionButton label="Shot" icon="A" color="bg-red-600" onStateChange={(s: boolean) => { if(gameRef.current) gameRef.current.state.touchButtons.A = s; }} />
-            <ActionButton label="Pass" icon="B" color="bg-blue-600" onStateChange={(s: boolean) => { if(gameRef.current) gameRef.current.state.touchButtons.B = s; }} />
-            <ActionButton label="Cross" icon="X" color="bg-purple-600" onStateChange={(s: boolean) => { if(gameRef.current) gameRef.current.state.touchButtons.X = s; }} />
-            <ActionButton label="Dunk" icon="Y" color="bg-yellow-600" onStateChange={(s: boolean) => { if(gameRef.current) gameRef.current.state.touchButtons.Y = s; }} />
-            <ActionButton label="Def" icon="LT" color="bg-neutral-700" onStateChange={(s: boolean) => { if(gameRef.current) gameRef.current.state.touchButtons.LT = s; }} />
+          {showTouchJoystick ? (
+            <div className="fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-[max(0.5rem,env(safe-area-inset-left))] z-40">
+              <Joystick
+                onChange={(x: number, y: number, active: boolean, autoSprint: boolean) => {
+                  if (gameRef.current) {
+                    gameRef.current.state.joystick = { x, y, active, autoSprint };
+                  }
+                }}
+              />
+            </div>
+          ) : (
+            <div className="fixed bottom-[max(0.85rem,env(safe-area-inset-bottom))] left-[max(0.85rem,env(safe-area-inset-left))] z-30">
+              <button
+                type="button"
+                onClick={() => setShowDesktopStick(true)}
+                className="min-h-[44px] px-3 py-2 rounded-xl bg-neutral-950/85 hover:bg-neutral-900 border border-white/20 text-white/90 text-xs font-bold flex items-center gap-1.5 shadow-lg cursor-pointer whitespace-nowrap"
+              >
+                <Gamepad2 className="w-4 h-4 text-amber-400" />
+                <span>Show Move Stick</span>
+              </button>
+            </div>
+          )}
+
+          <div className="fixed bottom-[max(0.65rem,env(safe-area-inset-bottom))] right-[max(0.55rem,env(safe-area-inset-right))] z-40 flex flex-col items-end gap-1.5 pointer-events-auto">
+            {/* Compact Pad Bar: Offense / Defense Switcher + Expand/Collapse */}
+            <div className="flex items-center gap-1 p-1 rounded-xl bg-neutral-950/88 backdrop-blur-md border border-white/15 shadow-lg">
+              {showDesktopStick && !isMobileUI && !hasTouchInput && (
+                <button
+                  type="button"
+                  onClick={() => setShowDesktopStick(false)}
+                  className="px-2 py-1 rounded-lg text-[10px] font-bold text-white/70 hover:text-white hover:bg-white/10 cursor-pointer whitespace-nowrap"
+                  title="Hide virtual move stick"
+                >
+                  Hide Stick
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setPadSideOverride(effectivePadSide === "offense" ? "auto" : "offense")}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-black uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap ${
+                  effectivePadSide === "offense"
+                    ? "bg-amber-500 text-black"
+                    : "text-white/75 hover:text-white"
+                }`}
+              >
+                <Target className="w-3 h-3" />
+                <span>Offense</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPadSideOverride(effectivePadSide === "defense" ? "auto" : "defense")}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-black uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap ${
+                  effectivePadSide === "defense"
+                    ? "bg-cyan-400 text-black"
+                    : "text-white/75 hover:text-white"
+                }`}
+              >
+                <Shield className="w-3 h-3" />
+                <span>Defense</span>
+              </button>
+              {padSideOverride !== "auto" && (
+                <button
+                  type="button"
+                  onClick={() => setPadSideOverride("auto")}
+                  className="px-2 py-1 rounded-lg text-[10px] font-bold text-emerald-300 hover:bg-white/10 cursor-pointer whitespace-nowrap"
+                  title="Auto-switch on possession"
+                >
+                  Auto
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowExpandedMoves((prev) => !prev)}
+                aria-label={showExpandedMoves ? "Collapse extra buttons" : "Expand more buttons"}
+                className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[10px] font-bold flex items-center gap-0.5 cursor-pointer whitespace-nowrap"
+              >
+                {showExpandedMoves ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
+                <span>{showExpandedMoves ? "6" : "+12"}</span>
+              </button>
+            </div>
+
+            {/* Active Offense or Defense Button Grid */}
+            {effectivePadSide === "offense" ? (
+              <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
+                {showExpandedMoves && (
+                  <>
+                    <ActionButton label="Fake" icon="JK" color="bg-indigo-600" onStateChange={(s) => { if (s) gameRef.current?.playerController?.onFakeJabButton(); }} />
+                    <ActionButton label="Lob" icon="LB" color="bg-sky-600" onStateChange={(s) => { if (s) gameRef.current?.playerController?.onLobPassButton(); }} />
+                    <ActionButton label="Shield" icon="SH" color="bg-teal-600" onStateChange={(s) => { if (s) gameRef.current?.playerController?.onProtectHookButton(); }} />
+                    <ActionButton label="PnR" icon="PL" color="bg-emerald-600" onStateChange={(s) => { if (s) gameRef.current?.playerController?.onCallPlayButton(); }} />
+
+                    <ActionButton label="Spin" icon="SP" color="bg-fuchsia-600" onStateChange={(s) => { if (s) gameRef.current?.playerController?.onSpinButton(); }} />
+                    <ActionButton label="Behind" icon="BH" color="bg-violet-600" onStateChange={(s) => { if (s) gameRef.current?.playerController?.onBehindBackButton(); }} />
+                    <ActionButton label="Stepback" icon="SB" color="bg-rose-600" onStateChange={(s) => { if (s) gameRef.current?.playerController?.onStepbackButton(); }} />
+                    <ActionButton label="Cross" icon="X" color="bg-purple-600" onStateChange={(s) => handleTouchButtonState("X", s)} />
+                  </>
+                )}
+                {!showExpandedMoves && (
+                  <>
+                    <ActionButton label="Cross" icon="X" color="bg-purple-600" onStateChange={(s) => handleTouchButtonState("X", s)} />
+                    <ActionButton label="Spin" icon="SP" color="bg-fuchsia-600" onStateChange={(s) => { if (s) gameRef.current?.playerController?.onSpinButton(); }} />
+                  </>
+                )}
+                <ActionButton label="Pass" icon="B" color="bg-blue-600" onStateChange={(s) => handleTouchButtonState("B", s)} />
+                <ActionButton label="Dunk" icon="Y" color="bg-amber-600" onStateChange={(s) => handleTouchButtonState("Y", s)} />
+                <ActionButton label="Shot" icon="A" color="bg-red-600" onStateChange={(s) => handleTouchButtonState("A", s)} />
+                <ActionButton label="Sprint" icon="RT" color="bg-orange-600" onStateChange={(s) => handleTouchButtonState("RT", s)} />
+              </div>
+            ) : (
+              <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
+                {showExpandedMoves && (
+                  <>
+                    <ActionButton label="Charge" icon="CH" color="bg-rose-700" onStateChange={(s) => { if (s) gameRef.current?.playerController?.onChargeButton(); }} />
+                    <ActionButton label="Trap" icon="TR" color="bg-red-700" onStateChange={(s) => { if (s) gameRef.current?.playerController?.onTrapPressButton(); }} />
+                    <ActionButton label="Hedge" icon="HG" color="bg-amber-700" onStateChange={(s) => { if (s) gameRef.current?.playerController?.onHedgeRideButton(); }} />
+                    <ActionButton label="Zone" icon="ZN" color="bg-teal-700" onStateChange={(s) => { if (s) gameRef.current?.playerController?.onZoneHelpButton(); }} />
+
+                    <ActionButton label="BoxOut" icon="BX" color="bg-indigo-700" onStateChange={(s) => { if (s) gameRef.current?.playerController?.onBoxOutButton(); }} />
+                    <ActionButton label="Switch" icon="SW" color="bg-sky-700" onStateChange={(s) => { if (s) gameRef.current?.playerController?.onSwitchDefenseButton(); }} />
+                    <ActionButton label="Shade" icon="X" color="bg-purple-700" onStateChange={(s) => { if (s) gameRef.current?.playerController?.onShadeButton(); }} />
+                    <ActionButton label="Contest" icon="A" color="bg-emerald-600" onStateChange={(s) => { if (s) gameRef.current?.playerController?.onContestButton(); }} />
+                  </>
+                )}
+                {!showExpandedMoves && (
+                  <>
+                    <ActionButton label="Shade" icon="X" color="bg-purple-700" onStateChange={(s) => { if (s) gameRef.current?.playerController?.onShadeButton(); }} />
+                    <ActionButton label="Switch" icon="SW" color="bg-sky-700" onStateChange={(s) => { if (s) gameRef.current?.playerController?.onSwitchDefenseButton(); }} />
+                  </>
+                )}
+                <ActionButton label="Steal" icon="RB" color="bg-blue-600" onStateChange={(s) => handleTouchButtonState("RB", s)} />
+                <ActionButton label="Block" icon="Y" color="bg-amber-600" onStateChange={(s) => handleTouchButtonState("Y", s)} />
+                <ActionButton
+                  label={isUiDefending ? "Clamp On" : "Defend"}
+                  icon="LT"
+                  color={isUiDefending ? "bg-cyan-500 text-black" : "bg-neutral-700"}
+                  active={isUiDefending}
+                  onStateChange={(s) => { if (s) gameRef.current?.playerController?.onDefenseButtonToggle(); }}
+                />
+                <ActionButton label="Sprint" icon="RT" color="bg-orange-600" onStateChange={(s) => handleTouchButtonState("RT", s)} />
+              </div>
+            )}
           </div>
         </>
       )}
 
-      {/* Top-Right Court Controls: Move Deck, Moves, Screen Mirror & Main Menu */}
+      {/* Top-Right Court Controls: Pad Toggle, Move Deck, Moves, Screen Mirror & Main Menu */}
       <div className="fixed top-[max(0.65rem,env(safe-area-inset-top))] right-[max(0.75rem,env(safe-area-inset-right))] z-30 pointer-events-auto flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            if (inputPreference === "keyboard") {
+              handleChangeInputPreference("auto");
+              setShowOnScreenPad(true);
+            } else {
+              setShowOnScreenPad((prev) => !prev);
+            }
+          }}
+          aria-label="Toggle On-Screen Controller Pad"
+          className={`min-h-[40px] sm:min-h-[44px] px-3 sm:px-3.5 py-1.5 sm:py-2 backdrop-blur-md font-black uppercase text-xs tracking-wider rounded-xl border shadow-lg transition-colors flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-sky-400 whitespace-nowrap ${
+            showTouchControls
+              ? "bg-sky-500 text-black border-sky-200 hover:bg-sky-400"
+              : "bg-neutral-950/85 hover:bg-sky-500 hover:text-black text-sky-300 border-sky-400/40 hover:border-sky-300"
+          }`}
+        >
+          <Gamepad2 className="w-4 h-4" />
+          <span className="hidden sm:inline">{showTouchControls ? "Pad On" : "Pad Off"}</span>
+        </button>
+
         <button
           type="button"
           onClick={handleToggleQuickMovesSmart}
           aria-label="Toggle Move Deck"
-          className={`min-h-[40px] sm:min-h-[44px] px-3 sm:px-3.5 py-1.5 sm:py-2 backdrop-blur-md font-black uppercase text-xs tracking-wider rounded-xl border shadow-lg transition-colors flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-amber-400 ${
+          className={`min-h-[40px] sm:min-h-[44px] px-3 sm:px-3.5 py-1.5 sm:py-2 backdrop-blur-md font-black uppercase text-xs tracking-wider rounded-xl border shadow-lg transition-colors flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-amber-400 whitespace-nowrap ${
             showQuickMoves
               ? "bg-amber-500 text-black border-amber-200 hover:bg-amber-400"
               : "bg-neutral-950/85 hover:bg-amber-500 hover:text-black text-amber-300 border-amber-400/40 hover:border-amber-300"
@@ -7673,7 +8869,7 @@ export default function BasketballGame() {
           type="button"
           onClick={handleOpenMovebookSmart}
           aria-label="Open Movebook"
-          className="min-h-[40px] sm:min-h-[44px] px-3 sm:px-3.5 py-1.5 sm:py-2 bg-neutral-950/85 hover:bg-emerald-500 hover:text-black backdrop-blur-md text-emerald-300 font-black uppercase text-xs tracking-wider rounded-xl border border-emerald-400/40 hover:border-emerald-300 shadow-lg transition-colors flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400"
+          className="min-h-[40px] sm:min-h-[44px] px-3 sm:px-3.5 py-1.5 sm:py-2 bg-neutral-950/85 hover:bg-emerald-500 hover:text-black backdrop-blur-md text-emerald-300 font-black uppercase text-xs tracking-wider rounded-xl border border-emerald-400/40 hover:border-emerald-300 shadow-lg transition-colors flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-emerald-400 whitespace-nowrap"
         >
           <BookOpen className="w-4 h-4" />
           <span className="hidden sm:inline">Moves</span>
@@ -7683,7 +8879,7 @@ export default function BasketballGame() {
           type="button"
           onClick={() => setShowScreenMirror(true)}
           aria-label="Screen Mirror"
-          className={`min-h-[40px] sm:min-h-[44px] px-3 sm:px-3.5 py-1.5 sm:py-2 backdrop-blur-md font-black uppercase text-xs tracking-wider rounded-xl border shadow-lg transition-colors flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400 ${
+          className={`min-h-[40px] sm:min-h-[44px] px-3 sm:px-3.5 py-1.5 sm:py-2 backdrop-blur-md font-black uppercase text-xs tracking-wider rounded-xl border shadow-lg transition-colors flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan-400 whitespace-nowrap ${
             isMirroring
               ? "bg-cyan-500 text-black border-cyan-200 hover:bg-cyan-400"
               : "bg-neutral-950/85 hover:bg-cyan-500 hover:text-black text-cyan-300 border-cyan-400/40 hover:border-cyan-300"
@@ -7697,7 +8893,7 @@ export default function BasketballGame() {
           type="button"
           onClick={() => setShowMainMenu(true)}
           aria-label="Open Main Menu"
-          className="min-h-[40px] sm:min-h-[44px] px-3 sm:px-4 py-1.5 sm:py-2 bg-neutral-950/85 hover:bg-amber-500 hover:text-black backdrop-blur-md text-white font-black uppercase text-xs tracking-wider rounded-xl border border-white/20 hover:border-amber-300 shadow-lg transition-colors flex items-center gap-1.5 sm:gap-2 cursor-pointer focus-visible:ring-2 focus-visible:ring-amber-400"
+          className="min-h-[40px] sm:min-h-[44px] px-3 sm:px-4 py-1.5 sm:py-2 bg-neutral-950/85 hover:bg-amber-500 hover:text-black backdrop-blur-md text-white font-black uppercase text-xs tracking-wider rounded-xl border border-white/20 hover:border-amber-300 shadow-lg transition-colors flex items-center gap-1.5 sm:gap-2 cursor-pointer focus-visible:ring-2 focus-visible:ring-amber-400 whitespace-nowrap"
         >
           <Menu className="w-4 h-4" />
           <span className="hidden xs:inline sm:inline">Menu</span>
@@ -7933,28 +9129,29 @@ export default function BasketballGame() {
               </button>
               <div className="space-y-4">
                 <h3 className="text-2xl sm:text-3xl font-black italic uppercase text-red-500 border-b border-white/10 pb-2 pr-10">
-                  Offense &amp; Defense Controls
+                  Gamepad, Touch &amp; Keyboard Controls
                 </h3>
                 <div className="grid grid-cols-2 gap-2 text-xs sm:text-sm font-bold">
-                  <div>Move / Slide</div><div>WASD / Arrows / Touch Stick</div>
-                  <div>Sprint (Modifier)</div><div>Shift / RT Button</div>
-                  <div>Live Move Deck (All 148 Buttons)</div><div>N / Top-Right Move Deck</div>
-                  <div>Movebook (All 93 Off &amp; 55 Def)</div><div>B / Top-Right Moves</div>
-                  <div>Shot / Fadeaway</div><div>Space / A Button</div>
-                  <div>Dunk (Tomahawk / Shift 2-Hand)</div><div>I / Shift+I / Y Button</div>
-                  <div>Cross / Killer Cross / Shade</div><div>U or X (Shift+U Killer / Def: X)</div>
-                  <div>Behind-Back / Between-Legs / Closeout</div><div>C / Shift+C</div>
-                  <div>Triple-Threat / Def Stance Toggle</div><div>Z / LT Button</div>
-                  <div>Spin / Shamgod / Drop Step / Slide</div><div>V / Shift+V</div>
-                  <div>Hesi / Hook / Hedge (Soft/Hard)</div><div>H / Shift+H</div>
-                  <div>Pump Fake / Jab Step / Denial</div><div>J / Shift+J</div>
-                  <div>Lob Pass / Help-Recover / Rim</div><div>L / Shift+L</div>
-                  <div>Protect Dribble / Wall / Box-Out</div><div>G / Shift+G</div>
-                  <div>Poke-Check / Jump Passing Lane</div><div>E / Shift+E / RB</div>
-                  <div>Hip-Ride / Hand-Check</div><div>R / Shift+R</div>
-                  <div>Take Charge / Pull the Chair</div><div>T / Shift+T</div>
-                  <div>Pass / Plays / PnR &amp; Zones</div><div>K / B Button · 1 - 6</div>
-                  <div>Sub Bench</div><div>Q / LB / Timeout</div>
+                  <div>Move / Slide</div><div>WASD / Arrows / Touch Stick / L-Stick</div>
+                  <div>Sprint (Stamina)</div><div>Shift / RT Button / R2</div>
+                  <div>Offense &amp; Defense Pad</div><div>On-Screen Bottom Right (Toggle: Pad On)</div>
+                  <div>Live Move Deck (148 Moves)</div><div>N / Select Button / Move Deck</div>
+                  <div>Movebook (93 Off &amp; 55 Def)</div><div>B / Top-Right Moves</div>
+                  <div>Shot / Contest / Rebound</div><div>Space / A (Cross) Button</div>
+                  <div>Dunk / Block / Wall Up</div><div>F / I / Y (Triangle) Button</div>
+                  <div>Cross / Shade / Pro-Stick</div><div>X (Square) / Right Stick</div>
+                  <div>Pass / Call Pass / Switch Def</div><div>P / K / B (Circle) · 1 - 6 · D-Pad</div>
+                  <div>Steal / Poke / Pass Lane</div><div>E / RB (R1) Button</div>
+                  <div>Defense Clamp Stance</div><div>Left Ctrl / Q / Z / LT (L2)</div>
+                  <div>Spin / Shamgod / Drop Step</div><div>V / Shift+V / Spin Pad</div>
+                  <div>Behind-Back / Between-Legs</div><div>C / Shift+C / Behind Pad</div>
+                  <div>Hesi / Hook / Hedge</div><div>H / Shift+H / Hedge Pad</div>
+                  <div>Pump Fake / Jab / Denial</div><div>J / Shift+J / Fake Pad</div>
+                  <div>Lob Pass / Help-Recover</div><div>L / Shift+L / Lob &amp; Zone Pads</div>
+                  <div>Protect Dribble / Box-Out</div><div>G / Shift+G / Shield &amp; BoxOut Pads</div>
+                  <div>Hip-Ride / Hand-Check</div><div>R / Shift+R / Hedge Pad</div>
+                  <div>Take Charge / Pull Chair</div><div>T / Shift+T / R3 / Charge Pad</div>
+                  <div>Sub Bench</div><div>Tab / LB (L1) / L3 / Timeout</div>
                 </div>
               </div>
               <div className="space-y-4">
@@ -8236,13 +9433,27 @@ export default function BasketballGame() {
   );
 }
 
-function ActionButton({ label, icon, color, onStateChange }: { label: string, icon: string, color: string, onStateChange: (s: boolean) => void }) {
+function ActionButton({
+  label,
+  icon,
+  color,
+  active = false,
+  onStateChange,
+}: {
+  label: string;
+  icon: string;
+  color: string;
+  active?: boolean;
+  onStateChange: (s: boolean) => void;
+}) {
   const activePointerId = useRef<number | null>(null);
   const handleDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     e.preventDefault();
     activePointerId.current = e.pointerId;
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {}
     onStateChange(true);
   };
   const handleUp = (e: React.PointerEvent<HTMLButtonElement>) => {
@@ -8253,22 +9464,42 @@ function ActionButton({ label, icon, color, onStateChange }: { label: string, ic
     }
   };
   const resetButton = () => {
-    activePointerId.current = null;
-    onStateChange(false);
+    if (activePointerId.current !== null) {
+      activePointerId.current = null;
+      onStateChange(false);
+    }
+  };
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (e.code === "Enter" || e.code === "Space") {
+      e.preventDefault();
+      if (!e.repeat) onStateChange(true);
+    }
+  };
+  const handleKeyUp = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (e.code === "Enter" || e.code === "Space") {
+      e.preventDefault();
+      onStateChange(false);
+    }
   };
   return (
-    <div className="flex flex-col items-center gap-0.5 sm:gap-1 select-none touch-none">
+    <div className="flex flex-col items-center gap-0.5 select-none touch-none">
       <button
         type="button"
+        aria-label={label}
+        onContextMenu={(e) => e.preventDefault()}
         onPointerDown={handleDown}
         onPointerUp={handleUp}
         onPointerCancel={handleUp}
         onLostPointerCapture={resetButton}
-        className={`w-11 h-11 sm:w-14 sm:h-14 rounded-full flex items-center justify-center text-white font-black text-sm sm:text-lg shadow-xl active:scale-90 transition-transform ${color} border-2 border-white/25 touch-none select-none cursor-pointer`}
+        onKeyDown={handleKeyDown}
+        onKeyUp={handleKeyUp}
+        className={`min-w-[44px] min-h-[44px] w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center font-black text-xs sm:text-sm shadow-xl active:scale-90 transition-transform ${color} ${
+          active ? "ring-2 ring-white border-2 border-white scale-105" : "border-2 border-white/25 text-white"
+        } touch-none select-none cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300`}
       >
         {icon}
       </button>
-      <span className="text-[9px] font-bold uppercase text-white/75">{label}</span>
+      <span className="text-[9px] font-bold uppercase text-white/85 drop-shadow whitespace-nowrap">{label}</span>
     </div>
   );
 }
