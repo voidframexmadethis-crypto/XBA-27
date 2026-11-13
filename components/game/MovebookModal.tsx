@@ -23,6 +23,7 @@ interface MovebookModalProps {
   onExecuteMove: (move: OffenseMove | DefenseMove) => void;
   activeOffensePlay: OffenseMove | null;
   activeDefenseScheme: DefenseMove | null;
+  defaultSide?: "offense" | "defense";
 }
 
 export default function MovebookModal({
@@ -31,8 +32,17 @@ export default function MovebookModal({
   onExecuteMove,
   activeOffensePlay,
   activeDefenseScheme,
+  defaultSide = "offense",
 }: MovebookModalProps) {
-  const [sideTab, setSideTab] = useState<"offense" | "defense">("offense");
+  const [sideOverride, setSideOverride] = useState<{
+    base: "offense" | "defense";
+    tab: "offense" | "defense";
+  } | null>(null);
+  const sideTab = sideOverride && sideOverride.base === defaultSide ? sideOverride.tab : defaultSide;
+  const handleClose = () => {
+    setSideOverride(null);
+    onClose();
+  };
   const [offenseCat, setOffenseCat] = useState<OffenseCategoryKey | "all">("all");
   const [defenseCat, setDefenseCat] = useState<DefenseCategoryKey | "all">("all");
   const [query, setQuery] = useState("");
@@ -68,7 +78,7 @@ export default function MovebookModal({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[205] flex items-start sm:items-center justify-center p-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-6 overflow-y-auto"
-          onClick={onClose}
+          onClick={handleClose}
         >
           <motion.div
             initial={{ scale: 0.96, y: 14 }}
@@ -95,7 +105,7 @@ export default function MovebookModal({
             </div>
 
             <button
-              onClick={onClose}
+              onClick={handleClose}
               aria-label="Close Movebook"
               className="w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer"
             >
@@ -107,7 +117,7 @@ export default function MovebookModal({
           <div className="px-6 py-3 bg-neutral-950 border-b border-white/10 flex flex-wrap items-center justify-between gap-3 shrink-0">
             <div className="flex items-center gap-1 p-1 bg-white/5 border border-white/10 rounded-lg">
               <button
-                onClick={() => setSideTab("offense")}
+                onClick={() => setSideOverride({ base: defaultSide, tab: "offense" })}
                 className={`px-4 py-1.5 rounded-md text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                   sideTab === "offense"
                     ? "bg-amber-500 text-black"
@@ -118,7 +128,7 @@ export default function MovebookModal({
                 <span className="tabular-nums">Offense ({ALL_OFFENSE_MOVES.length})</span>
               </button>
               <button
-                onClick={() => setSideTab("defense")}
+                onClick={() => setSideOverride({ base: defaultSide, tab: "defense" })}
                 className={`px-4 py-1.5 rounded-md text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                   sideTab === "defense"
                     ? "bg-amber-500 text-black"
@@ -220,7 +230,7 @@ export default function MovebookModal({
                       key={move.id}
                       onClick={() => {
                         onExecuteMove(move.id);
-                        onClose();
+                        handleClose();
                       }}
                       className={`p-4 rounded-xl border text-left transition-colors flex flex-col justify-between gap-3 cursor-pointer ${
                         isActiveScheme
@@ -245,7 +255,7 @@ export default function MovebookModal({
                       <div className="text-[11px] font-bold text-amber-400">
                         {isActiveScheme
                           ? "Active Set · Trigger Again"
-                          : move.category === "plays" ||
+                          : move.category === "off_ball_actions" ||
                             move.category === "schemes" ||
                             move.category === "pnr_coverage"
                           ? "Call Set / Coverage"

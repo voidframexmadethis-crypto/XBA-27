@@ -46,9 +46,32 @@ export interface RemotePlayerState {
   reb: number;
 }
 
+export type MultiplayerFormat = "1v1" | "2v2" | "3v3" | "5v5";
+
+export function formatToMaxPlayers(format?: MultiplayerFormat): number {
+  switch (format) {
+    case "1v1":
+      return 2;
+    case "2v2":
+      return 4;
+    case "3v3":
+      return 6;
+    default:
+      return 10;
+  }
+}
+
 export interface MatchEventRecord {
   seq: number;
-  type: "basket_scored" | "tip_off" | "quarter_end" | "city_change" | "mode_change" | "reset_match" | "move_executed";
+  type:
+    | "basket_scored"
+    | "tip_off"
+    | "quarter_end"
+    | "city_change"
+    | "mode_change"
+    | "reset_match"
+    | "move_executed"
+    | "match_finished";
   playerId: string;
   payload?: Record<string, unknown>;
   ts: number;
@@ -68,12 +91,20 @@ export interface MatchSyncState {
   hostId: string | null;
   cityId: string;
   mode: string;
+  format: MultiplayerFormat;
   eventSeq: number;
   lastEvent?: MatchEventRecord;
+  finalResult?: {
+    winner: TeamSide | "Tie";
+    scoreHome: number;
+    scoreAway: number;
+    finishedAt: number;
+  } | null;
 }
 
 export interface MultiplayerRoomState {
   roomCode: string;
+  isPrivate: boolean;
   createdAt: number;
   updatedAt: number;
   hostId: string | null;
@@ -83,6 +114,8 @@ export interface MultiplayerRoomState {
 
 export interface MultiplayerRoomSummary {
   roomCode: string;
+  isPrivate: boolean;
+  format: MultiplayerFormat;
   playerCount: number;
   maxPlayers: number;
   cityId: string;
@@ -100,6 +133,8 @@ export interface JoinRoomInput {
   preferredTeam?: TeamSide;
   cityId?: string;
   mode?: string;
+  format?: MultiplayerFormat;
+  isPrivate?: boolean;
 }
 
 export interface SyncStateInput {
@@ -112,7 +147,7 @@ export interface SyncStateInput {
   stats?: { pts: number; ast: number; reb: number };
   matchPatch?: Partial<Pick<
     MatchSyncState,
-    "scoreHome" | "scoreAway" | "quarter" | "gameClock" | "shotClock" | "ballPos" | "ballVel" | "ballMode" | "ownerPlayerId" | "ownerEntityKey" | "cityId" | "mode"
+    "scoreHome" | "scoreAway" | "quarter" | "gameClock" | "shotClock" | "ballPos" | "ballVel" | "ballMode" | "ownerPlayerId" | "ownerEntityKey" | "cityId" | "mode" | "format"
   >>;
 }
 

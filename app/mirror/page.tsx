@@ -173,7 +173,7 @@ function MirrorReceiverContent() {
           <div className="flex items-center gap-2">
             <Tv className="w-5 h-5 text-cyan-400" />
             <span className="text-sm sm:text-base font-black uppercase italic tracking-tight text-2k-cyan">
-              XBA 27 · TV Mirror Receiver
+              CourtLegends · TV Mirror Receiver
             </span>
           </div>
           {connectedCode && status === "live" && (
@@ -317,7 +317,7 @@ function MirrorReceiverContent() {
               <>
                 <div className="space-y-1">
                   <h1 className="text-xl sm:text-2xl font-black uppercase italic text-2k-gold">
-                    Connect Display to XBA 27
+                    Connect Display to CourtLegends
                   </h1>
                   <p className="text-xs text-white/65">
                     Enter the Mirror Code shown in the player&apos;s Screen Mirroring menu or select a live broadcast below.

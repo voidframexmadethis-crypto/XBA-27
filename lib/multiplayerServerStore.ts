@@ -1,13 +1,15 @@
-import type {
-  DeviceType,
-  JoinRoomInput,
-  MatchEventInput,
-  MatchEventRecord,
-  MultiplayerRoomState,
-  MultiplayerRoomSummary,
-  RemotePlayerState,
-  SyncStateInput,
-  TeamSide,
+import {
+  formatToMaxPlayers,
+  type DeviceType,
+  type JoinRoomInput,
+  type MatchEventInput,
+  type MatchEventRecord,
+  type MultiplayerFormat,
+  type MultiplayerRoomState,
+  type MultiplayerRoomSummary,
+  type RemotePlayerState,
+  type SyncStateInput,
+  type TeamSide,
 } from "./multiplayerTypes.ts";
 
 const STALE_PLAYER_MS = 20_000;
@@ -46,10 +48,17 @@ export function generateRoomCode(): string {
   return code;
 }
 
-function createEmptyRoom(roomCode: string, cityId = "los_angeles", mode = "match"): MultiplayerRoomState {
+function createEmptyRoom(
+  roomCode: string,
+  cityId = "us_nyc",
+  mode = "match",
+  format: MultiplayerFormat = "5v5",
+  isPrivate = false
+): MultiplayerRoomState {
   const now = Date.now();
   return {
     roomCode,
+    isPrivate,
     createdAt: now,
     updatedAt: now,
     hostId: null,
@@ -68,7 +77,9 @@ function createEmptyRoom(roomCode: string, cityId = "los_angeles", mode = "match
       hostId: null,
       cityId,
       mode,
+      format,
       eventSeq: 0,
+      finalResult: null,
     },
   };
 }
@@ -94,6 +105,7 @@ function assignTeamAndSlot(
   room: MultiplayerRoomState,
   preferredTeam?: TeamSide
 ): { team: TeamSide; slotIndex: number } {
+  const maxPerSide = Math.max(1, Math.floor(formatToMaxPlayers(room.match.format) / 2));
   const homeUsed = new Set<number>();
   const awayUsed = new Set<number>();
   for (const p of Object.values(room.players)) {
@@ -102,18 +114,21 @@ function assignTeamAndSlot(
   }
 
   let team: TeamSide;
-  if (preferredTeam && ((preferredTeam === "Home" && homeUsed.size < 5) || (preferredTeam === "Away" && awayUsed.size < 5))) {
+  if (
+    preferredTeam &&
+    ((preferredTeam === "Home" && homeUsed.size < maxPerSide) ||
+      (preferredTeam === "Away" && awayUsed.size < maxPerSide))
+  ) {
     team = preferredTeam;
   } else {
     team = homeUsed.size <= awayUsed.size ? "Home" : "Away";
   }
 
   const used = team === "Home" ? homeUsed : awayUsed;
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < maxPerSide; i++) {
     if (!used.has(i)) return { team, slotIndex: i };
   }
-  // Overflow fallback if >5 per side
-  return { team, slotIndex: used.size % 5 };
+  return { team, slotIndex: used.size % maxPerSide };
 }
 
 export function joinRoom(input: JoinRoomInput): MultiplayerRoomState {
@@ -121,7 +136,13 @@ export function joinRoom(input: JoinRoomInput): MultiplayerRoomState {
   const roomCode = sanitizeRoomCode(input.roomCode);
   let room = map.get(roomCode);
   if (!room) {
-    room = createEmptyRoom(roomCode, input.cityId || "los_angeles", input.mode || "match");
+    room = createEmptyRoom(
+      roomCode,
+      input.cityId || "us_nyc",
+      input.mode || "match",
+      input.format || "5v5",
+      Boolean(input.isPrivate)
+    );
     map.set(roomCode, room);
   }
 
@@ -243,6 +264,7 @@ export function syncPlayerState(input: SyncStateInput): {
       if (input.matchPatch.ownerEntityKey !== undefined) room.match.ownerEntityKey = input.matchPatch.ownerEntityKey;
       if (input.matchPatch.cityId) room.match.cityId = input.matchPatch.cityId;
       if (input.matchPatch.mode) room.match.mode = input.matchPatch.mode;
+      if (input.matchPatch.format) room.match.format = input.matchPatch.format;
     }
   }
 
@@ -276,6 +298,7 @@ export function applyMatchEvent(input: MatchEventInput): {
     room.match.scoreAway = 0;
     room.match.quarter = 1;
     room.match.shotClock = 24;
+    room.match.finalResult = null;
     if (typeof p.ownerEntityKey === "string") room.match.ownerEntityKey = p.ownerEntityKey;
   } else if (input.type === "city_change" && typeof p.cityId === "string") {
     room.match.cityId = p.cityId;
@@ -286,8 +309,20 @@ export function applyMatchEvent(input: MatchEventInput): {
     room.match.scoreAway = 0;
     room.match.quarter = 1;
     room.match.shotClock = 24;
+    room.match.finalResult = null;
   } else if (input.type === "quarter_end" && typeof p.quarter === "number") {
     room.match.quarter = p.quarter;
+  } else if (input.type === "match_finished") {
+    const sh = typeof p.scoreHome === "number" ? p.scoreHome : room.match.scoreHome;
+    const sa = typeof p.scoreAway === "number" ? p.scoreAway : room.match.scoreAway;
+    room.match.scoreHome = sh;
+    room.match.scoreAway = sa;
+    room.match.finalResult = {
+      winner: sh > sa ? "Home" : sa > sh ? "Away" : "Tie",
+      scoreHome: sh,
+      scoreAway: sa,
+      finishedAt: now,
+    };
   }
 
   room.updatedAt = now;
@@ -340,12 +375,15 @@ export function listPublicRooms(): MultiplayerRoomSummary[] {
       map.delete(code);
       continue;
     }
+    if (room.isPrivate) continue;
     const deviceSet = new Set<DeviceType>();
     for (const pl of players) deviceSet.add(pl.deviceType);
     summaries.push({
       roomCode: code,
+      isPrivate: room.isPrivate,
+      format: room.match.format || "5v5",
       playerCount: players.length,
-      maxPlayers: 10,
+      maxPlayers: formatToMaxPlayers(room.match.format),
       cityId: room.match.cityId,
       mode: room.match.mode,
       devices: Array.from(deviceSet),

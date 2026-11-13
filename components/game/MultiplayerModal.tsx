@@ -16,12 +16,15 @@ import {
   RefreshCw,
   X,
   Wifi,
+  WifiOff,
 } from "lucide-react";
-import type {
-  DeviceType,
-  MultiplayerRoomState,
-  MultiplayerRoomSummary,
-  TeamSide,
+import {
+  formatToMaxPlayers,
+  type DeviceType,
+  type MultiplayerFormat,
+  type MultiplayerRoomState,
+  type MultiplayerRoomSummary,
+  type TeamSide,
 } from "@/lib/multiplayerTypes";
 import type { ConnectionTransport } from "@/lib/multiplayerClient";
 
@@ -34,8 +37,8 @@ interface MultiplayerModalProps {
   transport: ConnectionTransport;
   currentRoom: MultiplayerRoomState | null;
   onFetchRooms: () => Promise<MultiplayerRoomSummary[]>;
-  onJoinRoom: (roomCode: string, preferredTeam?: TeamSide) => Promise<void>;
-  onCreateRoom: () => Promise<void>;
+  onJoinRoom: (roomCode: string, preferredTeam?: TeamSide, format?: MultiplayerFormat) => Promise<void>;
+  onCreateRoom: (options?: { format?: MultiplayerFormat; isPrivate?: boolean }) => Promise<void>;
   onLeaveRoom: () => Promise<void>;
   onStartCourtMatch: () => void;
 }
@@ -85,6 +88,8 @@ export default function MultiplayerModal({
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [preferredTeam, setPreferredTeam] = useState<TeamSide | undefined>(undefined);
+  const [selectedFormat, setSelectedFormat] = useState<MultiplayerFormat>("5v5");
+  const [privateRoom, setPrivateRoom] = useState<boolean>(true);
 
   const refreshRooms = async () => {
     setBusy(true);
@@ -106,6 +111,22 @@ export default function MultiplayerModal({
       cancelled = true;
     };
   }, [isOpen, onFetchRooms]);
+
+  const [isOnline, setIsOnline] = useState(
+    typeof navigator !== "undefined" ? navigator.onLine !== false : true
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onUp = () => setIsOnline(true);
+    const onDown = () => setIsOnline(false);
+    window.addEventListener("online", onUp);
+    window.addEventListener("offline", onDown);
+    return () => {
+      window.removeEventListener("online", onUp);
+      window.removeEventListener("offline", onDown);
+    };
+  }, []);
 
   const players = currentRoom ? Object.values(currentRoom.players) : [];
   const isConnected = !!currentRoom && transport !== "disconnected";
@@ -171,14 +192,27 @@ export default function MultiplayerModal({
               <div className="p-5 rounded-2xl bg-gradient-to-br from-cyan-950/60 via-neutral-900 to-neutral-950 border border-cyan-500/35 flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <div className="text-[11px] uppercase tracking-widest font-bold text-cyan-300 flex items-center gap-1.5">
-                    <Wifi className="w-3.5 h-3.5" />
-                    <span>Live Room · {transport === "ws" ? "Real-Time Socket" : "Auto-Sync Bridge"}</span>
+                    {transport === "offline-local" || !isOnline ? (
+                      <WifiOff className="w-3.5 h-3.5 text-amber-400" />
+                    ) : (
+                      <Wifi className="w-3.5 h-3.5 text-emerald-400" />
+                    )}
+                    <span>
+                      Live Room ·{" "}
+                      {transport === "ws"
+                        ? "Online · Real-Time Socket"
+                        : transport === "http"
+                        ? "Online · Cloud Sync Bridge"
+                        : "Offline Ready · Local & Cross-Tab Sync"}
+                    </span>
                   </div>
                   <div className="text-3xl font-black tracking-wider text-white mt-1 tabular-nums">
                     {currentRoom.roomCode}
                   </div>
                   <p className="text-xs text-white/60 mt-1">
-                    Share this code or link so friends on any phone, tablet, TV, or computer can join your court.
+                    {transport === "offline-local"
+                      ? "Offline active: play solo/squad or join this room in another local tab via BroadcastChannel. Automatically syncs online when connectivity returns."
+                      : "Share this code or link so friends on any phone, tablet, TV, or computer can join your court."}
                   </p>
                 </div>
 
@@ -211,14 +245,25 @@ export default function MultiplayerModal({
 
               {/* Connected Players Grid */}
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="text-sm font-black uppercase tracking-wider text-white/80">
-                    Connected Players ({players.length} / 10)
+                    Connected Players ({players.length} / {formatToMaxPlayers(currentRoom.match.format)}) ·{" "}
+                    <span className="text-cyan-300">{currentRoom.match.format || "5v5"}</span>
+                    {currentRoom.isPrivate ? " · Private" : " · Public"}
                   </h3>
-                  <span className="text-xs text-white/50">
+                  <span className="text-xs text-white/55 tabular-nums">
                     Live Score: Home {currentRoom.match.scoreHome} - Away {currentRoom.match.scoreAway}
                   </span>
                 </div>
+                {currentRoom.match.finalResult && (
+                  <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-400/40 text-xs font-bold text-emerald-200 flex items-center justify-between">
+                    <span>
+                      Final Synced Result: {currentRoom.match.finalResult.winner} Wins (
+                      {currentRoom.match.finalResult.scoreHome} – {currentRoom.match.finalResult.scoreAway})
+                    </span>
+                    <span className="uppercase tracking-wider text-[10px] text-emerald-300">Verified</span>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {players.map((p) => {
@@ -275,34 +320,75 @@ export default function MultiplayerModal({
           ) : (
             /* Lobby Browser / Join Flow */
             <div className="space-y-5">
-              {/* Preferred Team Selector */}
-              <div className="flex flex-wrap items-center justify-between gap-3 bg-white/5 border border-white/10 rounded-xl p-4">
-                <div>
-                  <div className="text-xs font-black uppercase tracking-wider text-white/80">
-                    Preferred Side
-                  </div>
-                  <div className="text-xs text-white/55">
-                    Auto balances teams or pick Home / Away before joining
+              {!isOnline && (
+                <div className="p-3.5 rounded-xl bg-amber-500/15 border border-amber-400/40 text-xs text-amber-100 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <WifiOff className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>
+                      <strong>Offline Mode Active:</strong> Create or join any room below to play offline or across local browser tabs. Online sync resumes automatically when back online.
+                    </span>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {(["Auto", "Home", "Away"] as const).map((opt) => {
-                    const selected =
-                      (opt === "Auto" && !preferredTeam) || preferredTeam === opt;
-                    return (
+              )}
+              {/* Format & Preferred Team Selectors */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-2">
+                  <div className="text-xs font-black uppercase tracking-wider text-white/80">
+                    Match Format
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(["1v1", "2v2", "3v3", "5v5"] as MultiplayerFormat[]).map((fmt) => (
                       <button
-                        key={opt}
-                        onClick={() => setPreferredTeam(opt === "Auto" ? undefined : opt)}
-                        className={`min-h-[44px] px-4 py-2 rounded-xl text-xs font-bold uppercase border cursor-pointer ${
-                          selected
-                            ? "bg-amber-500 text-black border-amber-300"
+                        key={fmt}
+                        onClick={() => setSelectedFormat(fmt)}
+                        className={`min-h-[40px] px-3.5 py-1.5 rounded-xl text-xs font-black uppercase border cursor-pointer ${
+                          selectedFormat === fmt
+                            ? "bg-cyan-500 text-black border-cyan-300"
                             : "bg-white/5 text-white/80 border-white/10 hover:bg-white/10"
                         }`}
                       >
-                        {opt}
+                        {fmt}
                       </button>
-                    );
-                  })}
+                    ))}
+                  </div>
+                </div>
+
+                <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black uppercase tracking-wider text-white/80">
+                      Preferred Side
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPrivateRoom((v) => !v)}
+                      className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border cursor-pointer ${
+                        privateRoom
+                          ? "bg-amber-500/20 text-amber-300 border-amber-400/40"
+                          : "bg-white/5 text-white/60 border-white/15"
+                      }`}
+                    >
+                      {privateRoom ? "Private Code Only" : "Listed Publicly"}
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {(["Auto", "Home", "Away"] as const).map((opt) => {
+                      const selected =
+                        (opt === "Auto" && !preferredTeam) || preferredTeam === opt;
+                      return (
+                        <button
+                          key={opt}
+                          onClick={() => setPreferredTeam(opt === "Auto" ? undefined : opt)}
+                          className={`min-h-[40px] px-3.5 py-1.5 rounded-xl text-xs font-bold uppercase border cursor-pointer ${
+                            selected
+                              ? "bg-amber-500 text-black border-amber-300"
+                              : "bg-white/5 text-white/80 border-white/10 hover:bg-white/10"
+                          }`}
+                        >
+                          {opt}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 
@@ -313,7 +399,7 @@ export default function MultiplayerModal({
                   onClick={async () => {
                     setBusy(true);
                     try {
-                      await onJoinRoom("PUBLIC-COURT", preferredTeam);
+                      await onJoinRoom("PUBLIC-COURT", preferredTeam, selectedFormat);
                     } finally {
                       setBusy(false);
                     }
@@ -334,7 +420,7 @@ export default function MultiplayerModal({
                   onClick={async () => {
                     setBusy(true);
                     try {
-                      await onCreateRoom();
+                      await onCreateRoom({ format: selectedFormat, isPrivate: privateRoom });
                       await refreshRooms();
                     } finally {
                       setBusy(false);
@@ -343,7 +429,9 @@ export default function MultiplayerModal({
                   className="min-h-[88px] p-5 rounded-2xl bg-gradient-to-br from-cyan-500/20 via-neutral-900 to-neutral-950 border border-cyan-500/40 hover:border-cyan-400 text-left flex flex-col justify-between cursor-pointer"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-lg font-black uppercase text-white">Create Private Room</span>
+                    <span className="text-lg font-black uppercase text-white">
+                      Create {selectedFormat} {privateRoom ? "Private" : "Public"} Room
+                    </span>
                     <Plus className="w-5 h-5 text-cyan-400" />
                   </div>
                   <p className="text-xs text-white/65 mt-1">
@@ -366,7 +454,7 @@ export default function MultiplayerModal({
                   onClick={async () => {
                     setBusy(true);
                     try {
-                      await onJoinRoom(customCode.trim(), preferredTeam);
+                      await onJoinRoom(customCode.trim(), preferredTeam, selectedFormat);
                     } finally {
                       setBusy(false);
                     }
@@ -403,7 +491,9 @@ export default function MultiplayerModal({
                         <div className="text-sm font-black uppercase tracking-wider text-white">
                           {rm.roomCode}
                         </div>
-                        <div className="text-xs text-white/55 flex items-center gap-2 mt-0.5">
+                        <div className="text-xs text-white/55 flex items-center gap-2 mt-0.5 tabular-nums">
+                          <span className="text-cyan-300 font-bold">{rm.format || "5v5"}</span>
+                          <span>&bull;</span>
                           <span>{rm.playerCount} / {rm.maxPlayers} Players</span>
                           {rm.devices.length > 0 && (
                             <span className="flex items-center gap-1 text-cyan-300">
@@ -419,7 +509,7 @@ export default function MultiplayerModal({
                         onClick={async () => {
                           setBusy(true);
                           try {
-                            await onJoinRoom(rm.roomCode, preferredTeam);
+                            await onJoinRoom(rm.roomCode, preferredTeam, rm.format);
                           } finally {
                             setBusy(false);
                           }

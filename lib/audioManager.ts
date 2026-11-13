@@ -345,32 +345,32 @@ export class BasketballAudioManager {
     }
     this.stopMenuMusicImmediate();
 
-    const now = this.ctx.currentTime;
-    const fadeGain = this.ctx.createGain();
-    fadeGain.gain.setValueAtTime(0.001, now);
-    fadeGain.gain.linearRampToValueAtTime(1.0, now + 0.45);
-    fadeGain.connect(this.musicGain);
-
-    const src = this.ctx.createBufferSource();
-    src.buffer = buffer;
-    src.loop = true;
-    src.connect(fadeGain);
-
-    src.onended = () => {
-      if (this.menuMusicSource === src) {
-        this.menuMusicSource = null;
-        try {
-          fadeGain.disconnect();
-        } catch {}
-        if (this.menuMusicFadeGain === fadeGain) {
-          this.menuMusicFadeGain = null;
-        }
-      }
-    };
-
-    this.menuMusicSource = src;
-    this.menuMusicFadeGain = fadeGain;
     try {
+      const now = this.ctx.currentTime;
+      const fadeGain = this.ctx.createGain();
+      fadeGain.gain.setValueAtTime(0.001, now);
+      fadeGain.gain.linearRampToValueAtTime(1.0, now + 0.45);
+      fadeGain.connect(this.musicGain);
+
+      const src = this.ctx.createBufferSource();
+      src.buffer = buffer;
+      src.loop = true;
+      src.connect(fadeGain);
+
+      src.onended = () => {
+        if (this.menuMusicSource === src) {
+          this.menuMusicSource = null;
+          try {
+            fadeGain.disconnect();
+          } catch {}
+          if (this.menuMusicFadeGain === fadeGain) {
+            this.menuMusicFadeGain = null;
+          }
+        }
+      };
+
+      this.menuMusicSource = src;
+      this.menuMusicFadeGain = fadeGain;
       src.start(now, 0);
     } catch {
       this.stopMenuMusicImmediate();
@@ -439,85 +439,128 @@ export class BasketballAudioManager {
   }
 
   public async unlock(): Promise<void> {
-    if (typeof window === "undefined" || this.disposed) return;
-    const AudioCtx =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtx) return;
+    try {
+      if (typeof window === "undefined" || this.disposed) return;
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
 
-    if (!this.ctx) {
-      this.ctx = new AudioCtx();
-      const compressor = this.ctx.createDynamicsCompressor();
-      compressor.threshold.value = -14;
-      compressor.knee.value = 18;
-      compressor.ratio.value = 4;
-      compressor.attack.value = 0.005;
-      compressor.release.value = 0.18;
+      if (!this.ctx) {
+        const createdCtx = new AudioCtx();
+        const compressor = createdCtx.createDynamicsCompressor();
+        compressor.threshold.value = -14;
+        compressor.knee.value = 18;
+        compressor.ratio.value = 4;
+        compressor.attack.value = 0.005;
+        compressor.release.value = 0.18;
 
-      this.masterGain = this.ctx.createGain();
-      this.sfxGain = this.ctx.createGain();
-      this.crowdGain = this.ctx.createGain();
-      this.musicGain = this.ctx.createGain();
+        const masterGain = createdCtx.createGain();
+        const sfxGain = createdCtx.createGain();
+        const crowdGain = createdCtx.createGain();
+        const musicGain = createdCtx.createGain();
 
-      this.sfxGain.connect(this.masterGain);
-      this.crowdGain.connect(this.masterGain);
-      this.musicGain.connect(this.masterGain);
-      this.masterGain.connect(compressor).connect(this.ctx.destination);
-      this.applyGains();
-    }
+        sfxGain.connect(masterGain);
+        crowdGain.connect(masterGain);
+        musicGain.connect(masterGain);
+        masterGain.connect(compressor).connect(createdCtx.destination);
 
-    if (this.ctx.state === "suspended") {
-      try {
-        await this.ctx.resume();
-      } catch {
-        // Ignore resume failure before gesture completes
+        if (this.disposed) {
+          if (createdCtx.state !== "closed") {
+            createdCtx.close().catch(() => {});
+          }
+          return;
+        }
+
+        this.ctx = createdCtx;
+        this.masterGain = masterGain;
+        this.sfxGain = sfxGain;
+        this.crowdGain = crowdGain;
+        this.musicGain = musicGain;
+        this.applyGains();
       }
-    }
 
-    // iOS Safari unlock nudge (silent 1-sample buffer)
-    if (!this.unlocked && this.ctx.state === "running") {
-      try {
-        const silent = this.ctx.createBuffer(1, 1, 22050);
-        const src = this.ctx.createBufferSource();
-        src.buffer = silent;
-        src.connect(this.ctx.destination);
-        src.start(0);
-        this.unlocked = true;
-      } catch {
-        // Ignore
+      const ctx = this.ctx;
+      if (!ctx || this.disposed) return;
+
+      if (ctx.state === "suspended") {
+        let timerId: ReturnType<typeof setTimeout> | null = null;
+        try {
+          await Promise.race([
+            ctx.resume().catch(() => {}),
+            new Promise<void>((resolve) => {
+              timerId = setTimeout(resolve, 120);
+            }),
+          ]);
+        } catch {
+          // Ignore resume failure before gesture completes
+        } finally {
+          if (timerId !== null) clearTimeout(timerId);
+        }
       }
-    }
 
-    // Start/ensure Main Menu Music if currently in the main menu and music is enabled
-    if (this.isInMenu && this.settings.musicEnabled && !this.menuMusicSource && this.ctx.state === "running") {
-      void this.tryStartMenuMusicPlayback();
-    }
+      if (this.disposed || this.ctx !== ctx) return;
 
-    await this.preloadAll();
-    this.ensureAmbienceStarted();
+      // iOS Safari unlock nudge (silent 1-sample buffer)
+      if (!this.unlocked && ctx.state === "running") {
+        try {
+          const silent = ctx.createBuffer(1, 1, 22050);
+          const src = ctx.createBufferSource();
+          src.buffer = silent;
+          src.connect(ctx.destination);
+          src.start(0);
+          this.unlocked = true;
+        } catch {
+          // Ignore
+        }
+      }
+
+      // Start/ensure Main Menu Music if currently in the main menu and music is enabled
+      if (this.isInMenu && this.settings.musicEnabled && !this.menuMusicSource && ctx.state === "running") {
+        void this.tryStartMenuMusicPlayback();
+      }
+
+      await this.preloadAll();
+      if (this.disposed || this.ctx !== ctx) return;
+      this.ensureAmbienceStarted();
+    } catch {
+      // Resiliently ignore AudioContext restrictions or teardown races
+    }
   }
 
   public async preloadAll(): Promise<void> {
-    if (!this.ctx) return;
+    const ctx = this.ctx;
+    if (!ctx || this.disposed) return;
     if (this.loadingPromise) return this.loadingPromise;
 
     this.loadingPromise = (async () => {
-      const entries = Object.entries(UPLOADED_AUDIO_PATHS) as [AssetKey, string][];
-      await Promise.all(
-        entries.map(async ([key, url]) => {
-          if (this.buffers.has(key) || !this.ctx) return;
-          try {
-            const res = await fetch(url);
-            if (!res.ok) return;
-            const arr = await res.arrayBuffer();
-            const decoded = await this.decodeAudio(this.ctx, arr);
-            this.buffers.set(key, decoded);
-          } catch {
-            // Keep resilient if a network fetch aborts during unmount
-          }
-        })
-      );
-      this.ensureAmbienceStarted();
+      try {
+        const entries = Object.entries(UPLOADED_AUDIO_PATHS) as [AssetKey, string][];
+        await Promise.all(
+          entries.map(async ([key, url]) => {
+            if (this.buffers.has(key) || this.disposed || this.ctx !== ctx) return;
+            try {
+              const res = await fetch(url);
+              if (!res.ok || this.disposed || this.ctx !== ctx) return;
+              const arr = await res.arrayBuffer();
+              if (this.disposed || this.ctx !== ctx) return;
+              const decoded = await this.decodeAudio(ctx, arr);
+              if (!this.disposed && this.ctx === ctx) {
+                this.buffers.set(key, decoded);
+              }
+            } catch {
+              // Keep resilient if a network fetch or decode aborts during unmount
+            }
+          })
+        );
+        if (!this.disposed && this.ctx === ctx) {
+          this.ensureAmbienceStarted();
+        }
+      } finally {
+        if (this.disposed || this.ctx !== ctx) {
+          this.loadingPromise = null;
+        }
+      }
     })();
 
     return this.loadingPromise;
@@ -560,24 +603,28 @@ export class BasketballAudioManager {
   }
 
   private ensureAmbienceStarted(): void {
-    if (!this.ctx || this.ctx.state !== "running") return;
+    if (this.disposed || !this.ctx || this.ctx.state !== "running") return;
     const crowdBuf = this.buffers.get("crowdGame");
     if (!crowdBuf) return;
 
     if (!this.ambienceSource && this.crowdGain) {
-      const gain = this.ctx.createGain();
-      gain.gain.value = this.isInMenu ? 0.08 : 0.28;
-      const src = this.ctx.createBufferSource();
-      src.buffer = crowdBuf;
-      src.loop = true;
-      const loopStart = Math.min(1.9, Math.max(0, crowdBuf.duration * 0.2));
-      const loopEnd = Math.min(8.8, Math.max(loopStart + 0.5, crowdBuf.duration - 0.1));
-      src.loopStart = loopStart;
-      src.loopEnd = loopEnd;
-      src.connect(gain).connect(this.crowdGain);
-      src.start(0, Math.min(2.0, loopStart));
-      this.ambienceGain = gain;
-      this.ambienceSource = src;
+      try {
+        const gain = this.ctx.createGain();
+        gain.gain.value = this.isInMenu ? 0.08 : 0.28;
+        const src = this.ctx.createBufferSource();
+        src.buffer = crowdBuf;
+        src.loop = true;
+        const loopStart = Math.min(1.9, Math.max(0, crowdBuf.duration * 0.2));
+        const loopEnd = Math.min(8.8, Math.max(loopStart + 0.5, crowdBuf.duration - 0.1));
+        src.loopStart = loopStart;
+        src.loopEnd = loopEnd;
+        src.connect(gain).connect(this.crowdGain);
+        src.start(0, Math.min(2.0, loopStart));
+        this.ambienceGain = gain;
+        this.ambienceSource = src;
+      } catch {
+        // Ignore ambience start error if context closed
+      }
     }
   }
 
@@ -602,7 +649,7 @@ export class BasketballAudioManager {
       fadeOutSec?: number;
     }
   ): void {
-    if (!this.ctx || this.ctx.state !== "running") return;
+    if (this.disposed || !this.ctx || this.ctx.state !== "running") return;
     const buffer = this.buffers.get(asset);
     if (!buffer) return;
 
@@ -614,55 +661,59 @@ export class BasketballAudioManager {
     const busNode = options.bus === "crowd" ? this.crowdGain : this.sfxGain;
     if (!busNode) return;
 
-    const t = this.ctx.currentTime;
-    const offset = Math.min(slice.offset, Math.max(0, buffer.duration - 0.05));
-    const maxAvail = Math.max(0.04, buffer.duration - offset);
-    const dur = Math.min(slice.duration, maxAvail);
-
-    const src = this.ctx.createBufferSource();
-    src.buffer = buffer;
-
-    const rateMin = slice.rateMin ?? 1.0;
-    const rateMax = slice.rateMax ?? 1.0;
-    const rate = rateMin + Math.random() * (rateMax - rateMin);
-    src.playbackRate.value = rate;
-
-    const gain = this.ctx.createGain();
-    const targetVol = Math.max(0.02, Math.min(1.35, (options.vol ?? 1) * (slice.baseGain ?? 1)));
-    const fadeIn = 0.008;
-    const fadeOut = Math.min(dur * 0.45, options.fadeOutSec ?? 0.045);
-
-    gain.gain.setValueAtTime(0.001, t);
-    gain.gain.linearRampToValueAtTime(targetVol, t + fadeIn);
-    if (dur > fadeIn + fadeOut) {
-      gain.gain.setValueAtTime(targetVol, t + dur - fadeOut);
-    }
-    gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
-
-    if (typeof this.ctx.createStereoPanner === "function") {
-      const panner = this.ctx.createStereoPanner();
-      panner.pan.value = clampPan(options.pan ?? 0);
-      src.connect(gain).connect(panner).connect(busNode);
-    } else {
-      src.connect(gain).connect(busNode);
-    }
-
-    this.activeSfxCount++;
-    if (voiceKind === "squeak") this.activeSqueakCount++;
-    if (voiceKind === "crowd") this.activeCrowdCount++;
-
-    src.onended = () => {
-      this.activeSfxCount = Math.max(0, this.activeSfxCount - 1);
-      if (voiceKind === "squeak") this.activeSqueakCount = Math.max(0, this.activeSqueakCount - 1);
-      if (voiceKind === "crowd") this.activeCrowdCount = Math.max(0, this.activeCrowdCount - 1);
-    };
-
+    let counted = false;
     try {
+      const t = this.ctx.currentTime;
+      const offset = Math.min(slice.offset, Math.max(0, buffer.duration - 0.05));
+      const maxAvail = Math.max(0.04, buffer.duration - offset);
+      const dur = Math.min(slice.duration, maxAvail);
+
+      const src = this.ctx.createBufferSource();
+      src.buffer = buffer;
+
+      const rateMin = slice.rateMin ?? 1.0;
+      const rateMax = slice.rateMax ?? 1.0;
+      const rate = rateMin + Math.random() * (rateMax - rateMin);
+      src.playbackRate.value = rate;
+
+      const gain = this.ctx.createGain();
+      const targetVol = Math.max(0.02, Math.min(1.35, (options.vol ?? 1) * (slice.baseGain ?? 1)));
+      const fadeIn = 0.008;
+      const fadeOut = Math.min(dur * 0.45, options.fadeOutSec ?? 0.045);
+
+      gain.gain.setValueAtTime(0.001, t);
+      gain.gain.linearRampToValueAtTime(targetVol, t + fadeIn);
+      if (dur > fadeIn + fadeOut) {
+        gain.gain.setValueAtTime(targetVol, t + dur - fadeOut);
+      }
+      gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+
+      if (typeof this.ctx.createStereoPanner === "function") {
+        const panner = this.ctx.createStereoPanner();
+        panner.pan.value = clampPan(options.pan ?? 0);
+        src.connect(gain).connect(panner).connect(busNode);
+      } else {
+        src.connect(gain).connect(busNode);
+      }
+
+      this.activeSfxCount++;
+      if (voiceKind === "squeak") this.activeSqueakCount++;
+      if (voiceKind === "crowd") this.activeCrowdCount++;
+      counted = true;
+
+      src.onended = () => {
+        this.activeSfxCount = Math.max(0, this.activeSfxCount - 1);
+        if (voiceKind === "squeak") this.activeSqueakCount = Math.max(0, this.activeSqueakCount - 1);
+        if (voiceKind === "crowd") this.activeCrowdCount = Math.max(0, this.activeCrowdCount - 1);
+      };
+
       src.start(t, offset, dur + 0.02);
     } catch {
-      this.activeSfxCount = Math.max(0, this.activeSfxCount - 1);
-      if (voiceKind === "squeak") this.activeSqueakCount = Math.max(0, this.activeSqueakCount - 1);
-      if (voiceKind === "crowd") this.activeCrowdCount = Math.max(0, this.activeCrowdCount - 1);
+      if (counted) {
+        this.activeSfxCount = Math.max(0, this.activeSfxCount - 1);
+        if (voiceKind === "squeak") this.activeSqueakCount = Math.max(0, this.activeSqueakCount - 1);
+        if (voiceKind === "crowd") this.activeCrowdCount = Math.max(0, this.activeCrowdCount - 1);
+      }
     }
   }
 
@@ -810,6 +861,88 @@ export class BasketballAudioManager {
     });
   }
 
+  // 10b. Crowd Boo / Tension Wave (road misses, intentional fouls, turnovers)
+  public crowdBoo({ pan = 0, vol = 0.65 } = {}): void {
+    if (!this.canTrigger("crowdBoo", 900)) return;
+    this.playSlice("crowdGame", CROWD_REACTION_SLICES[0], {
+      bus: "crowd",
+      pan,
+      vol: vol * 0.85,
+      voiceKind: "crowd",
+      fadeOutSec: 0.35,
+    });
+    if (this.disposed || !this.ctx || this.ctx.state !== "running" || !this.crowdGain) return;
+    try {
+      const t = this.ctx.currentTime;
+      const dur = 0.75;
+      const osc = this.ctx.createOscillator();
+      const filter = this.ctx.createBiquadFilter();
+      const gain = this.ctx.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(148, t);
+      osc.frequency.linearRampToValueAtTime(118, t + dur);
+      filter.type = "bandpass";
+      filter.frequency.value = 340;
+      filter.Q.value = 2.4;
+      gain.gain.setValueAtTime(0.001, t);
+      gain.gain.linearRampToValueAtTime(Math.min(0.28, vol * 0.25), t + 0.14);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      osc.connect(filter).connect(gain).connect(this.crowdGain);
+      osc.start(t);
+      osc.stop(t + dur + 0.02);
+    } catch {
+      // Ignore audio node teardown errors
+    }
+  }
+
+  // 10c. Referee Whistle (dual-tone pea whistle burst via Web Audio synthesis)
+  public refereeWhistle(kind: "foul" | "timeout" | "jumpball" = "foul"): void {
+    if (!this.canTrigger("whistle", 450)) return;
+    if (this.disposed || !this.ctx || this.ctx.state !== "running" || !this.sfxGain) return;
+    try {
+      const t = this.ctx.currentTime;
+      const dur = kind === "timeout" ? 0.52 : kind === "jumpball" ? 0.42 : 0.34;
+      const osc1 = this.ctx.createOscillator();
+      const osc2 = this.ctx.createOscillator();
+      const lfo = this.ctx.createOscillator();
+      const lfoGain = this.ctx.createGain();
+      const gain = this.ctx.createGain();
+
+      osc1.type = "sine";
+      osc2.type = "triangle";
+      osc1.frequency.setValueAtTime(2860, t);
+      osc2.frequency.setValueAtTime(3140, t);
+      if (kind === "foul") {
+        osc1.frequency.linearRampToValueAtTime(2740, t + dur);
+      }
+
+      // 42 Hz pea trill modulation
+      lfo.type = "sine";
+      lfo.frequency.value = 42;
+      lfoGain.gain.value = 95;
+      lfo.connect(lfoGain);
+      lfoGain.connect(osc1.frequency);
+
+      gain.gain.setValueAtTime(0.001, t);
+      gain.gain.linearRampToValueAtTime(0.22, t + 0.025);
+      gain.gain.setValueAtTime(0.18, t + dur - 0.06);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(this.sfxGain);
+
+      osc1.start(t);
+      osc2.start(t);
+      lfo.start(t);
+      osc1.stop(t + dur + 0.02);
+      osc2.stop(t + dur + 0.02);
+      lfo.stop(t + dur + 0.02);
+    } catch {
+      // Ignore synth failure
+    }
+  }
+
   // 11. Buzzer (quarter endings, final game completion, shot clock violation)
   public buzzer(kind: "quarter" | "game" | "shotclock" = "quarter"): void {
     if (!this.canTrigger("buzzer", 750)) return;
@@ -875,10 +1008,22 @@ export class BasketballAudioManager {
     try {
       this.ambienceSource?.stop();
     } catch {}
+    try {
+      this.ambienceSource?.disconnect();
+    } catch {}
+    try {
+      this.ambienceGain?.disconnect();
+    } catch {}
     this.ambienceSource = null;
-    if (this.ctx && this.ctx.state !== "closed") {
-      this.ctx.close().catch(() => {});
-    }
+    this.ambienceGain = null;
+    const ctx = this.ctx;
     this.ctx = null;
+    this.masterGain = null;
+    this.sfxGain = null;
+    this.crowdGain = null;
+    this.musicGain = null;
+    if (ctx && ctx.state !== "closed") {
+      ctx.close().catch(() => {});
+    }
   }
 }

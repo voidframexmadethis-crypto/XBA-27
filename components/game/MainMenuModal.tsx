@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Play,
@@ -31,6 +31,11 @@ import {
   ArrowLeft,
   CircleDot,
   SlidersHorizontal,
+  Briefcase,
+  Palette,
+  Download,
+  Upload,
+  HardDrive,
 } from "lucide-react";
 import { WorldCity } from "@/lib/worldTour";
 import { AthleteProfile, calculateOverallRating, formatHeight } from "@/lib/athleteProfile";
@@ -38,6 +43,11 @@ import { CareerStats, calculateLevel } from "@/lib/progression";
 import type { DeviceType, InputPreference } from "@/lib/multiplayerTypes";
 import type { ConnectionTransport } from "@/lib/multiplayerClient";
 import type { AudioVolumeSettings } from "@/lib/audioManager";
+import {
+  exportAllSavesBundle,
+  getStorageInventory,
+  importAllSavesBundle,
+} from "@/lib/saveSystem";
 
 export type GameMode = "match" | "training" | "streetball" | "freestyle";
 
@@ -75,6 +85,15 @@ interface MainMenuModalProps {
   onEndGame: () => void;
   audioSettings: AudioVolumeSettings;
   onChangeAudioSettings: (patch: Partial<AudioVolumeSettings>) => void;
+  onOpenLeagueCentral?: () => void;
+  onOpenCareerHub?: () => void;
+  onOpenFranchise?: () => void;
+  onOpenCustomization?: () => void;
+  onOpenTrainingAcademy?: () => void;
+  leagueSummaryLabel?: string;
+  careerSummaryLabel?: string;
+  franchiseSummaryLabel?: string;
+  onSavesImported?: () => void;
 }
 
 export default function MainMenuModal({
@@ -111,10 +130,48 @@ export default function MainMenuModal({
   onEndGame,
   audioSettings,
   onChangeAudioSettings,
+  onOpenLeagueCentral,
+  onOpenCareerHub,
+  onOpenFranchise,
+  onOpenCustomization,
+  onOpenTrainingAcademy,
+  leagueSummaryLabel,
+  careerSummaryLabel,
+  franchiseSummaryLabel,
+  onSavesImported,
 }: MainMenuModalProps) {
   const [activeTab, setActiveTab] = useState<"home" | "settings">("home");
+  const [saveNotice, setSaveNotice] = useState<string>("");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const ovr = calculateOverallRating(athleteProfile.attributes);
   const levelInfo = calculateLevel(careerStats.xp);
+
+  const handleExportSaves = () => {
+    const bundle = exportAllSavesBundle();
+    const json = JSON.stringify(bundle, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `courtlegeneds-championship-save-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setSaveNotice("Save backup JSON exported cleanly.");
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const raw = await file.text();
+    const res = importAllSavesBundle(raw);
+    if (res.ok) {
+      setSaveNotice(`Restored ${res.restoredKeys.length} career/league save slots.`);
+      onSavesImported?.();
+    } else {
+      setSaveNotice(res.error || "Import failed.");
+    }
+    e.target.value = "";
+  };
 
   const handleCloseMenu = () => {
     setActiveTab("home");
@@ -149,7 +206,7 @@ export default function MainMenuModal({
                       COURT<span className="text-[#ff963b]">LEGENDS</span>
                     </h1>
                     <small className="block text-[#8e98a8] text-[9px] font-bold tracking-[3px] uppercase">
-                      WORLD BASKETBALL TOUR · XBA 27
+                      ULTIMATE BASKETBALL · CHAMPIONSHIP EDITION
                     </small>
                   </div>
                 </div>
@@ -301,140 +358,234 @@ export default function MainMenuModal({
                   <div className="flex items-end justify-between gap-4">
                     <div>
                       <small className="block text-[#ff963b] font-black tracking-[2px] text-[10px] uppercase">
-                        CHOOSE YOUR EXPERIENCE
+                        CHAMPIONSHIP SUITE
                       </small>
                       <h2 className="text-2xl sm:text-[27px] font-black mt-1.5 m-0 uppercase">
-                        GAME MODES
+                        GAME MODES &amp; LEAGUE
                       </h2>
                     </div>
                     <span className="text-[#78808d] text-xs font-bold tabular-nums">
-                      01 — 05
+                      01 — 09
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    {/* 01 Arena Match */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                    {/* 01 Play Now */}
                     <button
                       type="button"
                       onClick={() => {
                         onSelectGameMode("match");
                         handleCloseMenu();
                       }}
-                      className="group relative min-h-[125px] sm:min-h-[145px] p-5 text-left text-white border border-[#343b46] hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#1b222d] to-[#101319] hover:from-[#30271f] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden"
+                      className="group relative min-h-[125px] p-5 text-left text-white border border-[#343b46] hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#1b222d] to-[#101319] hover:from-[#30271f] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden"
                     >
                       <div className="flex items-center justify-between w-full">
-                        <Trophy className="w-6 h-6 text-[#ff963b]" />
+                        <Play className="w-6 h-6 text-[#ff963b]" />
                         <span className="text-[#667080] text-[11px] font-black">01</span>
                       </div>
                       <div className="pr-8">
-                        <h3 className="mt-4 mb-1 text-[17px] font-black uppercase">
-                          ARENA MATCH
+                        <h3 className="mt-4 mb-1 text-[16px] font-black uppercase">
+                          PLAY NOW
                         </h3>
                         <p className="text-[#9da6b4] text-[11px] m-0">
-                          5v5 full-court competition · {selectedCity.arenaName}
+                          5v5 Exhibition · {selectedCity.arenaName}
                         </p>
                       </div>
                       <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />
                     </button>
 
-                    {/* 02 Multiplayer */}
+                    {/* 02 League Central (82-Game Season & Playoffs) */}
                     <button
                       type="button"
                       onClick={() => {
                         handleCloseMenu();
-                        onOpenMultiplayer();
+                        onOpenLeagueCentral?.();
                       }}
-                      className="group relative min-h-[125px] sm:min-h-[145px] p-5 text-left text-white border border-[#176c83] hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#1b222d] to-[#101319] hover:from-[#30271f] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden"
+                      className="group relative min-h-[125px] p-5 text-left text-white border border-amber-500/40 hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#231d15] to-[#101319] hover:from-[#342617] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden"
                     >
                       <div className="flex items-center justify-between w-full">
-                        <Globe className="w-6 h-6 text-cyan-400" />
-                        <span className="text-[#667080] text-[11px] font-black">
-                          {multiplayerTransport !== "disconnected" && multiplayerRoomCode
-                            ? `${multiplayerRoomCode} · ${multiplayerPeerCount}`
-                            : "02"}
-                        </span>
+                        <Trophy className="w-6 h-6 text-amber-400" />
+                        <span className="text-[#667080] text-[11px] font-black">02</span>
                       </div>
                       <div className="pr-8">
-                        <h3 className="mt-4 mb-1 text-[17px] font-black uppercase">
-                          MULTIPLAYER
+                        <h3 className="mt-4 mb-1 text-[16px] font-black uppercase">
+                          APBA PRO LEAGUE
                         </h3>
                         <p className="text-[#9da6b4] text-[11px] m-0">
-                          Compete with players worldwide across Phone, Tablet, PC &amp; TV
+                          {leagueSummaryLabel || "82-Game Season, Standings, Awards & Best-of-7 Playoffs"}
                         </p>
                       </div>
                       <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />
                     </button>
 
-                    {/* 03 Street Ball */}
+                    {/* 03 My Career */}
                     <button
                       type="button"
                       onClick={() => {
-                        onSelectGameMode("streetball");
                         handleCloseMenu();
+                        (onOpenCareerHub || onOpenCreateAthlete)();
                       }}
-                      className="group relative min-h-[125px] sm:min-h-[145px] p-5 text-left text-white border border-[#74502b] hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#1b222d] to-[#101319] hover:from-[#30271f] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden"
+                      className="group relative min-h-[125px] p-5 text-left text-white border border-[#66513b] hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#1b222d] to-[#101319] hover:from-[#30271f] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden"
                     >
                       <div className="flex items-center justify-between w-full">
-                        <Flame className="w-6 h-6 text-orange-400" />
+                        <UserCheck className="w-6 h-6 text-[#ff963b]" />
                         <span className="text-[#667080] text-[11px] font-black">03</span>
                       </div>
                       <div className="pr-8">
-                        <h3 className="mt-4 mb-1 text-[17px] font-black uppercase">
-                          STREET BALL
+                        <h3 className="mt-4 mb-1 text-[16px] font-black uppercase">
+                          MY CAREER
                         </h3>
                         <p className="text-[#9da6b4] text-[11px] m-0">
-                          Take over the neighborhood blacktop courts
+                          {careerSummaryLabel || `${athleteProfile.firstName} ${athleteProfile.lastName} · ${ovr} OVR · Lv.${levelInfo.level}`}
                         </p>
                       </div>
                       <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />
                     </button>
 
-                    {/* 04 World Tour */}
+                    {/* 04 Franchise Mode */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleCloseMenu();
+                        onOpenFranchise?.();
+                      }}
+                      className="group relative min-h-[125px] p-5 text-left text-white border border-emerald-500/35 hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#12201b] to-[#101319] hover:from-[#1b3129] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden"
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <Briefcase className="w-6 h-6 text-emerald-400" />
+                        <span className="text-[#667080] text-[11px] font-black">04</span>
+                      </div>
+                      <div className="pr-8">
+                        <h3 className="mt-4 mb-1 text-[16px] font-black uppercase">
+                          FRANCHISE GM
+                        </h3>
+                        <p className="text-[#9da6b4] text-[11px] m-0">
+                          {franchiseSummaryLabel || "Trades, Salary Cap, Rookie Draft & Team Finances"}
+                        </p>
+                      </div>
+                      <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />
+                    </button>
+
+                    {/* 05 World Tour 2.0 */}
                     <button
                       type="button"
                       onClick={() => {
                         handleCloseMenu();
                         onOpenWorldTour();
                       }}
-                      className="group relative min-h-[125px] sm:min-h-[145px] p-5 text-left text-white border border-[#385e79] hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#1b222d] to-[#101319] hover:from-[#30271f] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden"
+                      className="group relative min-h-[125px] p-5 text-left text-white border border-[#385e79] hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#1b222d] to-[#101319] hover:from-[#30271f] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden"
                     >
                       <div className="flex items-center justify-between w-full">
                         <Globe className="w-6 h-6 text-sky-400" />
-                        <span className="text-[#667080] text-[11px] font-black">04</span>
+                        <span className="text-[#667080] text-[11px] font-black">05</span>
                       </div>
                       <div className="pr-8">
-                        <h3 className="mt-4 mb-1 text-[17px] font-black uppercase">
-                          WORLD TOUR
+                        <h3 className="mt-4 mb-1 text-[16px] font-black uppercase">
+                          WORLD TOUR 2.0
                         </h3>
                         <p className="text-[#9da6b4] text-[11px] m-0">
-                          Explore 28 international cities · Active: {selectedCity.flag}{" "}
-                          {selectedCity.name}
+                          28 Global Cities &amp; Cups · {selectedCity.flag} {selectedCity.name}
                         </p>
                       </div>
                       <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />
                     </button>
 
-                    {/* 05 My Athlete */}
+                    {/* 06 Online Multiplayer */}
                     <button
                       type="button"
                       onClick={() => {
                         handleCloseMenu();
-                        onOpenCreateAthlete();
+                        onOpenMultiplayer();
                       }}
-                      className="group relative min-h-[125px] sm:min-h-[145px] p-5 text-left text-white border border-[#66513b] hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#1b222d] to-[#101319] hover:from-[#30271f] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden sm:col-span-2"
+                      className="group relative min-h-[125px] p-5 text-left text-white border border-[#176c83] hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#1b222d] to-[#101319] hover:from-[#30271f] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden"
                     >
                       <div className="flex items-center justify-between w-full">
-                        <UserCheck className="w-6 h-6 text-[#ff963b]" />
-                        <span className="text-[#667080] text-[11px] font-black">05</span>
+                        <Users className="w-6 h-6 text-cyan-400" />
+                        <span className="text-[#667080] text-[11px] font-black">
+                          {multiplayerTransport !== "disconnected" && multiplayerRoomCode
+                            ? `${multiplayerRoomCode} · ${multiplayerPeerCount}`
+                            : "06"}
+                        </span>
                       </div>
                       <div className="pr-8">
-                        <h3 className="mt-4 mb-1 text-[17px] font-black uppercase">
-                          MY ATHLETE
+                        <h3 className="mt-4 mb-1 text-[16px] font-black uppercase">
+                          MULTIPLAYER (ONLINE &amp; OFFLINE)
                         </h3>
                         <p className="text-[#9da6b4] text-[11px] m-0">
-                          {athleteProfile.firstName} {athleteProfile.lastName} · #
-                          {athleteProfile.jerseyNumber} · {formatHeight(athleteProfile.heightInches)}{" "}
-                          · {athleteProfile.archetype} ({ovr} OVR · Lv.{levelInfo.level})
+                          1v1, 2v2, 3v3 &amp; 5v5 Cross-Play · Works Online &amp; Offline
+                        </p>
+                      </div>
+                      <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />
+                    </button>
+
+                    {/* 07 Training Academy */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleCloseMenu();
+                        if (onOpenTrainingAcademy) onOpenTrainingAcademy();
+                        else onSelectGameMode("training");
+                      }}
+                      className="group relative min-h-[125px] p-5 text-left text-white border border-[#343b46] hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#1b222d] to-[#101319] hover:from-[#30271f] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden"
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <Target className="w-6 h-6 text-emerald-400" />
+                        <span className="text-[#667080] text-[11px] font-black">07</span>
+                      </div>
+                      <div className="pr-8">
+                        <h3 className="mt-4 mb-1 text-[16px] font-black uppercase">
+                          TRAINING ACADEMY
+                        </h3>
+                        <p className="text-[#9da6b4] text-[11px] m-0">
+                          8 Interactive Skill Drills · Shootouts, Dunks &amp; Handles
+                        </p>
+                      </div>
+                      <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />
+                    </button>
+
+                    {/* 08 Customization Studio */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleCloseMenu();
+                        onOpenCustomization?.();
+                      }}
+                      className="group relative min-h-[125px] p-5 text-left text-white border border-purple-500/35 hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#1d1629] to-[#101319] hover:from-[#30223d] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden"
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <Palette className="w-6 h-6 text-purple-400" />
+                        <span className="text-[#667080] text-[11px] font-black">08</span>
+                      </div>
+                      <div className="pr-8">
+                        <h3 className="mt-4 mb-1 text-[16px] font-black uppercase">
+                          CUSTOMIZATION STUDIO
+                        </h3>
+                        <p className="text-[#9da6b4] text-[11px] m-0">
+                          Jerseys, Basketball Skins, Hardwood &amp; Arena Lighting
+                        </p>
+                      </div>
+                      <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />
+                    </button>
+
+                    {/* 09 Settings / Streetball Split */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectGameMode("streetball");
+                        handleCloseMenu();
+                      }}
+                      className="group relative min-h-[125px] p-5 text-left text-white border border-[#74502b] hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#1b222d] to-[#101319] hover:from-[#30271f] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden"
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <Flame className="w-6 h-6 text-orange-400" />
+                        <span className="text-[#667080] text-[11px] font-black">09</span>
+                      </div>
+                      <div className="pr-8">
+                        <h3 className="mt-4 mb-1 text-[16px] font-black uppercase">
+                          BLACKTOP STREETBALL
+                        </h3>
+                        <p className="text-[#9da6b4] text-[11px] m-0">
+                          Outdoor asphalt showcase under night stadium lights
                         </p>
                       </div>
                       <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />
@@ -798,6 +949,52 @@ export default function MainMenuModal({
                       </label>
                     ))}
                   </div>
+                </div>
+
+                {/* Save System Backup & Recovery (Phase 12) */}
+                <div className="p-5 rounded-[7px] bg-[#101319] border border-[#343b46] space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs font-black uppercase tracking-wider text-white/85 flex items-center gap-2">
+                      <HardDrive className="w-4 h-4 text-emerald-400" />
+                      <span>Save Data &amp; Checksummed Backups</span>
+                    </div>
+                    <span className="text-[11px] text-white/50 tabular-nums">
+                      {getStorageInventory().filter((s) => s.hasSave).length} Active Slots
+                    </span>
+                  </div>
+                  <p className="text-xs text-white/60">
+                    All League seasons, My Career progress, Franchise rosters, Training records, and Customization presets are stored with FNV-1a checksum validation and automatic backup recovery.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <button
+                      type="button"
+                      onClick={handleExportSaves}
+                      className="min-h-[42px] px-4 py-2 rounded bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-black uppercase tracking-wider flex items-center gap-2 cursor-pointer"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Export Full Save (.JSON)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="min-h-[42px] px-4 py-2 rounded bg-[#090b10] hover:bg-[#1b222d] border border-[#343b46] text-white text-xs font-black uppercase tracking-wider flex items-center gap-2 cursor-pointer"
+                    >
+                      <Upload className="w-4 h-4" />
+                      <span>Import Save File</span>
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="application/json,.json"
+                      onChange={handleImportFile}
+                      className="sr-only"
+                    />
+                  </div>
+                  {saveNotice && (
+                    <div className="text-xs font-bold text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded px-3 py-2">
+                      {saveNotice}
+                    </div>
+                  )}
                 </div>
 
                 {/* Quick Links from Settings */}

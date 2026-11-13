@@ -45,6 +45,8 @@ export async function POST(req: NextRequest) {
         shortsColor: body.shortsColor,
         cityId: body.cityId,
         mode: body.mode,
+        format: body.format,
+        isPrivate: Boolean(body.isPrivate),
       });
       return NextResponse.json({ ok: true, room, transport: "http" });
     }
@@ -60,6 +62,8 @@ export async function POST(req: NextRequest) {
         preferredTeam: body.preferredTeam,
         cityId: body.cityId,
         mode: body.mode,
+        format: body.format,
+        isPrivate: Boolean(body.isPrivate),
       });
       return NextResponse.json({ ok: true, room, transport: "http" });
     }

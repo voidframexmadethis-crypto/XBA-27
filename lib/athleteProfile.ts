@@ -74,12 +74,12 @@ export const ARCHETYPE_PRESETS: Record<
 };
 
 export const DRAFT_FRANCHISES = [
-  { pick: 1, cityId: "us_nyc", teamName: "New York Monarchs", teamCity: "New York", color: "#006bb6", secondary: "#f58426" },
-  { pick: 2, cityId: "us_la", teamName: "Los Angeles Royals", teamCity: "Los Angeles", color: "#552583", secondary: "#fdb927" },
-  { pick: 3, cityId: "us_chicago", teamName: "Chicago Red Horns", teamCity: "Chicago", color: "#ce1141", secondary: "#111111" },
-  { pick: 4, cityId: "us_miami", teamName: "Miami Sun Blaze", teamCity: "Miami", color: "#98002e", secondary: "#f9a01b" },
-  { pick: 5, cityId: "us_sf", teamName: "Golden Bay Warriors", teamCity: "San Francisco", color: "#1d428a", secondary: "#ffc72c" },
-  { pick: 6, cityId: "eu_paris", teamName: "Paris Metropolitans", teamCity: "Paris", color: "#111827", secondary: "#3b82f6" },
+  { pick: 1, cityId: "us_nyc", teamName: "Empire Monarchs", teamCity: "New York", color: "#006bb6", secondary: "#f58426" },
+  { pick: 2, cityId: "us_la", teamName: "Pacific Eclipse", teamCity: "Los Angeles", color: "#552583", secondary: "#fdb927" },
+  { pick: 3, cityId: "us_chicago", teamName: "Lakeshore Gale", teamCity: "Chicago", color: "#ce1141", secondary: "#111111" },
+  { pick: 4, cityId: "us_miami", teamName: "Bayfront Solaris", teamCity: "Miami", color: "#98002e", secondary: "#f9a01b" },
+  { pick: 5, cityId: "us_sf", teamName: "Bay Area Vanguard", teamCity: "San Francisco", color: "#1d428a", secondary: "#ffc72c" },
+  { pick: 6, cityId: "eu_paris", teamName: "Paris Seine Cavaliers", teamCity: "Paris", color: "#111827", secondary: "#3b82f6" },
   { pick: 7, cityId: "as_tokyo", teamName: "Tokyo Cyber Samurai", teamCity: "Tokyo", color: "#dc2626", secondary: "#ffffff" },
   { pick: 8, cityId: "ar_buenosaires", teamName: "Buenos Aires Gauchos", teamCity: "Buenos Aires", color: "#0284c7", secondary: "#ffffff" },
 ];

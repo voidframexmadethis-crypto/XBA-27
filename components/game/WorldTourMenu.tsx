@@ -15,7 +15,18 @@ import {
   Shield,
   Flame,
 } from "lucide-react";
-import { WORLD_CITIES, WorldCity, REGIONS_META, GLOBAL_LEADERS_BASE, GlobalLeaderEntry } from "@/lib/worldTour";
+import {
+  WORLD_CITIES,
+  WorldCity,
+  REGIONS_META,
+  GLOBAL_LEADERS_BASE,
+  GlobalLeaderEntry,
+  GLOBAL_TOURNAMENTS,
+  WorldTourTournamentState,
+  createTournamentBracket,
+  simulateRemainingTournamentRound,
+  getCityById,
+} from "@/lib/worldTour";
 import { CareerStats, getDefaultCareerStats, loadCareerStats } from "@/lib/progression";
 import { AthleteProfile, getDefaultAthleteProfile, loadAthleteProfile } from "@/lib/athleteProfile";
 
@@ -25,6 +36,9 @@ interface WorldTourMenuProps {
   selectedCity: WorldCity;
   onSelectCity: (city: WorldCity) => void;
   onStartMatch: (city: WorldCity) => void;
+  tournamentState?: WorldTourTournamentState;
+  onUpdateTournament?: (next: WorldTourTournamentState) => void;
+  onStartCupMatch?: (homeCity: WorldCity, awayCity: WorldCity, matchId: string) => void;
 }
 
 export default function WorldTourMenu({
@@ -33,14 +47,25 @@ export default function WorldTourMenu({
   selectedCity,
   onSelectCity,
   onStartMatch,
+  tournamentState,
+  onUpdateTournament,
+  onStartCupMatch,
 }: WorldTourMenuProps) {
   const [activeRegion, setActiveRegion] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [previewCity, setPreviewCity] = useState<WorldCity>(selectedCity);
-  const [viewMode, setViewMode] = useState<"arenas" | "leaders">("arenas");
+  const [viewMode, setViewMode] = useState<"arenas" | "leaders" | "tournaments">("arenas");
   const [leaderCategory, setLeaderCategory] = useState<"pts" | "reb" | "ast">("pts");
   const [careerStats, setCareerStats] = useState<CareerStats>(getDefaultCareerStats);
   const [athleteProfile, setAthleteProfile] = useState<AthleteProfile>(getDefaultAthleteProfile);
+  const [localCup, setLocalCup] = useState<WorldTourTournamentState>(() =>
+    createTournamentBracket("cup_global_nations", selectedCity.id)
+  );
+  const activeCup = tournamentState || localCup;
+  const setCupState = (next: WorldTourTournamentState) => {
+    setLocalCup(next);
+    onUpdateTournament?.(next);
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -126,20 +151,20 @@ export default function WorldTourMenu({
           {/* Header */}
           <div className="relative px-6 py-4 bg-gradient-to-r from-amber-950/80 via-neutral-900 to-cyan-950/80 border-b border-amber-500/30 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-400 via-yellow-500 to-amber-600 flex items-center justify-center text-black font-black text-xl shadow-lg shadow-amber-500/30 border border-yellow-200">
-                2K
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-400 via-yellow-500 to-amber-600 flex items-center justify-center text-black font-black text-lg shadow-lg shadow-amber-500/30 border border-yellow-200">
+                WT
               </div>
               <div>
                 <div className="flex items-center gap-2">
                   <h2 className="text-xl sm:text-2xl font-black italic uppercase tracking-tight text-white flex items-center gap-2">
-                    <span>2K GLOBAL HOOPS HUB</span>
+                    <span>WORLD TOUR 2.0</span>
                   </h2>
                   <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-md bg-gradient-to-r from-amber-400 to-yellow-500 text-black shadow-md tracking-wider">
-                    BROADCAST NETWORK
+                    INTERNATIONAL CUPS
                   </span>
                 </div>
                 <p className="text-xs text-white/60 font-semibold tracking-wide">
-                  Explore 28 Global Host Arenas & Real-Time World Leaderboards across USA, Argentina, Africa, Asia & Europe
+                  28 Global Host Clubs, Knockout Cup Tournaments & Real-Time World Leaderboards
                 </p>
               </div>
             </div>
@@ -250,7 +275,7 @@ export default function WorldTourMenu({
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setViewMode("arenas")}
-                className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 ${
+                className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer ${
                   viewMode === "arenas"
                     ? "bg-cyan-500 text-black shadow-lg shadow-cyan-500/30"
                     : "bg-white/5 hover:bg-white/10 text-white/70"
@@ -260,8 +285,19 @@ export default function WorldTourMenu({
                 <span>World Arenas ({WORLD_CITIES.length})</span>
               </button>
               <button
+                onClick={() => setViewMode("tournaments")}
+                className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer ${
+                  viewMode === "tournaments"
+                    ? "bg-emerald-500 text-black shadow-lg shadow-emerald-500/30"
+                    : "bg-white/5 hover:bg-white/10 text-white/70"
+                }`}
+              >
+                <Shield className="w-4 h-4" />
+                <span>Cup Tournaments ({activeCup.trophiesWon.length})</span>
+              </button>
+              <button
                 onClick={() => setViewMode("leaders")}
-                className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 ${
+                className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer ${
                   viewMode === "leaders"
                     ? "bg-amber-500 text-black shadow-lg shadow-amber-500/30"
                     : "bg-white/5 hover:bg-white/10 text-white/70"
@@ -302,7 +338,143 @@ export default function WorldTourMenu({
             )}
           </div>
 
-          {viewMode === "leaders" ? (
+          {viewMode === "tournaments" ? (
+            <div className="p-6 overflow-y-auto flex-1 space-y-5 max-h-[62vh]">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap gap-2">
+                  {GLOBAL_TOURNAMENTS.map((cup) => (
+                    <button
+                      key={cup.id}
+                      onClick={() =>
+                        setCupState(
+                          createTournamentBracket(cup.id, previewCity.id, activeCup.trophiesWon)
+                        )
+                      }
+                      className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase border cursor-pointer ${
+                        activeCup.activeTournamentId === cup.id
+                          ? "bg-emerald-500 text-black border-emerald-300"
+                          : "bg-white/5 text-white/75 border-white/10 hover:bg-white/10"
+                      }`}
+                    >
+                      {cup.name}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  {!activeCup.championCityId ? (
+                    <button
+                      onClick={() => setCupState(simulateRemainingTournamentRound(activeCup))}
+                      className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-black text-xs font-black uppercase cursor-pointer"
+                    >
+                      Simulate Round
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() =>
+                        setCupState(
+                          createTournamentBracket(
+                            activeCup.activeTournamentId,
+                            previewCity.id,
+                            activeCup.trophiesWon
+                          )
+                        )
+                      }
+                      className="px-4 py-2 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-black text-xs font-black uppercase cursor-pointer"
+                    >
+                      Start New Cup
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {activeCup.championCityId && (
+                <div className="p-4 rounded-2xl bg-amber-500/15 border border-amber-400/40 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <Trophy className="w-7 h-7 text-amber-400" />
+                    <div>
+                      <div className="text-[10px] font-black uppercase text-amber-300">
+                        Tournament Champion
+                      </div>
+                      <div className="text-base font-black text-white">
+                        {getCityById(activeCup.championCityId).flag}{" "}
+                        {getCityById(activeCup.championCityId).teamName}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-xs font-bold text-amber-200">
+                    {GLOBAL_TOURNAMENTS.find((c) => c.id === activeCup.activeTournamentId)?.trophyName}
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {(["quarterfinal", "semifinal", "final"] as const).map((rndName) => {
+                  const rndMatches = activeCup.matches.filter((m) => m.round === rndName);
+                  return (
+                    <div key={rndName} className="space-y-3">
+                      <div className="text-[11px] font-black uppercase tracking-widest text-white/50">
+                        {rndName === "quarterfinal"
+                          ? "Quarterfinals"
+                          : rndName === "semifinal"
+                          ? "Semifinals"
+                          : "Championship Final"}
+                      </div>
+                      {rndMatches.map((m) => {
+                        const homeC = m.homeCityId ? getCityById(m.homeCityId) : null;
+                        const awayC = m.awayCityId ? getCityById(m.awayCityId) : null;
+                        const involvesUser =
+                          m.homeCityId === activeCup.userCityId || m.awayCityId === activeCup.userCityId;
+                        const canPlay = !m.winnerCityId && homeC && awayC && involvesUser;
+                        return (
+                          <div
+                            key={m.id}
+                            className={`p-3.5 rounded-xl border space-y-2 ${
+                              involvesUser
+                                ? "bg-cyan-500/10 border-cyan-400/40"
+                                : "bg-white/5 border-white/10"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between text-xs font-bold">
+                              <span className="truncate">
+                                {homeC ? `${homeC.flag} ${homeC.teamName}` : "TBD"}
+                              </span>
+                              <span className="tabular-nums text-amber-300">
+                                {m.winnerCityId ? m.homeScore : "—"}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between text-xs font-bold">
+                              <span className="truncate">
+                                {awayC ? `${awayC.flag} ${awayC.teamName}` : "TBD"}
+                              </span>
+                              <span className="tabular-nums text-amber-300">
+                                {m.winnerCityId ? m.awayScore : "—"}
+                              </span>
+                            </div>
+                            {canPlay && homeC && awayC && (
+                              <button
+                                onClick={() => {
+                                  if (onStartCupMatch) {
+                                    onStartCupMatch(homeC, awayC, m.id);
+                                  } else {
+                                    onStartMatch(awayC.id === activeCup.userCityId ? homeC : awayC);
+                                  }
+                                  onClose();
+                                }}
+                                className="w-full py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black text-[11px] font-black uppercase flex items-center justify-center gap-1 cursor-pointer"
+                              >
+                                <Play className="w-3.5 h-3.5 fill-black" />
+                                <span>Tip-Off Cup Match</span>
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : viewMode === "leaders" ? (
             <div className="p-6 overflow-y-auto flex-1 space-y-4 max-h-[62vh]">
               <div className="bg-gradient-to-r from-amber-500/10 via-neutral-900 to-amber-500/10 border border-amber-500/30 rounded-3xl p-6 text-center space-y-2">
                 <div className="w-12 h-12 mx-auto rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shadow-lg">

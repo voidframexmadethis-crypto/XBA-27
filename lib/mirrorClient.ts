@@ -227,7 +227,7 @@ export class MirrorBroadcaster {
     }
 
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${proto}//${window.location.host}/ws/mirror`;
+    const wsUrl = `${proto}//${window.location.host}/ws/mirror?code=${encodeURIComponent(this.code)}`;
     let opened = false;
 
     try {
@@ -605,7 +605,7 @@ export class MirrorViewerClient {
   private openWebSocket() {
     if (typeof window === "undefined" || this.disposed || !this.code) return;
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${proto}//${window.location.host}/ws/mirror`;
+    const wsUrl = `${proto}//${window.location.host}/ws/mirror?code=${encodeURIComponent(this.code)}`;
     let opened = false;
 
     try {

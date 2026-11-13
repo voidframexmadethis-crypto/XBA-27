@@ -103,20 +103,20 @@ export default function NBAFeaturesModal({
           {/* Header */}
           <div className="px-6 py-5 bg-gradient-to-r from-amber-950/80 via-neutral-900 to-cyan-950/80 border-b border-amber-500/30 flex flex-wrap items-center justify-between gap-4 shrink-0">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-400 via-yellow-500 to-amber-600 flex items-center justify-center text-black font-black text-2xl shadow-lg shadow-amber-500/30 border border-yellow-200">
-                2K
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-400 via-yellow-500 to-amber-600 flex items-center justify-center text-black font-black text-lg shadow-lg shadow-amber-500/30 border border-yellow-200">
+                UB
               </div>
               <div>
                 <div className="flex items-center gap-2">
                   <h2 className="text-xl sm:text-2xl font-black italic uppercase tracking-tight text-2k-gold">
-                    NBA 2K Official Modes & Features
+                    Championship Edition Directory
                   </h2>
                   <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-md bg-amber-400 text-black shadow font-sans">
-                    2K27 DIRECTORY
+                    APBA PRO SUITE
                   </span>
                 </div>
                 <p className="text-xs text-white/60 font-semibold">
-                  Browse game modes, ProPLAY engine details, MyCAREER, MyTEAM, Seasons, and Presentation options.
+                  Browse APBA League, My Career, Franchise, World Tour 2.0, Training Academy, Customization, and Broadcast options.
                 </p>
               </div>
             </div>
@@ -266,7 +266,7 @@ export default function NBAFeaturesModal({
           {/* Footer Info */}
           <div className="px-6 py-3.5 bg-black/60 border-t border-white/10 flex items-center justify-between text-xs text-white/50 shrink-0 font-medium">
             <span>
-              Showing {filteredFeatures.length} of {featureList.length} Official 2K Features
+              Showing {filteredFeatures.length} of {featureList.length} Championship Features
             </span>
             <button
               onClick={onClose}
