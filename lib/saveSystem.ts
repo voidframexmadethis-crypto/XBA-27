@@ -2,9 +2,16 @@
 
 export const SAVE_KEYS = {
   LEAGUE: "apba_league_state_v1",
+  LEAGUE_WOMENS: "wpba_league_state_v1",
   CAREER_HUB: "apba_mycareer_state_v1",
+  CAREER_WOMENS: "wpba_mycareer_state_v1",
   FRANCHISE: "apba_franchise_state_v1",
+  FRANCHISE_WOMENS: "wpba_franchise_state_v1",
   WORLD_TOUR_V2: "apba_world_tour_v2",
+  WORLD_TOUR_WOMENS: "wpba_world_tour_v2",
+  ALLSTAR_MENS: "apba_allstar_weekend_v1",
+  ALLSTAR_WOMENS: "wpba_allstar_weekend_v1",
+  ACTIVE_DIVISION: "gbc_active_league_division_v1",
   CUSTOMIZATION: "apba_customization_studio_v1",
   TRAINING: "apba_training_academy_v1",
   SETTINGS: "apba_game_settings_v1",
@@ -216,10 +223,16 @@ export function getStorageInventory(): {
   bytes: number;
 }[] {
   const labels: Record<string, string> = {
-    [SAVE_KEYS.LEAGUE]: "APBA Season & Playoffs",
-    [SAVE_KEYS.CAREER_HUB]: "My Career & Contracts",
-    [SAVE_KEYS.FRANCHISE]: "Franchise Front Office",
-    [SAVE_KEYS.WORLD_TOUR_V2]: "World Tour 2.0",
+    [SAVE_KEYS.LEAGUE]: "APBA Men's Season & Playoffs",
+    [SAVE_KEYS.LEAGUE_WOMENS]: "WPBA Women's Season & Playoffs",
+    [SAVE_KEYS.CAREER_HUB]: "Men's My Career & Contracts",
+    [SAVE_KEYS.CAREER_WOMENS]: "Women's My Career & Contracts",
+    [SAVE_KEYS.FRANCHISE]: "Men's Franchise Front Office",
+    [SAVE_KEYS.FRANCHISE_WOMENS]: "Women's Franchise Front Office",
+    [SAVE_KEYS.WORLD_TOUR_V2]: "World Tour & International Cups (Men)",
+    [SAVE_KEYS.WORLD_TOUR_WOMENS]: "World Tour & International Cups (Women)",
+    [SAVE_KEYS.ALLSTAR_MENS]: "Men's All-Star Weekend Records",
+    [SAVE_KEYS.ALLSTAR_WOMENS]: "Women's All-Star Weekend Records",
     [SAVE_KEYS.CUSTOMIZATION]: "Customization Studio",
     [SAVE_KEYS.TRAINING]: "Training Academy Records",
     [SAVE_KEYS.SETTINGS]: "Audio & Broadcast Settings",

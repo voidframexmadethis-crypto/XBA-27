@@ -92,6 +92,8 @@ export interface MatchSyncState {
   cityId: string;
   mode: string;
   format: MultiplayerFormat;
+  leagueDivision?: "mens" | "womens";
+  competitionType?: "pro" | "international" | "allstar" | "streetball";
   eventSeq: number;
   lastEvent?: MatchEventRecord;
   finalResult?: {
@@ -120,6 +122,8 @@ export interface MultiplayerRoomSummary {
   maxPlayers: number;
   cityId: string;
   mode: string;
+  leagueDivision?: "mens" | "womens";
+  competitionType?: "pro" | "international" | "allstar" | "streetball";
   devices: DeviceType[];
 }
 
@@ -134,6 +138,8 @@ export interface JoinRoomInput {
   cityId?: string;
   mode?: string;
   format?: MultiplayerFormat;
+  leagueDivision?: "mens" | "womens";
+  competitionType?: "pro" | "international" | "allstar" | "streetball";
   isPrivate?: boolean;
 }
 
@@ -147,7 +153,21 @@ export interface SyncStateInput {
   stats?: { pts: number; ast: number; reb: number };
   matchPatch?: Partial<Pick<
     MatchSyncState,
-    "scoreHome" | "scoreAway" | "quarter" | "gameClock" | "shotClock" | "ballPos" | "ballVel" | "ballMode" | "ownerPlayerId" | "ownerEntityKey" | "cityId" | "mode" | "format"
+    | "scoreHome"
+    | "scoreAway"
+    | "quarter"
+    | "gameClock"
+    | "shotClock"
+    | "ballPos"
+    | "ballVel"
+    | "ballMode"
+    | "ownerPlayerId"
+    | "ownerEntityKey"
+    | "cityId"
+    | "mode"
+    | "format"
+    | "leagueDivision"
+    | "competitionType"
   >>;
 }
 

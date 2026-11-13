@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Globe,
@@ -13,14 +13,21 @@ import {
   Shield,
   CheckCircle2,
   ArrowLeft,
+  FastForward,
+  RotateCw,
+  Medal,
 } from "lucide-react";
 import {
+  GLOBAL_TOURNAMENTS,
+  NATIONAL_TEAMS_16,
   WORLD_CITIES,
   WorldCity,
   WorldTourTournamentState,
   createTournamentBracket,
   getCityById,
+  simulateRemainingTournamentRound,
 } from "@/lib/worldTour";
+import type { ProLeagueDivision } from "@/lib/leagueData";
 
 interface WorldTourMenuProps {
   isOpen: boolean;
@@ -31,6 +38,8 @@ interface WorldTourMenuProps {
   tournamentState?: WorldTourTournamentState;
   onUpdateTournament?: (next: WorldTourTournamentState) => void;
   onStartCupMatch?: (homeCity: WorldCity, awayCity: WorldCity, matchId: string) => void;
+  activeDivision?: ProLeagueDivision;
+  onChangeDivision?: (division: ProLeagueDivision) => void;
 }
 
 export default function WorldTourMenu({
@@ -42,8 +51,9 @@ export default function WorldTourMenu({
   tournamentState,
   onUpdateTournament,
   onStartCupMatch,
+  activeDivision = "mens",
+  onChangeDivision,
 }: WorldTourMenuProps) {
-  // Group cities by country
   const countries = useMemo(() => {
     const map = new Map<string, { country: string; flag: string; cities: WorldCity[] }>();
     for (const city of WORLD_CITIES) {
@@ -57,7 +67,31 @@ export default function WorldTourMenu({
 
   const [selectedCountryName, setSelectedCountryName] = useState<string>(selectedCity.country);
   const [previewCity, setPreviewCity] = useState<WorldCity>(selectedCity);
-  const [viewMode, setViewMode] = useState<"selector" | "tournaments">("selector");
+  const [viewMode, setViewMode] = useState<"selector" | "tournaments" | "nations">("selector");
+  const [localFallbackCup, setLocalFallbackCup] = useState<WorldTourTournamentState>(() =>
+    createTournamentBracket(
+      activeDivision === "womens" ? "cup_womens_world_16" : "cup_global_nations",
+      selectedCity.id,
+      [],
+      activeDivision
+    )
+  );
+
+  const cup = tournamentState || localFallbackCup;
+  const setCup = (next: WorldTourTournamentState) => {
+    if (onUpdateTournament) onUpdateTournament(next);
+    else setLocalFallbackCup(next);
+  };
+
+  const activeDef = useMemo(
+    () => GLOBAL_TOURNAMENTS.find((t) => t.id === cup.activeTournamentId) || GLOBAL_TOURNAMENTS[0],
+    [cup.activeTournamentId]
+  );
+
+  const visibleTournaments = useMemo(
+    () => GLOBAL_TOURNAMENTS.filter((t) => t.division === activeDivision),
+    [activeDivision]
+  );
 
   const activeCountryGroup = useMemo(() => {
     return countries.find((c) => c.country === selectedCountryName) || countries[0];
@@ -97,6 +131,8 @@ export default function WorldTourMenu({
     setPreviewCity(cities[nextIdx]);
   };
 
+  const hasOpenCupMatches = cup.matches.some((m) => !m.winnerCityId && m.homeCityId && m.awayCityId);
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -115,32 +151,52 @@ export default function WorldTourMenu({
             className="relative w-full max-w-5xl bg-neutral-950 border border-cyan-500/30 rounded-3xl shadow-[0_0_90px_rgba(6,182,212,0.2)] overflow-hidden text-white flex flex-col max-h-[92dvh] my-auto"
           >
             {/* Header */}
-            <div className="relative px-6 py-4 bg-gradient-to-r from-amber-950/80 via-neutral-900 to-cyan-950/80 border-b border-amber-500/30 flex items-center justify-between gap-4">
+            <div className="relative px-6 py-4 bg-gradient-to-r from-amber-950/80 via-neutral-900 to-cyan-950/80 border-b border-amber-500/30 flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-400 via-yellow-500 to-amber-600 flex items-center justify-center text-black font-black text-lg shadow-lg shadow-amber-500/30 border border-yellow-200">
                   WT
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-xl sm:text-2xl font-black italic uppercase tracking-tight text-white">
-                      WORLD TOUR DESTINATION SYSTEM
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-lg sm:text-2xl font-black italic uppercase tracking-tight text-white">
+                      WORLD TOUR &amp; INTERNATIONAL CHAMPIONSHIPS
                     </h2>
                     <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-md bg-gradient-to-r from-cyan-400 to-blue-500 text-black shadow-md tracking-wider">
-                      GLOBAL LEAGUES
+                      16 NATIONS · {WORLD_CITIES.length} CITIES
                     </span>
                   </div>
                   <p className="text-xs text-white/60 font-semibold tracking-wide">
-                    Select your international destination, custom country basketball, and unique stadium arena
+                    Men&apos;s &amp; Women&apos;s national teams, custom country basketballs, unique stadiums &amp; World Championships
                   </p>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
+                {onChangeDivision && (
+                  <div className="flex items-center bg-black/60 p-1 rounded-xl border border-white/15">
+                    {(["mens", "womens"] as const).map((div) => (
+                      <button
+                        key={div}
+                        type="button"
+                        onClick={() => onChangeDivision(div)}
+                        className={`px-3 py-1.5 rounded-lg text-[11px] font-black uppercase cursor-pointer transition-colors ${
+                          activeDivision === div
+                            ? div === "womens"
+                              ? "bg-teal-400 text-black"
+                              : "bg-amber-400 text-black"
+                            : "text-white/65 hover:text-white"
+                        }`}
+                      >
+                        {div === "womens" ? "Women's" : "Men's"}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={onClose}
                   aria-label="Close World Tour"
-                  className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/70 hover:text-white transition-all cursor-pointer"
+                  className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/70 hover:text-white transition-all cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -148,8 +204,8 @@ export default function WorldTourMenu({
             </div>
 
             {/* Tab Switcher */}
-            <div className="px-6 py-3 bg-neutral-900 border-b border-white/10 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-2">
+            <div className="px-6 py-3 bg-neutral-900 border-b border-white/10 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setViewMode("selector")}
@@ -160,7 +216,7 @@ export default function WorldTourMenu({
                   }`}
                 >
                   <Globe className="w-4 h-4" />
-                  <span>Destination Selector</span>
+                  <span>Destination Selector ({WORLD_CITIES.length})</span>
                 </button>
                 <button
                   type="button"
@@ -171,24 +227,260 @@ export default function WorldTourMenu({
                       : "bg-white/5 hover:bg-white/10 text-white/70"
                   }`}
                 >
+                  <Trophy className="w-4 h-4" />
+                  <span>International Championships</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("nations")}
+                  className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer ${
+                    viewMode === "nations"
+                      ? "bg-amber-400 text-black shadow-lg shadow-amber-400/30"
+                      : "bg-white/5 hover:bg-white/10 text-white/70"
+                  }`}
+                >
                   <Shield className="w-4 h-4" />
-                  <span>Cup Tournaments</span>
+                  <span>16 National Teams</span>
                 </button>
               </div>
 
-              <div className="text-xs text-cyan-300 font-bold hidden sm:block">
-                Active Court: {selectedCity.flag} {selectedCity.name}, {selectedCity.country}
+              <div className="text-xs text-cyan-300 font-bold hidden md:block">
+                {activeDivision === "womens" ? "Women's" : "Men's"} Active: {selectedCity.flag} {selectedCity.name}
               </div>
             </div>
 
             {viewMode === "tournaments" ? (
-              <div className="p-6 overflow-y-auto flex-1 space-y-4 max-h-[62vh]">
-                <div className="p-5 rounded-2xl bg-white/5 border border-white/10 text-center space-y-2">
-                  <Trophy className="w-8 h-8 mx-auto text-amber-400" />
-                  <h3 className="text-lg font-black uppercase">Apex Global Nations Cup</h3>
-                  <p className="text-xs text-white/60 max-w-md mx-auto">
-                    Compete in single-elimination tournament brackets across international arenas to hoist the Golden Globe Trophy.
-                  </p>
+              <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-5">
+                {/* Tournament Picker & Controls */}
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-white/5 border border-white/10 rounded-2xl p-4">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {visibleTournaments.map((tDef) => (
+                        <button
+                          key={tDef.id}
+                          type="button"
+                          onClick={() =>
+                            setCup(
+                              createTournamentBracket(
+                                tDef.id,
+                                selectedCity.id,
+                                cup.trophiesWon,
+                                tDef.division
+                              )
+                            )
+                          }
+                          className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase cursor-pointer border ${
+                            cup.activeTournamentId === tDef.id
+                              ? "bg-emerald-500 text-black border-emerald-300"
+                              : "bg-black/50 text-white/75 border-white/15 hover:bg-white/10"
+                          }`}
+                        >
+                          {tDef.name}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-white/60">
+                      {activeDef.description} · Trophy: <strong className="text-amber-300">{activeDef.trophyName}</strong>
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {hasOpenCupMatches && (
+                      <button
+                        type="button"
+                        onClick={() => setCup(simulateRemainingTournamentRound(cup))}
+                        className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <FastForward className="w-3.5 h-3.5" />
+                        <span>Sim Active Round</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCup(
+                          createTournamentBracket(
+                            cup.activeTournamentId,
+                            selectedCity.id,
+                            cup.trophiesWon,
+                            activeDivision
+                          )
+                        )
+                      }
+                      className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-bold uppercase flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <RotateCw className="w-3.5 h-3.5" />
+                      <span>New Bracket</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Champion Ceremony Banner */}
+                {cup.championCityId && (
+                  <div className="p-5 rounded-2xl bg-gradient-to-r from-amber-500/20 via-yellow-500/10 to-black border border-amber-400/50 flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <Trophy className="w-10 h-10 text-amber-400 shrink-0" />
+                      <div>
+                        <div className="text-xs font-black uppercase tracking-wider text-amber-300">
+                          {activeDef.trophyName} Winner ({activeDivision === "womens" ? "Women's" : "Men's"})
+                        </div>
+                        <div className="text-2xl font-black uppercase">
+                          {getCityById(cup.championCityId).flag}{" "}
+                          {getCityById(cup.championCityId).country} ({getCityById(cup.championCityId).teamName})
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-xs text-white/75 font-bold tabular-nums">
+                      Record: {cup.intlWins || 0}W - {cup.intlLosses || 0}L · Trophies Held: {cup.trophiesWon.length}
+                    </div>
+                  </div>
+                )}
+
+                {/* Bracket Rounds */}
+                {(["final", "semifinal", "quarterfinal", "round16"] as const).map((roundCode) => {
+                  const roundMatches = cup.matches.filter((m) => m.round === roundCode);
+                  if (roundMatches.length === 0) return null;
+                  const roundTitle =
+                    roundCode === "round16"
+                      ? "Round of 16"
+                      : roundCode === "quarterfinal"
+                      ? "Quarterfinals"
+                      : roundCode === "semifinal"
+                      ? "Semifinals"
+                      : "Championship Final";
+                  return (
+                    <div key={roundCode} className="space-y-2">
+                      <h3 className="text-xs font-black uppercase tracking-wider text-cyan-300">
+                        {roundTitle}
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {roundMatches.map((m) => {
+                          const home = m.homeCityId ? getCityById(m.homeCityId) : null;
+                          const away = m.awayCityId ? getCityById(m.awayCityId) : null;
+                          const playable = Boolean(home && away && !m.winnerCityId);
+                          return (
+                            <div
+                              key={m.id}
+                              className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 ${
+                                m.winnerCityId
+                                  ? "bg-white/[0.03] border-white/10"
+                                  : playable
+                                  ? "bg-cyan-500/10 border-cyan-400/40"
+                                  : "bg-black/40 border-white/10 opacity-60"
+                              }`}
+                            >
+                              <div className="space-y-1 text-xs min-w-0">
+                                <div className="font-bold flex items-center gap-2 truncate">
+                                  <span>{home ? `${home.flag} ${home.country}` : "TBD"}</span>
+                                  {m.winnerCityId && (
+                                    <span className="font-black text-amber-300 tabular-nums">{m.homeScore}</span>
+                                  )}
+                                  {m.winnerCityId === m.homeCityId && m.homeCityId && (
+                                    <span className="text-[10px] font-black text-emerald-400">WIN</span>
+                                  )}
+                                </div>
+                                <div className="font-bold flex items-center gap-2 truncate">
+                                  <span>{away ? `${away.flag} ${away.country}` : "TBD"}</span>
+                                  {m.winnerCityId && (
+                                    <span className="font-black text-amber-300 tabular-nums">{m.awayScore}</span>
+                                  )}
+                                  {m.winnerCityId === m.awayCityId && m.awayCityId && (
+                                    <span className="text-[10px] font-black text-emerald-400">WIN</span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {playable && home && away && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    onSelectCity(home);
+                                    if (onStartCupMatch) onStartCupMatch(home, away, m.id);
+                                    else onStartMatch(home);
+                                    onClose();
+                                  }}
+                                  className="px-3.5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-black uppercase flex items-center gap-1.5 cursor-pointer shrink-0"
+                                >
+                                  <Play className="w-3.5 h-3.5 fill-black" />
+                                  <span>Play Match</span>
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Trophies Showcase */}
+                {cup.trophiesWon.length > 0 && (
+                  <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+                    <div className="text-xs font-black uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                      <Medal className="w-4 h-4" /> International Trophy Cabinet ({cup.trophiesWon.length})
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      {cup.trophiesWon.map((tr, i) => {
+                        const c = getCityById(tr.cityId);
+                        return (
+                          <div key={`${tr.tournamentId}-${i}`} className="px-3 py-2 rounded-lg bg-black/50 border border-white/10 flex justify-between">
+                            <span className="font-bold">{tr.tournamentName}</span>
+                            <span className="text-amber-300 font-black">{c.flag} {c.country}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : viewMode === "nations" ? (
+              <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-black uppercase tracking-wider">
+                      Official 16 National Federations ({activeDivision === "womens" ? "Women's Division" : "Men's Division"})
+                    </h3>
+                    <p className="text-xs text-white/60">
+                      Click any nation to travel to their capital arena and tip off in custom national colors.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {NATIONAL_TEAMS_16.map((nat) => {
+                    const capital = getCityById(nat.capitalCityId);
+                    const teamTitle = activeDivision === "womens" ? nat.womensTeamName : nat.mensTeamName;
+                    const captain = activeDivision === "womens" ? nat.womensCaptain : nat.mensCaptain;
+                    const ovr = activeDivision === "womens" ? nat.womensOvr : nat.mensOvr;
+                    return (
+                      <div
+                        key={nat.id}
+                        className="p-4 rounded-2xl bg-white/5 border border-white/10 hover:border-cyan-400/50 transition-all flex flex-col justify-between gap-3"
+                      >
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-2xl">{nat.flag}</span>
+                            <span className="text-xs font-black px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 tabular-nums">
+                              {ovr} OVR
+                            </span>
+                          </div>
+                          <div className="text-sm font-black uppercase">{nat.country}</div>
+                          <div className="text-[11px] font-bold text-cyan-300 truncate">{teamTitle}</div>
+                          <div className="text-[11px] text-white/55">Captain: {captain}</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSelectCity(capital);
+                            onStartMatch(capital);
+                            onClose();
+                          }}
+                          className="w-full py-2 rounded-xl bg-white/10 hover:bg-cyan-400 hover:text-black text-xs font-black uppercase transition-colors cursor-pointer"
+                        >
+                          Tip Off ({nat.code})
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ) : (
@@ -222,7 +514,7 @@ export default function WorldTourMenu({
                     </div>
 
                     {/* Country Selection Buttons */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 gap-2 max-h-[260px] overflow-y-auto pr-1">
+                    <div className="grid grid-cols-2 gap-2 max-h-[260px] overflow-y-auto pr-1">
                       {countries.map((c) => {
                         const isSelected = c.country === selectedCountryName;
                         return (
@@ -242,7 +534,7 @@ export default function WorldTourMenu({
                             <span className="text-2xl shrink-0">{c.flag}</span>
                             <div className="min-w-0">
                               <div className="font-black text-xs uppercase truncate">{c.country}</div>
-                              <div className="text-[10px] text-white/40">{c.cities.length} cities</div>
+                              <div className="text-[10px] text-white/40">{c.cities.length} {c.cities.length === 1 ? "city" : "cities"}</div>
                             </div>
                           </button>
                         );
@@ -276,7 +568,7 @@ export default function WorldTourMenu({
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-1 gap-2">
+                    <div className="grid grid-cols-1 gap-2">
                       {activeCountryGroup.cities.map((city) => {
                         const isSelected = previewCity.id === city.id;
                         const isCurrentActive = selectedCity.id === city.id;
@@ -310,10 +602,9 @@ export default function WorldTourMenu({
                   </div>
                 </div>
 
-                {/* Right Column: Dynamic Destination Preview (Stadium, Basketball Design, Colors) */}
+                {/* Right Column: Dynamic Destination Preview */}
                 <div className="lg:col-span-7 bg-white/5 border border-white/10 rounded-3xl p-5 sm:p-6 flex flex-col justify-between space-y-4">
                   <div className="space-y-4">
-                    {/* Selected Destination Banner */}
                     <div className="flex items-center justify-between pb-4 border-b border-white/10">
                       <div className="flex items-center gap-3">
                         <span className="text-4xl">{previewCity.flag}</span>

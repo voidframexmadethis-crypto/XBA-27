@@ -53,7 +53,9 @@ function createEmptyRoom(
   cityId = "us_nyc",
   mode = "match",
   format: MultiplayerFormat = "5v5",
-  isPrivate = false
+  isPrivate = false,
+  leagueDivision: "mens" | "womens" = "mens",
+  competitionType: "pro" | "international" | "allstar" | "streetball" = "pro"
 ): MultiplayerRoomState {
   const now = Date.now();
   return {
@@ -78,6 +80,8 @@ function createEmptyRoom(
       cityId,
       mode,
       format,
+      leagueDivision,
+      competitionType,
       eventSeq: 0,
       finalResult: null,
     },
@@ -141,7 +145,9 @@ export function joinRoom(input: JoinRoomInput): MultiplayerRoomState {
       input.cityId || "us_nyc",
       input.mode || "match",
       input.format || "5v5",
-      Boolean(input.isPrivate)
+      Boolean(input.isPrivate),
+      input.leagueDivision || "mens",
+      input.competitionType || "pro"
     );
     map.set(roomCode, room);
   }
@@ -265,6 +271,8 @@ export function syncPlayerState(input: SyncStateInput): {
       if (input.matchPatch.cityId) room.match.cityId = input.matchPatch.cityId;
       if (input.matchPatch.mode) room.match.mode = input.matchPatch.mode;
       if (input.matchPatch.format) room.match.format = input.matchPatch.format;
+      if (input.matchPatch.leagueDivision) room.match.leagueDivision = input.matchPatch.leagueDivision;
+      if (input.matchPatch.competitionType) room.match.competitionType = input.matchPatch.competitionType;
     }
   }
 
@@ -386,6 +394,8 @@ export function listPublicRooms(): MultiplayerRoomSummary[] {
       maxPlayers: formatToMaxPlayers(room.match.format),
       cityId: room.match.cityId,
       mode: room.match.mode,
+      leagueDivision: room.match.leagueDivision || "mens",
+      competitionType: room.match.competitionType || "pro",
       devices: Array.from(deviceSet),
     });
   }

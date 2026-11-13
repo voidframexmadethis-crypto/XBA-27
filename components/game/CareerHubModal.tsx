@@ -14,7 +14,7 @@ import {
   Check,
   Edit3,
 } from "lucide-react";
-import { APBA_TEAMS } from "@/lib/leagueData";
+import { getLeagueMeta, getLeagueTeams, ProLeagueDivision } from "@/lib/leagueData";
 import {
   AthleteAttributes,
   AthleteProfile,
@@ -38,6 +38,8 @@ interface CareerHubModalProps {
   onUpdateCareer: (next: MyCareerState) => void;
   onOpenCreateAthlete: () => void;
   onLaunchCareerGame: () => void;
+  activeDivision?: ProLeagueDivision;
+  onChangeDivision?: (div: ProLeagueDivision) => void;
 }
 
 export default function CareerHubModal({
@@ -49,11 +51,16 @@ export default function CareerHubModal({
   onUpdateCareer,
   onOpenCreateAthlete,
   onLaunchCareerGame,
+  activeDivision,
+  onChangeDivision,
 }: CareerHubModalProps) {
   const [selectedTab, setSelectedTab] = useState<"overview" | "upgrades" | "endorsements" | "contracts">("overview");
+  const resolvedDivision: ProLeagueDivision = activeDivision || career.careerDivision || "mens";
+  const leagueTeams = getLeagueTeams(resolvedDivision);
+  const leagueMeta = getLeagueMeta(resolvedDivision);
   const ovr = calculateOverallRating(profile.attributes);
   const repTier = getReputationTier(career.reputation);
-  const currentTeam = APBA_TEAMS.find((t) => t.id === career.teamId) || APBA_TEAMS[0];
+  const currentTeam = leagueTeams.find((t) => t.id === career.teamId) || leagueTeams[0];
 
   const upgradeCost = (val: number) => Math.max(80, (val - 55) * 14);
 
@@ -118,7 +125,30 @@ export default function CareerHubModal({
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {onChangeDivision && (
+                  <div className="flex rounded-xl bg-black/60 border border-white/15 p-1">
+                    {(
+                      [
+                        { id: "mens", label: "Men's (APBA)" },
+                        { id: "womens", label: "Women's (WPBA)" },
+                      ] as const
+                    ).map((d) => (
+                      <button
+                        key={d.id}
+                        type="button"
+                        onClick={() => onChangeDivision(d.id)}
+                        className={`min-h-[34px] px-2.5 py-1 rounded-lg text-[11px] font-black uppercase cursor-pointer ${
+                          resolvedDivision === d.id
+                            ? "bg-[#ff963b] text-black"
+                            : "text-white/65 hover:text-white"
+                        }`}
+                      >
+                        {d.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <button
                   onClick={() => {
                     onClose();
@@ -206,6 +236,9 @@ export default function CareerHubModal({
                       <span className="flex items-center gap-1 text-amber-300 font-bold">
                         <Trophy className="w-3.5 h-3.5" /> {career.championshipRings} Rings
                       </span>
+                    </div>
+                    <div className="text-[11px] text-cyan-300/85 font-bold tabular-nums pt-1 border-t border-white/10">
+                      All-Star Selections: {career.allStarSelections ?? 0} · Int&apos;l Medals: {career.internationalMedals ?? 0}
                     </div>
                   </div>
 
@@ -322,13 +355,13 @@ export default function CareerHubModal({
               {selectedTab === "contracts" && (
                 <div className="space-y-4">
                   <div className="p-4 rounded-xl bg-white/5 border border-white/10">
-                    <div className="text-sm font-black uppercase">Sign / Transfer to Starting APBA Franchise</div>
+                    <div className="text-sm font-black uppercase">Sign / Transfer to Starting {leagueMeta.abbr} Franchise</div>
                     <div className="text-xs text-white/60">
                       Negotiate a fresh 4-year deal scaled to your {ovr} OVR rating & {career.reputation} REP.
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {APBA_TEAMS.map((t) => {
+                    {leagueTeams.map((t) => {
                       const isCurrent = t.id === career.teamId;
                       return (
                         <div

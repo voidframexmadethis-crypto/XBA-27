@@ -6,7 +6,7 @@ import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { FXAAShader } from "three/examples/jsm/shaders/FXAAShader.js";
 
-export type HairStyleType = "fade" | "afro" | "buzz" | "braids" | "waves";
+export type HairStyleType = "fade" | "afro" | "buzz" | "braids" | "waves" | "ponytail" | "bun";
 export type FacialHairType = "none" | "stubble" | "goatee" | "beard";
 
 export interface PlayerLikenessPreset {
@@ -18,26 +18,43 @@ export interface PlayerLikenessPreset {
   hairHex?: number;
   headband?: boolean;
   sleeveArm?: "R" | "L" | "none";
+  gender?: "male" | "female";
 }
 
 export const LIKENESS_PRESETS: Record<string, PlayerLikenessPreset> = {
-  Jordan: { skinHex: 0x6f4324, hairStyle: "buzz", facialHair: "goatee", heightScale: 1.0, buildScale: 1.02, sleeveArm: "L" },
-  Bryant: { skinHex: 0x7c4a27, hairStyle: "buzz", facialHair: "goatee", heightScale: 1.0, buildScale: 0.98, sleeveArm: "R" },
-  James: { skinHex: 0x693f21, hairStyle: "fade", facialHair: "beard", heightScale: 1.05, buildScale: 1.12, headband: true, sleeveArm: "R" },
-  Curry: { skinHex: 0xd9a16c, hairStyle: "fade", facialHair: "goatee", heightScale: 0.96, buildScale: 0.94, sleeveArm: "R" },
-  Durant: { skinHex: 0x704223, hairStyle: "buzz", facialHair: "beard", heightScale: 1.08, buildScale: 0.93, sleeveArm: "none" },
-  "O'Neal": { skinHex: 0x5d3519, hairStyle: "buzz", facialHair: "goatee", heightScale: 1.1, buildScale: 1.22, sleeveArm: "none" },
-  Bird: { skinHex: 0xf1c27d, hairStyle: "waves", facialHair: "stubble", heightScale: 1.04, buildScale: 1.0, sleeveArm: "none" },
-  Magic: { skinHex: 0x7b4a26, hairStyle: "fade", facialHair: "stubble", heightScale: 1.04, buildScale: 1.03, sleeveArm: "none" },
-  Barkley: { skinHex: 0x6e4223, hairStyle: "buzz", facialHair: "goatee", heightScale: 1.0, buildScale: 1.16, sleeveArm: "none" },
-  Pippen: { skinHex: 0x62391d, hairStyle: "fade", facialHair: "goatee", heightScale: 1.03, buildScale: 1.0, sleeveArm: "none" },
-  Johnson: { skinHex: 0x8d5524, hairStyle: "fade", facialHair: "stubble", heightScale: 0.98, buildScale: 0.98, sleeveArm: "R" },
-  Miller: { skinHex: 0xc68642, hairStyle: "waves", facialHair: "none", heightScale: 1.01, buildScale: 0.97, sleeveArm: "R" },
-  Davis: { skinHex: 0x6c4022, hairStyle: "braids", facialHair: "beard", heightScale: 1.06, buildScale: 1.08, sleeveArm: "R" },
-  Thompson: { skinHex: 0xcf945b, hairStyle: "afro", facialHair: "beard", heightScale: 1.04, buildScale: 1.02, headband: true, sleeveArm: "none" },
+  Jordan: { skinHex: 0x6f4324, hairStyle: "buzz", facialHair: "goatee", heightScale: 1.0, buildScale: 1.02, sleeveArm: "L", gender: "male" },
+  Bryant: { skinHex: 0x7c4a27, hairStyle: "buzz", facialHair: "goatee", heightScale: 1.0, buildScale: 0.98, sleeveArm: "R", gender: "male" },
+  James: { skinHex: 0x693f21, hairStyle: "fade", facialHair: "beard", heightScale: 1.05, buildScale: 1.12, headband: true, sleeveArm: "R", gender: "male" },
+  Curry: { skinHex: 0xd9a16c, hairStyle: "fade", facialHair: "goatee", heightScale: 0.96, buildScale: 0.94, sleeveArm: "R", gender: "male" },
+  Durant: { skinHex: 0x704223, hairStyle: "buzz", facialHair: "beard", heightScale: 1.08, buildScale: 0.93, sleeveArm: "none", gender: "male" },
+  "O'Neal": { skinHex: 0x5d3519, hairStyle: "buzz", facialHair: "goatee", heightScale: 1.1, buildScale: 1.22, sleeveArm: "none", gender: "male" },
+  Bird: { skinHex: 0xf1c27d, hairStyle: "waves", facialHair: "stubble", heightScale: 1.04, buildScale: 1.0, sleeveArm: "none", gender: "male" },
+  Magic: { skinHex: 0x7b4a26, hairStyle: "fade", facialHair: "stubble", heightScale: 1.04, buildScale: 1.03, sleeveArm: "none", gender: "male" },
+  Barkley: { skinHex: 0x6e4223, hairStyle: "buzz", facialHair: "goatee", heightScale: 1.0, buildScale: 1.16, sleeveArm: "none", gender: "male" },
+  Pippen: { skinHex: 0x62391d, hairStyle: "fade", facialHair: "goatee", heightScale: 1.03, buildScale: 1.0, sleeveArm: "none", gender: "male" },
+  Johnson: { skinHex: 0x8d5524, hairStyle: "fade", facialHair: "stubble", heightScale: 0.98, buildScale: 0.98, sleeveArm: "R", gender: "male" },
+  Miller: { skinHex: 0xc68642, hairStyle: "waves", facialHair: "none", heightScale: 1.01, buildScale: 0.97, sleeveArm: "R", gender: "male" },
+  Davis: { skinHex: 0x6c4022, hairStyle: "braids", facialHair: "beard", heightScale: 1.06, buildScale: 1.08, sleeveArm: "R", gender: "male" },
+  Thompson: { skinHex: 0xcf945b, hairStyle: "afro", facialHair: "beard", heightScale: 1.04, buildScale: 1.02, headband: true, sleeveArm: "none", gender: "male" },
 };
 
-export function getLikenessPreset(name: string, idx: number): PlayerLikenessPreset {
+export function getLikenessPreset(name: string, idx: number, gender: "male" | "female" = "male"): PlayerLikenessPreset {
+  if (gender === "female") {
+    const skins = [0x8d5524, 0xc68642, 0xf1c27d, 0x5c3818, 0xe0ac69, 0x6f4324];
+    const femaleStyles: HairStyleType[] = ["ponytail", "braids", "bun", "afro", "waves"];
+    const hairColors = [0x151210, 0x2a1b12, 0x1a1514, 0x4a2e16, 0x121010];
+    return {
+      skinHex: skins[idx % skins.length],
+      hairStyle: femaleStyles[idx % femaleStyles.length],
+      facialHair: "none",
+      hairHex: hairColors[idx % hairColors.length],
+      heightScale: 0.92 + (idx % 4) * 0.024,
+      buildScale: 0.88 + (idx % 3) * 0.035,
+      headband: idx % 3 === 1,
+      sleeveArm: idx % 2 === 0 ? "R" : "L",
+      gender: "female",
+    };
+  }
   if (LIKENESS_PRESETS[name]) return LIKENESS_PRESETS[name];
   const skins = [0x8d5524, 0xc68642, 0xf1c27d, 0x5c3818, 0xe0ac69];
   const styles: HairStyleType[] = ["fade", "afro", "buzz", "braids", "waves"];
@@ -49,6 +66,7 @@ export function getLikenessPreset(name: string, idx: number): PlayerLikenessPres
     heightScale: 0.97 + (idx % 4) * 0.025,
     buildScale: 0.96 + (idx % 3) * 0.04,
     sleeveArm: idx % 2 === 0 ? "R" : "none",
+    gender: "male",
   };
 }
 
@@ -329,6 +347,58 @@ export function buildStrandHairGroup(
       tip.rotation.x = 0.35;
       group.add(tip);
     }
+    return group;
+  }
+
+  if (style === "ponytail") {
+    const scalp = new THREE.Mesh(
+      new THREE.SphereGeometry(0.134, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.54),
+      hairMat
+    );
+    scalp.position.set(0, 0.018, -0.012);
+    group.add(scalp);
+    // Hair tie + flowing athletic ponytail trailing behind the head
+    const tie = new THREE.Mesh(
+      new THREE.TorusGeometry(0.026, 0.008, 8, 14),
+      new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.45 })
+    );
+    tie.position.set(0, 0.088, -0.128);
+    tie.rotation.x = Math.PI * 0.35;
+    group.add(tie);
+    const mainTail = new THREE.Mesh(new THREE.CapsuleGeometry(0.032, 0.17, 6, 10), hairMat);
+    mainTail.position.set(0, 0.01, -0.185);
+    mainTail.rotation.x = 0.52;
+    group.add(mainTail);
+    const sideStrandGeo = new THREE.CapsuleGeometry(0.018, 0.13, 4, 8);
+    for (const sx of [-0.02, 0.02]) {
+      const s = new THREE.Mesh(sideStrandGeo, hairMat);
+      s.position.set(sx, 0.022, -0.175);
+      s.rotation.x = 0.48;
+      s.rotation.z = sx * -2.2;
+      group.add(s);
+    }
+    return group;
+  }
+
+  if (style === "bun") {
+    const scalp = new THREE.Mesh(
+      new THREE.SphereGeometry(0.134, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.54),
+      hairMat
+    );
+    scalp.position.set(0, 0.018, -0.012);
+    group.add(scalp);
+    // High athletic top-knot bun
+    const bunCore = new THREE.Mesh(new THREE.SphereGeometry(0.058, 14, 12), hairMat);
+    bunCore.position.set(0, 0.145, -0.082);
+    bunCore.scale.set(1.05, 0.88, 1.0);
+    group.add(bunCore);
+    const wrapBand = new THREE.Mesh(
+      new THREE.TorusGeometry(0.044, 0.007, 8, 16),
+      new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.5 })
+    );
+    wrapBand.position.set(0, 0.125, -0.072);
+    wrapBand.rotation.x = Math.PI * 0.45;
+    group.add(wrapBand);
     return group;
   }
 

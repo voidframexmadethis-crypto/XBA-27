@@ -13,7 +13,7 @@ import {
   Play,
   Sparkles,
 } from "lucide-react";
-import { APBA_TEAMS } from "@/lib/leagueData";
+import { getLeagueMeta, getLeagueTeams, ProLeagueDivision } from "@/lib/leagueData";
 import { calculateStandings, LeagueState } from "@/lib/leagueEngine";
 import {
   calculateTeamPayrollM,
@@ -32,6 +32,8 @@ interface FranchiseModalProps {
   franchise: FranchiseState;
   onUpdateFranchise: (next: FranchiseState) => void;
   onPlayFranchiseGame: (teamId: string) => void;
+  activeDivision?: ProLeagueDivision;
+  onChangeDivision?: (div: ProLeagueDivision) => void;
 }
 
 export default function FranchiseModal({
@@ -42,16 +44,28 @@ export default function FranchiseModal({
   franchise,
   onUpdateFranchise,
   onPlayFranchiseGame,
+  activeDivision,
+  onChangeDivision,
 }: FranchiseModalProps) {
   const [tab, setTab] = useState<"office" | "roster" | "trades" | "draft" | "finances">("office");
-  const [partnerTeamId, setPartnerTeamId] = useState<string>(
-    APBA_TEAMS.find((t) => t.id !== franchise.teamId)?.id || APBA_TEAMS[1].id
+  const resolvedDivision: ProLeagueDivision =
+    activeDivision || franchise.franchiseDivision || league.leagueDivision || "mens";
+  const leagueTeams = useMemo(() => getLeagueTeams(resolvedDivision), [resolvedDivision]);
+  const leagueMeta = useMemo(() => getLeagueMeta(resolvedDivision), [resolvedDivision]);
+
+  const [partnerTeamIdRaw, setPartnerTeamId] = useState<string>(
+    leagueTeams.find((t) => t.id !== franchise.teamId)?.id || leagueTeams[1].id
   );
+  const partnerTeamId =
+    leagueTeams.find((t) => t.id === partnerTeamIdRaw && t.id !== franchise.teamId)?.id ||
+    leagueTeams.find((t) => t.id !== franchise.teamId)?.id ||
+    leagueTeams[0].id;
+
   const [userOutIds, setUserOutIds] = useState<string[]>([]);
   const [partnerOutIds, setPartnerOutIds] = useState<string[]>([]);
   const [includeFirstPick, setIncludeFirstPick] = useState(false);
 
-  const team = APBA_TEAMS.find((t) => t.id === franchise.teamId) || APBA_TEAMS[0];
+  const team = leagueTeams.find((t) => t.id === franchise.teamId) || leagueTeams[0];
   const standings = useMemo(() => calculateStandings(league), [league]);
   const teamStanding = standings.find((s) => s.teamId === franchise.teamId);
 
@@ -94,7 +108,7 @@ export default function FranchiseModal({
   };
 
   const handleSwitchTeam = (nextTeamId: string) => {
-    const nextTeam = APBA_TEAMS.find((t) => t.id === nextTeamId) || APBA_TEAMS[0];
+    const nextTeam = leagueTeams.find((t) => t.id === nextTeamId) || leagueTeams[0];
     onUpdateFranchise({
       ...franchise,
       teamId: nextTeam.id,
@@ -147,12 +161,35 @@ export default function FranchiseModal({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                {onChangeDivision && (
+                  <div className="flex rounded-xl bg-black/60 border border-white/15 p-1">
+                    {(
+                      [
+                        { id: "mens", label: "Men's (APBA)" },
+                        { id: "womens", label: "Women's (WPBA)" },
+                      ] as const
+                    ).map((d) => (
+                      <button
+                        key={d.id}
+                        type="button"
+                        onClick={() => onChangeDivision(d.id)}
+                        className={`min-h-[34px] px-2.5 py-1 rounded-lg text-[11px] font-black uppercase cursor-pointer ${
+                          resolvedDivision === d.id
+                            ? "bg-[#ff963b] text-black"
+                            : "text-white/65 hover:text-white"
+                        }`}
+                      >
+                        {d.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <select
                   value={franchise.teamId}
                   onChange={(e) => handleSwitchTeam(e.target.value)}
                   className="bg-black/60 border border-white/15 rounded-lg px-2.5 py-2 text-xs font-bold text-white"
                 >
-                  {APBA_TEAMS.map((t) => (
+                  {leagueTeams.map((t) => (
                     <option key={t.id} value={t.id}>
                       GM: {t.city} {t.name}
                     </option>
@@ -340,7 +377,7 @@ export default function FranchiseModal({
                           }}
                           className="bg-black/70 border border-white/15 rounded-lg px-2 py-1 text-xs font-bold"
                         >
-                          {APBA_TEAMS.filter((t) => t.id !== franchise.teamId).map((t) => (
+                          {leagueTeams.filter((t) => t.id !== franchise.teamId).map((t) => (
                             <option key={t.id} value={t.id}>
                               {t.city} {t.name}
                             </option>
@@ -460,7 +497,7 @@ export default function FranchiseModal({
                       <span className="font-black">${payrollM}M</span>
                     </div>
                     <div className="flex justify-between text-xs">
-                      <span>APBA Soft Salary Cap</span>
+                      <span>{leagueMeta.abbr} Soft Salary Cap</span>
                       <span>${franchise.finances.salaryCapM}M</span>
                     </div>
                     <div className="flex justify-between text-xs">

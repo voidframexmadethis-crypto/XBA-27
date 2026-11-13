@@ -21,6 +21,8 @@ export interface BroadcastSceneData {
   interviewQuestion: string;
   interviewOptions: { label: string; quote: string; repGain: number }[];
   trophyName?: string;
+  competitionBadge?: string;
+  crowdChant?: string;
 }
 
 interface BroadcastOverlaysProps {
@@ -63,8 +65,9 @@ export default function BroadcastOverlays({
                 </div>
                 <div>
                   <div className="text-[11px] font-black uppercase tracking-widest text-[#ff963b]">
+                    {scene.competitionBadge ? `${scene.competitionBadge} · ` : ""}
                     {scene.stage === "pregame"
-                      ? "APBA Primetime Network · Pregame Lineups"
+                      ? "Primetime Network · Pregame Lineups"
                       : scene.stage === "halftime"
                       ? "Halftime Desk Presentation"
                       : scene.stage === "championship"
@@ -74,6 +77,11 @@ export default function BroadcastOverlays({
                   <h3 className="text-lg font-black uppercase">
                     {scene.awayTeamName} @ {scene.homeTeamName}
                   </h3>
+                  {scene.crowdChant && (
+                    <div className="text-[11px] font-bold text-cyan-300/90 mt-0.5">
+                      Arena Crowd: &ldquo;{scene.crowdChant}&rdquo;
+                    </div>
+                  )}
                 </div>
               </div>
               <button

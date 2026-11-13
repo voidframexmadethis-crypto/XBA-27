@@ -15,7 +15,7 @@ import {
   Sparkles,
   RotateCw,
 } from "lucide-react";
-import { APBA_TEAMS, CHAMPIONSHIP_TROPHY_NAME, LEAGUE_ABBR, LEAGUE_NAME } from "@/lib/leagueData";
+import { getLeagueMeta, getLeagueTeams, ProLeagueDivision } from "@/lib/leagueData";
 import {
   advanceToNextLeagueSeason,
   calculateStandings,
@@ -35,17 +35,19 @@ interface LeagueCentralModalProps {
   league: LeagueState;
   onUpdateLeague: (next: LeagueState) => void;
   onPlayMatchup: (homeTeamId: string, awayTeamId: string, isPlayoff?: boolean) => void;
+  activeDivision?: ProLeagueDivision;
+  onChangeDivision?: (div: ProLeagueDivision) => void;
 }
 
 type TabId = "standings" | "schedule" | "leaders" | "awards" | "playoffs";
 
-const ROUND_LABELS: Record<PlayoffRoundCode, string> = {
+const getRoundLabels = (leagueAbbr: string): Record<PlayoffRoundCode, string> => ({
   conf_first_round: "Conference First Round",
   conf_semis: "Conference Semifinals",
   conf_finals: "Conference Finals",
-  finals: "APBA Championship Finals",
+  finals: `${leagueAbbr} Championship Finals`,
   complete: "Season Champion Crowned",
-};
+});
 
 export default function LeagueCentralModal({
   isOpen,
@@ -53,13 +55,19 @@ export default function LeagueCentralModal({
   league,
   onUpdateLeague,
   onPlayMatchup,
+  activeDivision,
+  onChangeDivision,
 }: LeagueCentralModalProps) {
   const [activeTab, setActiveTab] = useState<TabId>("standings");
   const [standingsFilter, setStandingsFilter] = useState<"Eastern" | "Western" | "Divisions">("Eastern");
   const [statMode, setStatMode] = useState<"season" | "career">("season");
   const [statSort, setStatSort] = useState<"pts" | "reb" | "ast" | "stl" | "blk">("pts");
 
-  const teamById = useMemo(() => new Map(APBA_TEAMS.map((t) => [t.id, t])), []);
+  const resolvedDivision: ProLeagueDivision = activeDivision || league.leagueDivision || "mens";
+  const leagueTeams = useMemo(() => getLeagueTeams(resolvedDivision), [resolvedDivision]);
+  const leagueMeta = useMemo(() => getLeagueMeta(resolvedDivision), [resolvedDivision]);
+  const roundLabels = useMemo(() => getRoundLabels(leagueMeta.abbr), [leagueMeta.abbr]);
+  const teamById = useMemo(() => new Map(leagueTeams.map((t) => [t.id, t])), [leagueTeams]);
   const standings = useMemo(() => calculateStandings(league), [league]);
 
   const userTeamStanding = standings.find((s) => s.teamId === league.userTeamId) || standings[0];
@@ -140,19 +148,19 @@ export default function LeagueCentralModal({
                   <Trophy className="w-6 h-6" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight">
-                      {LEAGUE_NAME}
+                      {leagueMeta.name}
                     </h2>
                     <span className="text-xs font-black px-2 py-0.5 rounded bg-[#ff963b]/20 text-[#ff963b] border border-[#ff963b]/35 tabular-nums">
-                      {LEAGUE_ABBR} · {league.seasonYear}
+                      {leagueMeta.abbr} · {league.seasonYear}
                     </span>
                   </div>
                   <p className="text-xs text-white/60 tabular-nums">
                     {league.phase === "regular_season"
                       ? `Regular Season Round ${Math.min(82, league.currentRound)} of 82 · Your Club: ${userTeamStanding.city} ${userTeamStanding.name} (${userTeamStanding.wins}-${userTeamStanding.losses})`
                       : league.phase === "playoffs" && league.playoffs
-                      ? `Championship Playoffs · ${ROUND_LABELS[league.playoffs.currentRound]}`
+                      ? `Championship Playoffs · ${roundLabels[league.playoffs.currentRound]}`
                       : `Offseason · Champion: ${
                           league.playoffs?.championTeamId
                             ? `${teamById.get(league.playoffs.championTeamId)?.city} ${
@@ -165,13 +173,36 @@ export default function LeagueCentralModal({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                {onChangeDivision && (
+                  <div className="flex rounded-xl bg-black/60 border border-white/15 p-1">
+                    {(
+                      [
+                        { id: "mens", label: "Men's (APBA)" },
+                        { id: "womens", label: "Women's (WPBA)" },
+                      ] as const
+                    ).map((d) => (
+                      <button
+                        key={d.id}
+                        type="button"
+                        onClick={() => onChangeDivision(d.id)}
+                        className={`min-h-[34px] px-2.5 py-1 rounded-lg text-[11px] font-black uppercase cursor-pointer ${
+                          resolvedDivision === d.id
+                            ? "bg-[#ff963b] text-black"
+                            : "text-white/65 hover:text-white"
+                        }`}
+                      >
+                        {d.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <label className="text-[11px] font-bold text-white/55 hidden sm:inline">My Team:</label>
                 <select
                   value={league.userTeamId}
                   onChange={(e) => onUpdateLeague({ ...league, userTeamId: e.target.value })}
                   className="bg-black/60 border border-white/15 rounded-lg px-2.5 py-2 text-xs font-bold text-white focus:outline-none focus:border-[#ff963b]"
                 >
-                  {APBA_TEAMS.map((t) => (
+                  {leagueTeams.map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.city} {t.name} ({t.abbr})
                     </option>
@@ -242,7 +273,7 @@ export default function LeagueCentralModal({
                     className="min-h-[40px] px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
                   >
                     <RotateCw className="w-4 h-4" />
-                    <span>Start {league.seasonYear + 1} APBA Season</span>
+                    <span>Start {league.seasonYear + 1} {leagueMeta.abbr} Season</span>
                   </button>
                 )}
               </div>
@@ -310,7 +341,7 @@ export default function LeagueCentralModal({
                         </button>
                       ))}
                     </div>
-                    <span className="text-xs text-white/50">Top 8 per conference qualify for APBA Playoffs</span>
+                    <span className="text-xs text-white/50">Top 8 per conference qualify for {leagueMeta.abbr} Playoffs</span>
                   </div>
 
                   {standingsFilter !== "Divisions" ? (
@@ -509,7 +540,7 @@ export default function LeagueCentralModal({
 
                   {statLeaders.length === 0 ? (
                     <div className="p-8 text-center text-sm text-white/55 border border-white/10 rounded-xl">
-                      Simulate at least 1 round to generate official APBA box scores and stat leaders.
+                      Simulate at least 1 round to generate official {leagueMeta.abbr} box scores and stat leaders.
                     </div>
                   ) : (
                     <div className="overflow-x-auto rounded-xl border border-white/10">
@@ -665,7 +696,7 @@ export default function LeagueCentralModal({
                             <Trophy className="w-10 h-10 text-amber-400 shrink-0" />
                             <div>
                               <div className="text-xs font-black uppercase tracking-wider text-amber-300">
-                                {CHAMPIONSHIP_TROPHY_NAME} Champions ({league.seasonYear})
+                                {leagueMeta.trophyName} Champions ({league.seasonYear})
                               </div>
                               <div className="text-2xl font-black uppercase">
                                 {teamById.get(league.playoffs.championTeamId)?.city}{" "}
@@ -689,7 +720,7 @@ export default function LeagueCentralModal({
                         return (
                           <div key={roundCode} className="space-y-2.5">
                             <h3 className="text-xs font-black uppercase tracking-wider text-[#ff963b]">
-                              {ROUND_LABELS[roundCode]} (Best of 7)
+                              {roundLabels[roundCode]} (Best of 7)
                             </h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                               {list.map((ser) => {
@@ -760,7 +791,7 @@ export default function LeagueCentralModal({
                   {league.championshipHistory.length > 0 && (
                     <div className="space-y-2 pt-3 border-t border-white/10">
                       <h3 className="text-xs font-black uppercase tracking-wider text-white/70">
-                        APBA Championship History
+                        {leagueMeta.abbr} Championship History
                       </h3>
                       <div className="space-y-2">
                         {league.championshipHistory.map((h) => (

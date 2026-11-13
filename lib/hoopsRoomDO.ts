@@ -49,6 +49,8 @@ export class HoopsRoom extends DurableObject {
           cityId: "us_nyc",
           mode: "match",
           format: "5v5",
+          leagueDivision: "mens",
+          competitionType: "pro",
           eventSeq: 0,
           finalResult: null,
         },
@@ -280,6 +282,12 @@ export class HoopsRoom extends DurableObject {
     this.pruneStale(room);
     room.roomCode = input.roomCode || room.roomCode || PUBLIC_ROOM_CODE;
     if (typeof input.isPrivate === "boolean") room.isPrivate = input.isPrivate;
+    if (input.leagueDivision && Object.keys(room.players).length === 0) {
+      room.match.leagueDivision = input.leagueDivision;
+    }
+    if (input.competitionType && Object.keys(room.players).length === 0) {
+      room.match.competitionType = input.competitionType;
+    }
 
     const existing = room.players[input.playerId];
     if (existing) {
@@ -363,6 +371,8 @@ export class HoopsRoom extends DurableObject {
         if (input.matchPatch.cityId) room.match.cityId = input.matchPatch.cityId;
         if (input.matchPatch.mode) room.match.mode = input.matchPatch.mode;
         if (input.matchPatch.format) room.match.format = input.matchPatch.format;
+        if (input.matchPatch.leagueDivision) room.match.leagueDivision = input.matchPatch.leagueDivision;
+        if (input.matchPatch.competitionType) room.match.competitionType = input.matchPatch.competitionType;
       }
     }
 

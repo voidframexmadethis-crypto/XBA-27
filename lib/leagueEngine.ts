@@ -1,6 +1,6 @@
 import {
-  APBA_TEAMS,
-  CHAMPIONSHIP_TROPHY_NAME,
+  getLeagueMeta,
+  getLeagueTeams,
   createEmptyStatLine,
   generateInitialRosters,
 } from "./leagueData.ts";
@@ -11,6 +11,7 @@ import type {
   LeagueTeamTemplate,
   PlayerStatLine,
   PositionCode,
+  ProLeagueDivision,
 } from "./leagueData.ts";
 import { loadVersionedState, SAVE_KEYS, saveVersionedState } from "./saveSystem.ts";
 
@@ -157,6 +158,7 @@ export interface ChampionshipRecord {
 }
 
 export interface LeagueState {
+  leagueDivision?: ProLeagueDivision;
   seasonYear: number;
   phase: "regular_season" | "playoffs" | "offseason";
   currentRound: number; // 1..83 (83 means regular season complete)
@@ -171,6 +173,12 @@ export interface LeagueState {
   } | null;
   championshipHistory: ChampionshipRecord[];
   userTeamId: string;
+}
+
+function resolveDivision(state?: Pick<LeagueState, "leagueDivision" | "userTeamId">): ProLeagueDivision {
+  if (state?.leagueDivision === "womens" || state?.leagueDivision === "mens") return state.leagueDivision;
+  if (state?.userTeamId?.startsWith("wpba_")) return "womens";
+  return "mens";
 }
 
 // ============================================================================
@@ -250,12 +258,12 @@ function orientMatchingPair(
 }
 
 export function generate82GameSchedule(
-  teams: LeagueTeamTemplate[] = APBA_TEAMS,
+  teams: LeagueTeamTemplate[] = getLeagueTeams("mens"),
   seasonYear = 2027
 ): ScheduledGame[] {
   const n = teams.length;
   if (n !== 20) {
-    throw new Error(`Expected 20 APBA teams for balanced 82-game schedule, got ${n}`);
+    throw new Error(`Expected 20 pro teams for balanced 82-game schedule, got ${n}`);
   }
 
   const allIndices = teams.map((_, i) => i);
@@ -349,8 +357,9 @@ export function calculateStandings(state: LeagueState): TeamStanding[] {
   const teamMap = new Map<string, TeamStanding>();
   const h2hWins = new Map<string, Map<string, number>>();
   const recentResults = new Map<string, boolean[]>();
+  const divisionTeams = getLeagueTeams(resolveDivision(state));
 
-  APBA_TEAMS.forEach((t) => {
+  divisionTeams.forEach((t) => {
     const roster = state.players.filter((p) => p.teamId === t.id);
     const topEight = [...roster].sort((a, b) => b.ratings.ovr - a.ratings.ovr).slice(0, 8);
     const avgOvr =
@@ -771,7 +780,8 @@ export function simulateMatchup(
 export function computeSeasonAwards(state: LeagueState): SeasonAwardsSummary {
   const standings = calculateStandings(state);
   const standingByTeam = new Map(standings.map((s) => [s.teamId, s]));
-  const teamById = new Map(APBA_TEAMS.map((t) => [t.id, t]));
+  const divisionTeams = getLeagueTeams(resolveDivision(state));
+  const teamById = new Map(divisionTeams.map((t) => [t.id, t]));
 
   const maxTeamGp = Math.max(1, ...standings.map((s) => s.gp));
   const minEligibleGp = Math.max(1, Math.floor(maxTeamGp * 0.5));
@@ -1113,11 +1123,14 @@ function advancePlayoffBracketIfReady(state: LeagueState): LeagueState {
   }
 
   // Finals completed! Crown champion + Finals MVP + record Championship History
+  const div = resolveDivision(state);
+  const divTeams = getLeagueTeams(div);
+  const meta = getLeagueMeta(div);
   const finals = roundSeries[0];
   const champId = finals.winnerId!;
   const runnerUpId = champId === finals.highSeedTeamId ? finals.lowSeedTeamId : finals.highSeedTeamId;
-  const champTeam = APBA_TEAMS.find((t) => t.id === champId)!;
-  const runnerUpTeam = APBA_TEAMS.find((t) => t.id === runnerUpId)!;
+  const champTeam = divTeams.find((t) => t.id === champId)!;
+  const runnerUpTeam = divTeams.find((t) => t.id === runnerUpId)!;
 
   const champMvpCandidates = Object.values(finals.mvpStatsByPlayer).filter((m) => m.teamId === champId);
   champMvpCandidates.sort((a, b) => {
@@ -1157,7 +1170,7 @@ function advancePlayoffBracketIfReady(state: LeagueState): LeagueState {
     runnerUpTeamId: runnerUpId,
     runnerUpTeamName: `${runnerUpTeam.city} ${runnerUpTeam.name}`,
     seriesScore: `${champWins}-${oppWins}`,
-    trophyName: CHAMPIONSHIP_TROPHY_NAME,
+    trophyName: meta.trophyName,
     finalsMvp,
     seasonMvpName: seasonAwards?.mvp.playerName || finalsMvp.playerName,
   };
@@ -1179,17 +1192,24 @@ function advancePlayoffBracketIfReady(state: LeagueState): LeagueState {
 // LEAGUE ACTIONS (SIMULATE ROUND, WEEK, SEASON, USER GAME, PLAYOFFS, ROLLOVER)
 // ============================================================================
 
-export function createInitialLeagueState(seasonYear = 2027, userTeamId = "apba_nyc_monarchs"): LeagueState {
+export function createInitialLeagueState(
+  seasonYear = 2027,
+  userTeamId?: string,
+  leagueDivision: ProLeagueDivision = "mens"
+): LeagueState {
+  const teams = getLeagueTeams(leagueDivision);
+  const resolvedTeamId = userTeamId && teams.some((t) => t.id === userTeamId) ? userTeamId : teams[0].id;
   return {
+    leagueDivision,
     seasonYear,
     phase: "regular_season",
     currentRound: 1,
-    schedule: generate82GameSchedule(APBA_TEAMS, seasonYear),
-    players: generateInitialRosters(),
+    schedule: generate82GameSchedule(teams, seasonYear),
+    players: generateInitialRosters(leagueDivision),
     awardsHistory: [],
     playoffs: null,
     championshipHistory: [],
-    userTeamId,
+    userTeamId: resolvedTeamId,
   };
 }
 
@@ -1487,12 +1507,14 @@ export function advanceToNextLeagueSeason(state: LeagueState): LeagueState {
     };
   });
 
+  const div = resolveDivision(state);
   return {
     ...state,
+    leagueDivision: div,
     seasonYear: nextYear,
     phase: "regular_season",
     currentRound: 1,
-    schedule: generate82GameSchedule(APBA_TEAMS, nextYear),
+    schedule: generate82GameSchedule(getLeagueTeams(div), nextYear),
     players: nextPlayers,
     playoffs: null,
   };
@@ -1502,10 +1524,11 @@ export function advanceToNextLeagueSeason(state: LeagueState): LeagueState {
 // PERSISTENCE HELPERS
 // ============================================================================
 
-export function loadLeagueState(): LeagueState {
+export function loadLeagueState(division: ProLeagueDivision = "mens"): LeagueState {
+  const key = division === "womens" ? SAVE_KEYS.LEAGUE_WOMENS : SAVE_KEYS.LEAGUE;
   const res = loadVersionedState<LeagueState>(
-    SAVE_KEYS.LEAGUE,
-    () => createInitialLeagueState(),
+    key,
+    () => createInitialLeagueState(2027, undefined, division),
     (d): d is LeagueState =>
       Boolean(
         d &&
@@ -1515,9 +1538,14 @@ export function loadLeagueState(): LeagueState {
           (d as LeagueState).schedule.length === 820
       )
   );
-  return res.data;
+  return {
+    ...res.data,
+    leagueDivision: res.data.leagueDivision || division,
+  };
 }
 
-export function saveLeagueState(state: LeagueState): void {
-  saveVersionedState(SAVE_KEYS.LEAGUE, state);
+export function saveLeagueState(state: LeagueState, division?: ProLeagueDivision): void {
+  const div = division || resolveDivision(state);
+  const key = div === "womens" ? SAVE_KEYS.LEAGUE_WOMENS : SAVE_KEYS.LEAGUE;
+  saveVersionedState(key, { ...state, leagueDivision: div });
 }

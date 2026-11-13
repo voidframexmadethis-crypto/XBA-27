@@ -1,3 +1,4 @@
+export type ProLeagueDivision = "mens" | "womens";
 export type LeagueConference = "Eastern" | "Western";
 export type LeagueDivision = "Atlantic" | "Central" | "Mountain" | "Pacific";
 export type PositionCode = "PG" | "SG" | "SF" | "PF" | "C";
@@ -40,6 +41,7 @@ export interface LeaguePlayer {
   yearsPro: number; // 0 = rookie
   isStarter: boolean;
   isUserCreated?: boolean;
+  gender?: ProLeagueDivision extends never ? never : "male" | "female";
   archetype: string;
   ratings: PlayerRatings;
   contractYears: number;
@@ -71,6 +73,10 @@ export interface LeagueTeamTemplate {
 export const LEAGUE_NAME = "Apex Pro Basketball Association";
 export const LEAGUE_ABBR = "APBA";
 export const CHAMPIONSHIP_TROPHY_NAME = "The Apex Sovereign Cup";
+
+export const WOMENS_LEAGUE_NAME = "Women's Pro Basketball Association";
+export const WOMENS_LEAGUE_ABBR = "WPBA";
+export const WOMENS_TROPHY_NAME = "The Aurora Sovereign Cup";
 
 export const APBA_TEAMS: LeagueTeamTemplate[] = [
   // EASTERN CONFERENCE — ATLANTIC DIVISION
@@ -382,11 +388,355 @@ export const APBA_TEAMS: LeagueTeamTemplate[] = [
   },
 ];
 
+export const WPBA_TEAMS: LeagueTeamTemplate[] = [
+  // EASTERN CONFERENCE — ATLANTIC DIVISION
+  {
+    id: "wpba_nyc_valkyries",
+    city: "New York",
+    name: "Liberty Valkyries",
+    abbr: "NYV",
+    conference: "Eastern",
+    division: "Atlantic",
+    primaryColor: "#0d9488",
+    secondaryColor: "#f8fafc",
+    arenaName: "Barclays Harbor Arena",
+    marketSize: "Large",
+    baseRating: 89,
+    coachName: "Elena Ramirez",
+    coachStyle: "Pace & Space",
+  },
+  {
+    id: "wpba_bos_beacons",
+    city: "Boston",
+    name: "Bay State Beacons",
+    abbr: "BSB",
+    conference: "Eastern",
+    division: "Atlantic",
+    primaryColor: "#065f46",
+    secondaryColor: "#fbbf24",
+    arenaName: "Commonwealth Pavilion",
+    marketSize: "Large",
+    baseRating: 86,
+    coachName: "Claire Donovan",
+    coachStyle: "Balanced Motion",
+  },
+  {
+    id: "wpba_phi_sirens",
+    city: "Philadelphia",
+    name: "Schuylkill Sirens",
+    abbr: "PHS",
+    conference: "Eastern",
+    division: "Atlantic",
+    primaryColor: "#e11d48",
+    secondaryColor: "#1e293b",
+    arenaName: "Independence Court",
+    marketSize: "Large",
+    baseRating: 83,
+    coachName: "Simone Brooks",
+    coachStyle: "Lockdown Grind",
+  },
+  {
+    id: "wpba_tor_crown",
+    city: "Toronto",
+    name: "Maple Queen Tempo",
+    abbr: "TQT",
+    conference: "Eastern",
+    division: "Atlantic",
+    primaryColor: "#7e22ce",
+    secondaryColor: "#f43f5e",
+    arenaName: "Ontario Crown Dome",
+    marketSize: "Large",
+    baseRating: 84,
+    coachName: "Nadia Bouchard",
+    coachStyle: "Pace & Space",
+  },
+  {
+    id: "wpba_mia_flamingos",
+    city: "Miami",
+    name: "Biscayne Flamingos",
+    abbr: "MBF",
+    conference: "Eastern",
+    division: "Atlantic",
+    primaryColor: "#db2777",
+    secondaryColor: "#22d3ee",
+    arenaName: "Ocean Drive Arena",
+    marketSize: "Mid",
+    baseRating: 85,
+    coachName: "Valeria Cruz",
+    coachStyle: "Balanced Motion",
+  },
+
+  // EASTERN CONFERENCE — CENTRAL DIVISION
+  {
+    id: "wpba_chi_skyhawks",
+    city: "Chicago",
+    name: "Windcrest Skyhawks",
+    abbr: "CSK",
+    conference: "Eastern",
+    division: "Central",
+    primaryColor: "#0284c7",
+    secondaryColor: "#fde047",
+    arenaName: "Wintrust Lakeview Arena",
+    marketSize: "Large",
+    baseRating: 85,
+    coachName: "Tamika Jordan",
+    coachStyle: "Paint Force",
+  },
+  {
+    id: "wpba_ind_nova",
+    city: "Indianapolis",
+    name: "Heartland Nova",
+    abbr: "IND",
+    conference: "Eastern",
+    division: "Central",
+    primaryColor: "#dc2626",
+    secondaryColor: "#facc15",
+    arenaName: "Circle City Fieldhouse",
+    marketSize: "Mid",
+    baseRating: 88,
+    coachName: "Hannah Mercer",
+    coachStyle: "Pace & Space",
+  },
+  {
+    id: "wpba_atl_aurora",
+    city: "Atlanta",
+    name: "Peachtree Queens",
+    abbr: "ATQ",
+    conference: "Eastern",
+    division: "Central",
+    primaryColor: "#be123c",
+    secondaryColor: "#f8fafc",
+    arenaName: "Gateway Peach Center",
+    marketSize: "Mid",
+    baseRating: 83,
+    coachName: "Brianna Jackson",
+    coachStyle: "Lockdown Grind",
+  },
+  {
+    id: "wpba_cle_firebirds",
+    city: "Cleveland",
+    name: "Erie Firebirds",
+    abbr: "CLF",
+    conference: "Eastern",
+    division: "Central",
+    primaryColor: "#b45309",
+    secondaryColor: "#0f172a",
+    arenaName: "North Coast Pavilion",
+    marketSize: "Small",
+    baseRating: 80,
+    coachName: "Laura Nowak",
+    coachStyle: "Paint Force",
+  },
+  {
+    id: "wpba_det_sparkplugs",
+    city: "Detroit",
+    name: "Belle Isle Shock",
+    abbr: "DTW",
+    conference: "Eastern",
+    division: "Central",
+    primaryColor: "#1d4ed8",
+    secondaryColor: "#f97316",
+    arenaName: "Riverfront Palace",
+    marketSize: "Mid",
+    baseRating: 81,
+    coachName: "Kendra Cole",
+    coachStyle: "Lockdown Grind",
+  },
+
+  // WESTERN CONFERENCE — MOUNTAIN DIVISION
+  {
+    id: "wpba_min_auroras",
+    city: "Minneapolis",
+    name: "Northstar Lynx",
+    abbr: "MNL",
+    conference: "Western",
+    division: "Mountain",
+    primaryColor: "#1e3a8a",
+    secondaryColor: "#10b981",
+    arenaName: "Twin Cities Center",
+    marketSize: "Small",
+    baseRating: 89,
+    coachName: "Cheryl Lindholm",
+    coachStyle: "Balanced Motion",
+  },
+  {
+    id: "wpba_dal_wings",
+    city: "Dallas",
+    name: "Prairie Wings",
+    abbr: "DLW",
+    conference: "Western",
+    division: "Mountain",
+    primaryColor: "#0369a1",
+    secondaryColor: "#a3e635",
+    arenaName: "Arlington College Arena",
+    marketSize: "Large",
+    baseRating: 84,
+    coachName: "Rachel Sterling",
+    coachStyle: "Pace & Space",
+  },
+  {
+    id: "wpba_phx_sunfire",
+    city: "Phoenix",
+    name: "Desert Mercury",
+    abbr: "PHM",
+    conference: "Western",
+    division: "Mountain",
+    primaryColor: "#6d28d9",
+    secondaryColor: "#f97316",
+    arenaName: "Footprint Valley Dome",
+    marketSize: "Mid",
+    baseRating: 86,
+    coachName: "Sofia Navarro",
+    coachStyle: "Pace & Space",
+  },
+  {
+    id: "wpba_den_alpine",
+    city: "Denver",
+    name: "Alpine Grizzlies",
+    abbr: "DVA",
+    conference: "Western",
+    division: "Mountain",
+    primaryColor: "#1d4ed8",
+    secondaryColor: "#f59e0b",
+    arenaName: "Front Range Pavilion",
+    marketSize: "Mid",
+    baseRating: 81,
+    coachName: "Maya Takahashi",
+    coachStyle: "Paint Force",
+  },
+  {
+    id: "wpba_hou_comets",
+    city: "Houston",
+    name: "Space City Comets",
+    abbr: "HCC",
+    conference: "Western",
+    division: "Mountain",
+    primaryColor: "#b91c1c",
+    secondaryColor: "#e2e8f0",
+    arenaName: "Apollo Hardwood Forum",
+    marketSize: "Large",
+    baseRating: 83,
+    coachName: "Denise Foster",
+    coachStyle: "Lockdown Grind",
+  },
+
+  // WESTERN CONFERENCE — PACIFIC DIVISION
+  {
+    id: "wpba_lv_aces",
+    city: "Las Vegas",
+    name: "Mojave Aces",
+    abbr: "LVA",
+    conference: "Western",
+    division: "Pacific",
+    primaryColor: "#18181b",
+    secondaryColor: "#fbbf24",
+    arenaName: "Silver Crown Pavilion",
+    marketSize: "Mid",
+    baseRating: 90,
+    coachName: "Becky Holloway",
+    coachStyle: "Pace & Space",
+  },
+  {
+    id: "wpba_sea_storm",
+    city: "Seattle",
+    name: "Emerald Storm",
+    abbr: "SES",
+    conference: "Western",
+    division: "Pacific",
+    primaryColor: "#15803d",
+    secondaryColor: "#fde047",
+    arenaName: "Puget Climate Arena",
+    marketSize: "Mid",
+    baseRating: 87,
+    coachName: "Noelle Park",
+    coachStyle: "Balanced Motion",
+  },
+  {
+    id: "wpba_la_sparks",
+    city: "Los Angeles",
+    name: "Sunset Sparks",
+    abbr: "LAS",
+    conference: "Western",
+    division: "Pacific",
+    primaryColor: "#7e22ce",
+    secondaryColor: "#facc15",
+    arenaName: "Hollywood Star Forum",
+    marketSize: "Large",
+    baseRating: 84,
+    coachName: "Lynne Alvarez",
+    coachStyle: "Balanced Motion",
+  },
+  {
+    id: "wpba_bay_valkyrie",
+    city: "San Francisco",
+    name: "Golden Bay Valkyries",
+    abbr: "GBV",
+    conference: "Western",
+    division: "Pacific",
+    primaryColor: "#4338ca",
+    secondaryColor: "#c084fc",
+    arenaName: "Chase Pier Pavilion",
+    marketSize: "Large",
+    baseRating: 82,
+    coachName: "Natalie Chen",
+    coachStyle: "Pace & Space",
+  },
+  {
+    id: "wpba_por_cascades",
+    city: "Portland",
+    name: "Rose City Fire",
+    abbr: "RCF",
+    conference: "Western",
+    division: "Pacific",
+    primaryColor: "#991b1b",
+    secondaryColor: "#f8fafc",
+    arenaName: "Willamette Court",
+    marketSize: "Small",
+    baseRating: 79,
+    coachName: "Erin Lindqvist",
+    coachStyle: "Lockdown Grind",
+  },
+];
+
+export function getLeagueTeams(division: ProLeagueDivision = "mens"): LeagueTeamTemplate[] {
+  return division === "womens" ? WPBA_TEAMS : APBA_TEAMS;
+}
+
+export function getTeamByIdAnyLeague(teamId: string): LeagueTeamTemplate | undefined {
+  return APBA_TEAMS.find((t) => t.id === teamId) || WPBA_TEAMS.find((t) => t.id === teamId);
+}
+
+export function getLeagueMeta(division: ProLeagueDivision = "mens") {
+  if (division === "womens") {
+    return {
+      division: "womens" as const,
+      name: WOMENS_LEAGUE_NAME,
+      abbr: WOMENS_LEAGUE_ABBR,
+      trophyName: WOMENS_TROPHY_NAME,
+      defaultTeamId: WPBA_TEAMS[0].id,
+    };
+  }
+  return {
+    division: "mens" as const,
+    name: LEAGUE_NAME,
+    abbr: LEAGUE_ABBR,
+    trophyName: CHAMPIONSHIP_TROPHY_NAME,
+    defaultTeamId: APBA_TEAMS[0].id,
+  };
+}
+
 const FIRST_NAMES = [
   "Marcus", "Jalen", "Darius", "Caleb", "Tariq", "Luka", "Mateo", "Devon", "Kobe", "Xavier",
   "Andre", "Miles", "Quentin", "Kieran", "Nikola", "Soren", "Jordan", "Cameron", "Nolan", "Isaiah",
   "Bryce", "Tyson", "Roman", "Julian", "Victor", "Malik", "Christian", "Rafael", "Jonas", "Henrik",
   "Zaire", "Kellan", "Dante", "Elias", "Tristan", "Hakeem", "Cedric", "Gavin", "Tobias", "Emilio",
+];
+
+const WOMENS_FIRST_NAMES = [
+  "A'ja", "Sabrina", "Caitlin", "Breanna", "Napheesa", "Ariana", "Kelsey", "Nneka", "Jonquel", "Alyssa",
+  "Paige", "Maya", "Kamilla", "Rhyne", "Arike", "Jewell", "Elena", "Jackie", "Satou", "Marine",
+  "Ezi", "Gabby", "Alanna", "Chelsea", "Kaila", "Sienna", "Zoe", "Naomi", "Yuki", "Mei",
+  "Camila", "Sofia", "Nadia", "Tessa", "Kira", "Aaliyah", "Jordyn", "Mikaela", "Chiara", "Amara",
 ];
 
 const LAST_NAMES = [
@@ -440,12 +790,15 @@ export function computeLeaguePlayerOvr(r: Omit<PlayerRatings, "ovr">): number {
   );
 }
 
-export function generateInitialRosters(): LeaguePlayer[] {
+export function generateInitialRosters(division: ProLeagueDivision = "mens"): LeaguePlayer[] {
+  const teams = getLeagueTeams(division);
+  const namePool = division === "womens" ? WOMENS_FIRST_NAMES : FIRST_NAMES;
+  const seedShift = division === "womens" ? 5000 : 0;
   const positions: PositionCode[] = ["PG", "SG", "SF", "PF", "C"];
   const players: LeaguePlayer[] = [];
   const usedNumbersByTeam = new Map<string, Set<number>>();
 
-  APBA_TEAMS.forEach((team, tIdx) => {
+  teams.forEach((team, tIdx) => {
     const usedNums = new Set<number>();
     usedNumbersByTeam.set(team.id, usedNums);
 
@@ -453,9 +806,9 @@ export function generateInitialRosters(): LeaguePlayer[] {
     for (let slot = 0; slot < 10; slot++) {
       const pos = positions[slot % 5];
       const isStarter = slot < 5;
-      const seed = tIdx * 100 + slot * 7 + 19;
+      const seed = seedShift + tIdx * 100 + slot * 7 + 19;
 
-      const fn = FIRST_NAMES[Math.floor(deterministicHash(seed + 1) * FIRST_NAMES.length)];
+      const fn = namePool[Math.floor(deterministicHash(seed + 1) * namePool.length)];
       const ln = LAST_NAMES[Math.floor(deterministicHash(seed + 2) * LAST_NAMES.length)];
 
       // Assign unique jersey number
@@ -465,7 +818,6 @@ export function generateInitialRosters(): LeaguePlayer[] {
       }
       usedNums.add(jersey);
 
-      // Franchise anchor at slot 0..2 depending on team, rookie at slot 8 or 9 for most teams
       const isFranchiseStar = slot === (tIdx % 5);
       const isRookie = slot === 8 && tIdx % 3 !== 2;
       const yearsPro = isRookie ? 0 : Math.max(1, Math.floor(deterministicHash(seed + 3) * 11));
@@ -503,7 +855,6 @@ export function generateInitialRosters(): LeaguePlayer[] {
       const archetypes = ARCHETYPES_BY_POS[pos];
       const archetype = archetypes[Math.floor(deterministicHash(seed + 16) * archetypes.length)];
 
-      // Salary scaled realistically so 10-man team payroll sits around $115M-$165M against $140M cap
       const salary = isRookie
         ? Number((2.4 + deterministicHash(seed + 17) * 3.8).toFixed(1))
         : isFranchiseStar
@@ -513,7 +864,6 @@ export function generateInitialRosters(): LeaguePlayer[] {
         : Number(Math.max(2.2, Math.min(11, (ovr - 65) * 0.65)).toFixed(1));
       const contractYears = isRookie ? 3 : 1 + Math.floor(deterministicHash(seed + 18) * 4);
 
-      // Realistic prior season stats for MIP comparisons
       const priorPpg = isRookie
         ? 0
         : Number((isFranchiseStar ? 18 + deterministicHash(seed + 19) * 8 : isStarter ? 9 + deterministicHash(seed + 20) * 8 : 4 + deterministicHash(seed + 21) * 4).toFixed(1));
@@ -521,7 +871,7 @@ export function generateInitialRosters(): LeaguePlayer[] {
       const priorApg = isRookie ? 0 : Number((pos === "PG" ? 4.8 + deterministicHash(seed + 24) * 3.5 : 1.5 + deterministicHash(seed + 25) * 2.5).toFixed(1));
 
       players.push({
-        id: `p_${team.abbr.toLowerCase()}_${slot}`,
+        id: `p_${division === "womens" ? "w_" : ""}${team.abbr.toLowerCase()}_${slot}`,
         teamId: team.id,
         name: `${fn} ${ln}`,
         position: pos,
@@ -529,6 +879,7 @@ export function generateInitialRosters(): LeaguePlayer[] {
         age,
         yearsPro,
         isStarter,
+        gender: division === "womens" ? "female" : "male",
         archetype,
         ratings: { ovr, ...rawRatings },
         contractYears,
@@ -562,15 +913,22 @@ const ORIGIN_PROGRAMS = [
   "Pacific Tech", "Empire State Univ.", "Harbor Academy", "Prairie A&M", "Cascade Prep",
   "Northwoods Poly", "Boreal Select", "Liberty Institute", "Sonoran State", "Lakeshore U",
   "Madrid Youth Club", "Belgrade Hoops Lab", "Melbourne Institute", "Paris Metro Elite",
+  "Seoul Yonsei Select", "Manila Archers Academy", "Athens Acropolis Club", "Munich Bavaria Prep",
 ];
 
-export function generateDraftClass(seasonYear: number, count = 24): DraftProspect[] {
+export function generateDraftClass(
+  seasonYear: number,
+  count = 24,
+  division: ProLeagueDivision = "mens"
+): DraftProspect[] {
   const positions: PositionCode[] = ["PG", "SG", "SF", "PF", "C"];
+  const namePool = division === "womens" ? WOMENS_FIRST_NAMES : FIRST_NAMES;
+  const seedShift = division === "womens" ? 777 : 0;
   const prospects: DraftProspect[] = [];
   for (let i = 0; i < count; i++) {
-    const seed = seasonYear * 313 + i * 17;
+    const seed = seasonYear * 313 + i * 17 + seedShift;
     const pos = positions[i % positions.length];
-    const fn = FIRST_NAMES[Math.floor(deterministicHash(seed + 1) * FIRST_NAMES.length)];
+    const fn = namePool[Math.floor(deterministicHash(seed + 1) * namePool.length)];
     const ln = LAST_NAMES[Math.floor(deterministicHash(seed + 2) * LAST_NAMES.length)];
     const tierBase = Math.max(68, 84 - Math.floor(i * 0.55));
     const clampR = (v: number) => Math.max(58, Math.min(95, Math.round(v)));
@@ -587,7 +945,7 @@ export function generateDraftClass(seasonYear: number, count = 24): DraftProspec
     const archetypes = ARCHETYPES_BY_POS[pos];
 
     prospects.push({
-      id: `draft_${seasonYear}_${i + 1}`,
+      id: `draft_${division}_${seasonYear}_${i + 1}`,
       name: `${fn} ${ln}`,
       position: pos,
       age: 19 + (i % 3),

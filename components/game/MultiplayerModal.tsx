@@ -37,10 +37,22 @@ interface MultiplayerModalProps {
   transport: ConnectionTransport;
   currentRoom: MultiplayerRoomState | null;
   onFetchRooms: () => Promise<MultiplayerRoomSummary[]>;
-  onJoinRoom: (roomCode: string, preferredTeam?: TeamSide, format?: MultiplayerFormat) => Promise<void>;
-  onCreateRoom: (options?: { format?: MultiplayerFormat; isPrivate?: boolean }) => Promise<void>;
+  onJoinRoom: (
+    roomCode: string,
+    preferredTeam?: TeamSide,
+    format?: MultiplayerFormat,
+    leagueDivision?: "mens" | "womens",
+    competitionType?: "pro" | "international" | "allstar" | "streetball"
+  ) => Promise<void>;
+  onCreateRoom: (options?: {
+    format?: MultiplayerFormat;
+    isPrivate?: boolean;
+    leagueDivision?: "mens" | "womens";
+    competitionType?: "pro" | "international" | "allstar" | "streetball";
+  }) => Promise<void>;
   onLeaveRoom: () => Promise<void>;
   onStartCourtMatch: () => void;
+  activeDivision?: "mens" | "womens";
 }
 
 function DeviceIcon({ device, className = "w-4 h-4" }: { device: DeviceType; className?: string }) {
@@ -82,6 +94,7 @@ export default function MultiplayerModal({
   onCreateRoom,
   onLeaveRoom,
   onStartCourtMatch,
+  activeDivision = "mens",
 }: MultiplayerModalProps) {
   const [rooms, setRooms] = useState<MultiplayerRoomSummary[]>([]);
   const [customCode, setCustomCode] = useState("");
@@ -89,6 +102,10 @@ export default function MultiplayerModal({
   const [copied, setCopied] = useState(false);
   const [preferredTeam, setPreferredTeam] = useState<TeamSide | undefined>(undefined);
   const [selectedFormat, setSelectedFormat] = useState<MultiplayerFormat>("5v5");
+  const [selectedDivision, setSelectedDivision] = useState<"mens" | "womens">(activeDivision);
+  const [selectedCompetition, setSelectedCompetition] = useState<
+    "pro" | "international" | "allstar" | "streetball"
+  >("pro");
   const [privateRoom, setPrivateRoom] = useState<boolean>(true);
 
   const refreshRooms = async () => {
@@ -248,7 +265,11 @@ export default function MultiplayerModal({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="text-sm font-black uppercase tracking-wider text-white/80">
                     Connected Players ({players.length} / {formatToMaxPlayers(currentRoom.match.format)}) ·{" "}
-                    <span className="text-cyan-300">{currentRoom.match.format || "5v5"}</span>
+                    <span className="text-cyan-300">{currentRoom.match.format || "5v5"}</span> ·{" "}
+                    <span className="text-amber-300">
+                      {currentRoom.match.leagueDivision === "womens" ? "WPBA" : "APBA"}{" "}
+                      {(currentRoom.match.competitionType || "pro").toUpperCase()}
+                    </span>
                     {currentRoom.isPrivate ? " · Private" : " · Public"}
                   </h3>
                   <span className="text-xs text-white/55 tabular-nums">
@@ -392,6 +413,65 @@ export default function MultiplayerModal({
                 </div>
               </div>
 
+              {/* League & Competition Selector */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-2">
+                  <div className="text-xs font-black uppercase tracking-wider text-white/80">
+                    League Division
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(
+                      [
+                        { id: "mens", label: "Men's (APBA)" },
+                        { id: "womens", label: "Women's (WPBA)" },
+                      ] as const
+                    ).map((div) => (
+                      <button
+                        key={div.id}
+                        type="button"
+                        onClick={() => setSelectedDivision(div.id)}
+                        className={`min-h-[38px] px-3.5 py-1.5 rounded-xl text-xs font-black uppercase border cursor-pointer ${
+                          selectedDivision === div.id
+                            ? "bg-[#ff963b] text-black border-amber-300"
+                            : "bg-white/5 text-white/80 border-white/10 hover:bg-white/10"
+                        }`}
+                      >
+                        {div.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-2">
+                  <div className="text-xs font-black uppercase tracking-wider text-white/80">
+                    Competition Type
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {(
+                      [
+                        { id: "pro", label: "Pro Arena" },
+                        { id: "international", label: "Int'l Cup" },
+                        { id: "allstar", label: "All-Star" },
+                        { id: "streetball", label: "Streetball" },
+                      ] as const
+                    ).map((comp) => (
+                      <button
+                        key={comp.id}
+                        type="button"
+                        onClick={() => setSelectedCompetition(comp.id)}
+                        className={`min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-bold uppercase border cursor-pointer ${
+                          selectedCompetition === comp.id
+                            ? "bg-cyan-500 text-black border-cyan-300"
+                            : "bg-white/5 text-white/80 border-white/10 hover:bg-white/10"
+                        }`}
+                      >
+                        {comp.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
               {/* Quick Actions */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <button
@@ -399,7 +479,13 @@ export default function MultiplayerModal({
                   onClick={async () => {
                     setBusy(true);
                     try {
-                      await onJoinRoom("PUBLIC-COURT", preferredTeam, selectedFormat);
+                      await onJoinRoom(
+                        "PUBLIC-COURT",
+                        preferredTeam,
+                        selectedFormat,
+                        selectedDivision,
+                        selectedCompetition
+                      );
                     } finally {
                       setBusy(false);
                     }
@@ -420,7 +506,12 @@ export default function MultiplayerModal({
                   onClick={async () => {
                     setBusy(true);
                     try {
-                      await onCreateRoom({ format: selectedFormat, isPrivate: privateRoom });
+                      await onCreateRoom({
+                        format: selectedFormat,
+                        isPrivate: privateRoom,
+                        leagueDivision: selectedDivision,
+                        competitionType: selectedCompetition,
+                      });
                       await refreshRooms();
                     } finally {
                       setBusy(false);
@@ -454,7 +545,13 @@ export default function MultiplayerModal({
                   onClick={async () => {
                     setBusy(true);
                     try {
-                      await onJoinRoom(customCode.trim(), preferredTeam, selectedFormat);
+                      await onJoinRoom(
+                        customCode.trim(),
+                        preferredTeam,
+                        selectedFormat,
+                        selectedDivision,
+                        selectedCompetition
+                      );
                     } finally {
                       setBusy(false);
                     }
@@ -491,8 +588,12 @@ export default function MultiplayerModal({
                         <div className="text-sm font-black uppercase tracking-wider text-white">
                           {rm.roomCode}
                         </div>
-                        <div className="text-xs text-white/55 flex items-center gap-2 mt-0.5 tabular-nums">
+                        <div className="text-xs text-white/55 flex items-center gap-2 mt-0.5 tabular-nums flex-wrap">
                           <span className="text-cyan-300 font-bold">{rm.format || "5v5"}</span>
+                          <span>&bull;</span>
+                          <span className="text-amber-300 font-bold">
+                            {rm.leagueDivision === "womens" ? "WPBA" : "APBA"}
+                          </span>
                           <span>&bull;</span>
                           <span>{rm.playerCount} / {rm.maxPlayers} Players</span>
                           {rm.devices.length > 0 && (
@@ -509,7 +610,13 @@ export default function MultiplayerModal({
                         onClick={async () => {
                           setBusy(true);
                           try {
-                            await onJoinRoom(rm.roomCode, preferredTeam, rm.format);
+                            await onJoinRoom(
+                              rm.roomCode,
+                              preferredTeam,
+                              rm.format,
+                              rm.leagueDivision,
+                              rm.competitionType
+                            );
                           } finally {
                             setBusy(false);
                           }

@@ -1,4 +1,5 @@
-import { APBA_TEAMS } from "./leagueData.ts";
+import { getLeagueTeams, getTeamByIdAnyLeague } from "./leagueData.ts";
+import type { ProLeagueDivision } from "./leagueData.ts";
 import { loadVersionedState, SAVE_KEYS, saveVersionedState } from "./saveSystem.ts";
 
 export interface SponsorshipDeal {
@@ -28,6 +29,7 @@ export interface CareerSeasonLog {
 
 export interface MyCareerState {
   active: boolean;
+  careerDivision?: ProLeagueDivision;
   teamId: string;
   seasonYear: number;
   xpAvailable: number;
@@ -40,6 +42,8 @@ export interface MyCareerState {
     role: "Rookie Prospect" | "Sixth Man" | "Starter" | "Franchise Star" | "Max Legend";
   };
   championshipRings: number;
+  allStarSelections?: number;
+  internationalMedals?: number;
   sponsorships: SponsorshipDeal[];
   seasonLogs: CareerSeasonLog[];
   extraAttributes: {
@@ -92,10 +96,16 @@ export const INITIAL_SPONSORSHIPS: SponsorshipDeal[] = [
   },
 ];
 
-export function createInitialCareerState(teamId = "apba_nyc_monarchs"): MyCareerState {
+export function createInitialCareerState(
+  teamId?: string,
+  division: ProLeagueDivision = "mens"
+): MyCareerState {
+  const teams = getLeagueTeams(division);
+  const resolvedTeamId = teamId && teams.some((t) => t.id === teamId) ? teamId : teams[0].id;
   return {
     active: true,
-    teamId,
+    careerDivision: division,
+    teamId: resolvedTeamId,
     seasonYear: 2027,
     xpAvailable: 450,
     totalXpEarned: 450,
@@ -107,6 +117,8 @@ export function createInitialCareerState(teamId = "apba_nyc_monarchs"): MyCareer
       role: "Starter",
     },
     championshipRings: 0,
+    allStarSelections: 0,
+    internationalMedals: 0,
     sponsorships: INITIAL_SPONSORSHIPS.map((s) => ({ ...s })),
     seasonLogs: [],
     extraAttributes: {
@@ -166,7 +178,7 @@ export function negotiateCareerContract(
   newTeamId: string,
   ovr: number
 ): MyCareerState {
-  const validTeam = APBA_TEAMS.some((t) => t.id === newTeamId);
+  const validTeam = Boolean(getTeamByIdAnyLeague(newTeamId));
   if (!validTeam) return state;
   const marketSalary = Number(Math.max(4.5, Math.min(52, (ovr - 68) * 1.65 + state.reputation * 0.012)).toFixed(1));
   const role: MyCareerState["contract"]["role"] =
@@ -182,14 +194,21 @@ export function negotiateCareerContract(
   };
 }
 
-export function loadCareerState(): MyCareerState {
-  return loadVersionedState<MyCareerState>(
-    SAVE_KEYS.CAREER_HUB,
-    () => createInitialCareerState(),
+export function loadCareerState(division: ProLeagueDivision = "mens"): MyCareerState {
+  const key = division === "womens" ? SAVE_KEYS.CAREER_WOMENS : SAVE_KEYS.CAREER_HUB;
+  const loaded = loadVersionedState<MyCareerState>(
+    key,
+    () => createInitialCareerState(undefined, division),
     (d): d is MyCareerState => Boolean(d && typeof d === "object" && typeof (d as MyCareerState).teamId === "string")
   ).data;
+  return {
+    ...loaded,
+    careerDivision: loaded.careerDivision || division,
+  };
 }
 
-export function saveCareerState(state: MyCareerState): void {
-  saveVersionedState(SAVE_KEYS.CAREER_HUB, state);
+export function saveCareerState(state: MyCareerState, division?: ProLeagueDivision): void {
+  const div = division || state.careerDivision || (state.teamId.startsWith("wpba_") ? "womens" : "mens");
+  const key = div === "womens" ? SAVE_KEYS.CAREER_WOMENS : SAVE_KEYS.CAREER_HUB;
+  saveVersionedState(key, { ...state, careerDivision: div });
 }

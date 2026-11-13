@@ -1,10 +1,11 @@
 import {
-  APBA_TEAMS,
   computeLeaguePlayerOvr,
   createEmptyStatLine,
   generateDraftClass,
+  getLeagueTeams,
+  getTeamByIdAnyLeague,
 } from "./leagueData.ts";
-import type { DraftProspect, LeaguePlayer } from "./leagueData.ts";
+import type { DraftProspect, LeaguePlayer, ProLeagueDivision } from "./leagueData.ts";
 import { loadVersionedState, SAVE_KEYS, saveVersionedState } from "./saveSystem.ts";
 
 export interface CoachStaff {
@@ -42,6 +43,7 @@ export interface FranchiseHistoryEntry {
 }
 
 export interface FranchiseState {
+  franchiseDivision?: ProLeagueDivision;
   teamId: string;
   ownerName: string;
   gmName: string;
@@ -56,11 +58,16 @@ export interface FranchiseState {
   lastActionNote: string;
 }
 
-export function createInitialFranchiseState(teamId = "apba_nyc_monarchs"): FranchiseState {
-  const team = APBA_TEAMS.find((t) => t.id === teamId) || APBA_TEAMS[0];
+export function createInitialFranchiseState(
+  teamId?: string,
+  division: ProLeagueDivision = "mens"
+): FranchiseState {
+  const teams = getLeagueTeams(division);
+  const team = (teamId && teams.find((t) => t.id === teamId)) || teams[0];
   const baseMarketCash = team.marketSize === "Large" ? 48 : team.marketSize === "Mid" ? 32 : 24;
 
   return {
+    franchiseDivision: division,
     teamId: team.id,
     ownerName: "Victoria Kensington",
     gmName: "Jordan Vance",
@@ -90,7 +97,7 @@ export function createInitialFranchiseState(teamId = "apba_nyc_monarchs"): Franc
       { id: "pk_2028_r1", year: 2028, round: 1, originalTeamAbbr: team.abbr },
       { id: "pk_2028_r2", year: 2028, round: 2, originalTeamAbbr: team.abbr },
     ],
-    draftBoard: generateDraftClass(2027, 24),
+    draftBoard: generateDraftClass(2027, 24, division),
     history: [],
     lastActionNote: `Took front office control of the ${team.city} ${team.name}.`,
   };
@@ -213,7 +220,7 @@ export function executeApprovedTrade(params: {
       draftPicks: nextPicks,
       chemistry: Math.max(40, params.franchise.chemistry - 3),
       lastActionNote: `Completed multi-player trade with ${
-        APBA_TEAMS.find((t) => t.id === params.partnerTeamId)?.name || "Partner Team"
+        getTeamByIdAnyLeague(params.partnerTeamId)?.name || "Partner Team"
       }.`,
     },
   };
@@ -262,7 +269,9 @@ export function draftProspectToTeam(params: {
       draftPicks: remainingPicks,
       draftBoard: params.franchise.draftBoard.filter((d) => d.id !== prospect.id),
       fanSupport: Math.min(100, params.franchise.fanSupport + 4),
-      lastActionNote: `Drafted ${prospect.name} (${prospect.position}, ${prospect.ratings.ovr} OVR) in the APBA Rookie Draft!`,
+      lastActionNote: `Drafted ${prospect.name} (${prospect.position}, ${prospect.ratings.ovr} OVR) in the ${
+        params.franchise.franchiseDivision === "womens" ? "WPBA" : "APBA"
+      } Rookie Draft!`,
     },
   };
 }
@@ -299,15 +308,25 @@ export function runTeamTrainingCamp(
   };
 }
 
-export function loadFranchiseState(defaultTeamId = "apba_nyc_monarchs"): FranchiseState {
-  return loadVersionedState<FranchiseState>(
-    SAVE_KEYS.FRANCHISE,
-    () => createInitialFranchiseState(defaultTeamId),
+export function loadFranchiseState(
+  defaultTeamId?: string,
+  division: ProLeagueDivision = "mens"
+): FranchiseState {
+  const key = division === "womens" ? SAVE_KEYS.FRANCHISE_WOMENS : SAVE_KEYS.FRANCHISE;
+  const loaded = loadVersionedState<FranchiseState>(
+    key,
+    () => createInitialFranchiseState(defaultTeamId, division),
     (d): d is FranchiseState =>
       Boolean(d && typeof d === "object" && typeof (d as FranchiseState).teamId === "string" && (d as FranchiseState).coach)
   ).data;
+  return {
+    ...loaded,
+    franchiseDivision: loaded.franchiseDivision || division,
+  };
 }
 
-export function saveFranchiseState(state: FranchiseState): void {
-  saveVersionedState(SAVE_KEYS.FRANCHISE, state);
+export function saveFranchiseState(state: FranchiseState, division?: ProLeagueDivision): void {
+  const div = division || state.franchiseDivision || (state.teamId.startsWith("wpba_") ? "womens" : "mens");
+  const key = div === "womens" ? SAVE_KEYS.FRANCHISE_WOMENS : SAVE_KEYS.FRANCHISE;
+  saveVersionedState(key, { ...state, franchiseDivision: div });
 }

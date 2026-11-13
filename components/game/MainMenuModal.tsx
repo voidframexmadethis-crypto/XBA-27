@@ -90,6 +90,9 @@ interface MainMenuModalProps {
   onOpenFranchise?: () => void;
   onOpenCustomization?: () => void;
   onOpenTrainingAcademy?: () => void;
+  onOpenAllStarWeekend?: () => void;
+  activeDivision?: "mens" | "womens";
+  onChangeDivision?: (div: "mens" | "womens") => void;
   leagueSummaryLabel?: string;
   careerSummaryLabel?: string;
   franchiseSummaryLabel?: string;
@@ -135,6 +138,9 @@ export default function MainMenuModal({
   onOpenFranchise,
   onOpenCustomization,
   onOpenTrainingAcademy,
+  onOpenAllStarWeekend,
+  activeDivision = "mens",
+  onChangeDivision,
   leagueSummaryLabel,
   careerSummaryLabel,
   franchiseSummaryLabel,
@@ -223,7 +229,30 @@ export default function MainMenuModal({
                 </button>
               </div>
 
-              <nav className="flex items-center justify-between sm:justify-end gap-2 sm:gap-6 w-full sm:w-auto">
+              <nav className="flex flex-wrap items-center justify-between sm:justify-end gap-2 sm:gap-5 w-full sm:w-auto">
+                {onChangeDivision && (
+                  <div className="flex rounded-lg bg-black/60 border border-[#343b46] p-0.5">
+                    {(
+                      [
+                        { id: "mens", label: "MEN'S APBA" },
+                        { id: "womens", label: "WOMEN'S WPBA" },
+                      ] as const
+                    ).map((div) => (
+                      <button
+                        key={div.id}
+                        type="button"
+                        onClick={() => onChangeDivision(div.id)}
+                        className={`min-h-[34px] px-2.5 py-1 rounded text-[10px] font-black tracking-wider uppercase cursor-pointer transition-colors ${
+                          activeDivision === div.id
+                            ? "bg-[#ff963b] text-[#101014]"
+                            : "text-[#aab0bb] hover:text-white"
+                        }`}
+                      >
+                        {div.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={() => setActiveTab("home")}
@@ -338,6 +367,10 @@ export default function MainMenuModal({
                           {athleteProfile.firstName} {athleteProfile.lastName}
                         </span>{" "}
                         · <span className="text-[#ff963b] font-black">{ovr} OVR</span> ·{" "}
+                        <span className="text-cyan-300 font-black">
+                          {activeDivision === "womens" ? "WPBA" : "APBA"}
+                        </span>{" "}
+                        ·{" "}
                         <span>
                           {selectedCity.flag} {selectedCity.name}
                         </span>
@@ -347,13 +380,13 @@ export default function MainMenuModal({
 
                   {/* Hero Bottom Strip */}
                   <div className="absolute bottom-0 left-0 right-0 flex justify-around gap-2 px-3 py-3.5 bg-black/55 border-t border-white/15 text-[#d3d6dc] text-[8px] sm:text-[10px] font-black tracking-wider uppercase text-center">
-                    <span>5V5 BASKETBALL</span>
-                    <span>WORLD TOUR · 28 CITIES</span>
-                    <span>ONLINE MULTIPLAYER</span>
+                    <span>MEN&apos;S &amp; WOMEN&apos;S PRO LEAGUES</span>
+                    <span>16 NATIONS · 31 GLOBAL CITIES</span>
+                    <span>ONLINE &amp; OFFLINE MULTIPLAYER</span>
                   </div>
                 </section>
 
-                {/* Game Modes 01 - 05 */}
+                {/* Game Modes 01 - 10 */}
                 <section className="px-[5%] py-7 sm:py-9 space-y-6">
                   <div className="flex items-end justify-between gap-4">
                     <div>
@@ -365,7 +398,7 @@ export default function MainMenuModal({
                       </h2>
                     </div>
                     <span className="text-[#78808d] text-xs font-bold tabular-nums">
-                      01 — 09
+                      01 — 10
                     </span>
                   </div>
 
@@ -409,7 +442,7 @@ export default function MainMenuModal({
                       </div>
                       <div className="pr-8">
                         <h3 className="mt-4 mb-1 text-[16px] font-black uppercase">
-                          APBA PRO LEAGUE
+                          {activeDivision === "womens" ? "WPBA WOMEN'S LEAGUE" : "APBA MEN'S LEAGUE"}
                         </h3>
                         <p className="text-[#9da6b4] text-[11px] m-0">
                           {leagueSummaryLabel || "82-Game Season, Standings, Awards & Best-of-7 Playoffs"}
@@ -481,10 +514,10 @@ export default function MainMenuModal({
                       </div>
                       <div className="pr-8">
                         <h3 className="mt-4 mb-1 text-[16px] font-black uppercase">
-                          WORLD TOUR 2.0
+                          WORLD TOUR · 16 NATIONS
                         </h3>
                         <p className="text-[#9da6b4] text-[11px] m-0">
-                          28 Global Cities &amp; Cups · {selectedCity.flag} {selectedCity.name}
+                          16 National Teams, 31 Cities &amp; Int&apos;l Cups · {selectedCity.flag} {selectedCity.name}
                         </p>
                       </div>
                       <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />
@@ -567,7 +600,7 @@ export default function MainMenuModal({
                       <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />
                     </button>
 
-                    {/* 09 Settings / Streetball Split */}
+                    {/* 09 Blacktop Streetball */}
                     <button
                       type="button"
                       onClick={() => {
@@ -586,6 +619,30 @@ export default function MainMenuModal({
                         </h3>
                         <p className="text-[#9da6b4] text-[11px] m-0">
                           Outdoor asphalt showcase under night stadium lights
+                        </p>
+                      </div>
+                      <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />
+                    </button>
+
+                    {/* 10 All-Star Weekend */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleCloseMenu();
+                        onOpenAllStarWeekend?.();
+                      }}
+                      className="group relative min-h-[125px] p-5 text-left text-white border border-amber-400/45 hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#2a1d12] to-[#101319] hover:from-[#3d2914] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden"
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <Sparkles className="w-6 h-6 text-amber-300" />
+                        <span className="text-[#667080] text-[11px] font-black">10</span>
+                      </div>
+                      <div className="pr-8">
+                        <h3 className="mt-4 mb-1 text-[16px] font-black uppercase">
+                          ALL-STAR WEEKEND ({activeDivision === "womens" ? "WPBA" : "APBA"})
+                        </h3>
+                        <p className="text-[#9da6b4] text-[11px] m-0">
+                          All-Star Game, 3-Point Contest, Dunk Contest &amp; MVP Trophies
                         </p>
                       </div>
                       <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />

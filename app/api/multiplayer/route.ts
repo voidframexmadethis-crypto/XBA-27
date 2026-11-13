@@ -46,6 +46,8 @@ export async function POST(req: NextRequest) {
         cityId: body.cityId,
         mode: body.mode,
         format: body.format,
+        leagueDivision: body.leagueDivision,
+        competitionType: body.competitionType,
         isPrivate: Boolean(body.isPrivate),
       });
       return NextResponse.json({ ok: true, room, transport: "http" });
@@ -63,6 +65,8 @@ export async function POST(req: NextRequest) {
         cityId: body.cityId,
         mode: body.mode,
         format: body.format,
+        leagueDivision: body.leagueDivision,
+        competitionType: body.competitionType,
         isPrivate: Boolean(body.isPrivate),
       });
       return NextResponse.json({ ok: true, room, transport: "http" });
