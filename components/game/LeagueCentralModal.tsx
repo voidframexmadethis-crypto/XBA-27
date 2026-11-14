@@ -37,6 +37,7 @@ interface LeagueCentralModalProps {
   onPlayMatchup: (homeTeamId: string, awayTeamId: string, isPlayoff?: boolean) => void;
   activeDivision?: ProLeagueDivision;
   onChangeDivision?: (div: ProLeagueDivision) => void;
+  onOpenSeasonCalendar?: () => void;
 }
 
 type TabId = "standings" | "schedule" | "leaders" | "awards" | "playoffs";
@@ -57,6 +58,7 @@ export default function LeagueCentralModal({
   onPlayMatchup,
   activeDivision,
   onChangeDivision,
+  onOpenSeasonCalendar,
 }: LeagueCentralModalProps) {
   const [activeTab, setActiveTab] = useState<TabId>("standings");
   const [standingsFilter, setStandingsFilter] = useState<"Eastern" | "Western" | "Divisions">("Eastern");
@@ -456,13 +458,24 @@ export default function LeagueCentralModal({
 
               {activeTab === "schedule" && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-black uppercase tracking-wider">
-                      Round {Math.min(82, league.currentRound)} Matchups (820 Regular Season Games Total)
-                    </h3>
-                    <span className="text-xs text-white/55 tabular-nums">
-                      Completed: {league.schedule.filter((g) => g.played).length} / 820
-                    </span>
+                  <div className="flex flex-wrap items-center justify-between gap-3 bg-white/5 border border-white/10 p-3.5 rounded-xl">
+                    <div>
+                      <h3 className="text-sm font-black uppercase tracking-wider">
+                        Round {Math.min(82, league.currentRound)} Matchups (820 Total Games)
+                      </h3>
+                      <p className="text-xs text-white/60">
+                        Completed: {league.schedule.filter((g) => g.played).length} / 820 Games
+                      </p>
+                    </div>
+                    {onOpenSeasonCalendar && (
+                      <button
+                        onClick={onOpenSeasonCalendar}
+                        className="px-4 py-2 rounded-lg bg-[#ff963b] hover:bg-amber-400 text-black text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Calendar className="w-4 h-4" />
+                        <span>Open Full Season Calendar (Monthly Views)</span>
+                      </button>
+                    )}
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {upcomingRoundGames.map((g) => {

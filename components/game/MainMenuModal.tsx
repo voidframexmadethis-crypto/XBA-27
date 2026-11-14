@@ -39,6 +39,7 @@ import {
   Moon,
   Sun,
   Clock,
+  Building2,
 } from "lucide-react";
 import { WORLD_CITIES, WorldCity } from "@/lib/worldTour";
 import { ALL_OFFENSE_MOVES, ALL_DEFENSE_MOVES } from "@/lib/basketballMoves";
@@ -108,6 +109,7 @@ interface MainMenuModalProps {
   nightGameMode?: NightGameMode;
   onChangeNightGameMode?: (mode: NightGameMode) => void;
   onSavesImported?: () => void;
+  onOpenBusinessHub?: () => void;
 }
 
 export default function MainMenuModal({
@@ -162,6 +164,7 @@ export default function MainMenuModal({
   nightGameMode = "auto",
   onChangeNightGameMode,
   onSavesImported,
+  onOpenBusinessHub,
 }: MainMenuModalProps) {
   const [activeTab, setActiveTab] = useState<"home" | "settings">("home");
   const [saveNotice, setSaveNotice] = useState<string>("");
@@ -708,6 +711,30 @@ export default function MainMenuModal({
                         </h3>
                         <p className="text-[#9da6b4] text-[11px] m-0">
                           {nationalTourSummaryLabel || "13 US Host Cities · Regional Conferences, Challenges & Crown"}
+                        </p>
+                      </div>
+                      <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />
+                    </button>
+
+                    {/* 13 Court & Player Business Hub */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleCloseMenu();
+                        onOpenBusinessHub?.();
+                      }}
+                      className="group relative min-h-[125px] p-5 text-left text-white border border-amber-500/45 hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#2a1d12] to-[#101319] hover:from-[#3d2a17] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden"
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <Building2 className="w-6 h-6 text-amber-400" />
+                        <span className="text-[#667080] text-[11px] font-black">13</span>
+                      </div>
+                      <div className="pr-8">
+                        <h3 className="mt-4 mb-1 text-[16px] font-black uppercase">
+                          COURT &amp; PLAYER BUSINESS HUB
+                        </h3>
+                        <p className="text-[#9da6b4] text-[11px] m-0">
+                          Arena Upgrades, Ticket Pricing, Real Estate &amp; Financial Empire
                         </p>
                       </div>
                       <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />

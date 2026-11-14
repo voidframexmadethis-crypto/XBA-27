@@ -23,16 +23,23 @@ import MultiplayerModal from "./MultiplayerModal";
 import HighlightsOverlay from "./HighlightsOverlay";
 import ScreenMirrorModal from "./ScreenMirrorModal";
 import LeagueCentralModal from "./LeagueCentralModal";
+import SeasonCalendarModal from "./SeasonCalendarModal";
 import CareerHubModal from "./CareerHubModal";
 import FranchiseModal from "./FranchiseModal";
 import CustomizationStudioModal from "./CustomizationStudioModal";
 import TrainingAcademyModal from "./TrainingAcademyModal";
 import AdventureForgeUniverseModal from "./AdventureForgeUniverseModal";
+import BusinessHubModal from "./BusinessHubModal";
 import {
   AdventureForgeUniverseState,
   loadUniverseState,
   saveUniverseState,
 } from "@/lib/adventureForgeUniverse";
+import {
+  BusinessState,
+  loadBusinessState,
+  saveBusinessState,
+} from "@/lib/basketballBusiness";
 import BroadcastOverlays, { BroadcastSceneData } from "./BroadcastOverlays";
 import {
   SHOT_CLOCK_FULL,
@@ -361,6 +368,9 @@ export default function BasketballGame() {
   const [showTrainingAcademy, setShowTrainingAcademy] = useState(false);
   const [showUniverseHub, setShowUniverseHub] = useState(false);
   const [universeState, setUniverseState] = useState<AdventureForgeUniverseState>(loadUniverseState);
+  const [showBusinessHub, setShowBusinessHub] = useState(false);
+  const [businessState, setBusinessState] = useState<BusinessState>(loadBusinessState);
+  const [showSeasonCalendar, setShowSeasonCalendar] = useState(false);
 
   const [leagueState, setLeagueState] = useState<LeagueState>(() => createInitialLeagueState(2027, "apba_nyc_monarchs"));
   const leagueStateRef = useRef<LeagueState>(leagueState);
@@ -10202,6 +10212,7 @@ export default function BasketballGame() {
         nightGameMode={studioCustom.nightGameMode}
         onChangeNightGameMode={handleChangeNightGameMode}
         onSavesImported={reloadAllSavedStates}
+        onOpenBusinessHub={() => setShowBusinessHub(true)}
       />
 
       {/* AdventureForge Basketball Universe Hub (Properties, Vehicles & Businesses) */}
@@ -10210,6 +10221,14 @@ export default function BasketballGame() {
         onClose={() => setShowUniverseHub(false)}
         universe={universeState}
         onUpdateUniverse={setUniverseState}
+      />
+
+      {/* Court & Player Business Hub Modal */}
+      <BusinessHubModal
+        isOpen={showBusinessHub}
+        onClose={() => setShowBusinessHub(false)}
+        business={businessState}
+        onUpdateBusiness={setBusinessState}
       />
 
       {/* Screen Mirroring & TV Cast Modal */}
@@ -10495,6 +10514,22 @@ export default function BasketballGame() {
           saveLeagueState(next);
         }}
         onPlayMatchup={handleStartLeagueMatchup}
+        activeDivision={activeDivision}
+        onOpenSeasonCalendar={() => setShowSeasonCalendar(true)}
+      />
+
+      {/* Season Calendar Modal (82-Game Schedule & Monthly Views) */}
+      <SeasonCalendarModal
+        isOpen={showSeasonCalendar}
+        onClose={() => setShowSeasonCalendar(false)}
+        league={leagueState}
+        onUpdateLeague={(next) => {
+          leagueStateRef.current = next;
+          setLeagueState(next);
+          saveLeagueState(next);
+        }}
+        onPlayMatchup={handleStartLeagueMatchup}
+        activeDivision={activeDivision}
       />
 
       {/* My Career Hub Modal (Phase 4) */}

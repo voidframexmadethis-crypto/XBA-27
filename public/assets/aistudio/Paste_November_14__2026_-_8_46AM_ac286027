@@ -1,0 +1,2362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>2K26 NEXT-GEN PRO ARENA // Broadcast Basketball Engine</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Teko:wght@500;600;700&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+            background-color: #05070c; font-family: 'Inter', sans-serif; color: #fff;
+        }
+        #canvas-container { position: fixed; inset: 0; z-index: 1; }
+        canvas { display: block; width: 100%; height: 100%; }
+        .font-sports { font-family: 'Teko', sans-serif; letter-spacing: 0.04em; }
+
+        /* Broadcast Scorebug & Glassmorphic HUD */
+        .broadcast-panel {
+            background: linear-gradient(135deg, rgba(12, 16, 26, 0.88), rgba(20, 27, 45, 0.82));
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65);
+        }
+        .scorebug-skew {
+            transform: skewX(-10deg);
+        }
+        .scorebug-unskew {
+            transform: skewX(10deg);
+        }
+
+        /* Green Light / Callout Animations */
+        @keyframes popFlash {
+            0% { transform: scale(0.5) translateY(20px); opacity: 0; filter: brightness(2); }
+            20% { transform: scale(1.12) translateY(0); opacity: 1; filter: brightness(1.3); }
+            80% { transform: scale(1.0) translateY(-4px); opacity: 1; filter: brightness(1); }
+            100% { transform: scale(0.95) translateY(-18px); opacity: 0; }
+        }
+        .callout-anim {
+            animation: popFlash 1.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        /* Touch Controls Styling */
+        .action-btn {
+            background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.22), rgba(15,23,42,0.85));
+            border: 2px solid rgba(255,255,255,0.28);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.6), inset 0 1px 4px rgba(255,255,255,0.3);
+            transition: transform 0.08s ease, border-color 0.15s ease;
+            touch-action: manipulation;
+        }
+        .action-btn:active {
+            transform: scale(0.91);
+            border-color: #38bdf8;
+        }
+
+        /* 2K Curved Shot Meter SVG Overlay */
+        #shot-meter-wrap {
+            pointer-events: none;
+            transition: opacity 0.12s ease;
+        }
+    </style>
+    <!-- Three.js & PostProcessing via CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+</head>
+<body>
+
+<div id="canvas-container"></div>
+
+<!-- Dynamic 2D Projected 2K Shot Meter -->
+<div id="shot-meter-wrap" class="fixed z-20 opacity-0" style="width: 110px; height: 140px; transform: translate(-50%, -50%);">
+    <svg viewBox="0 0 100 130" class="w-full h-full overflow-visible drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]">
+        <!-- Background Track Arc -->
+        <path d="M 22 112 A 54 54 0 0 1 22 18" fill="none" stroke="rgba(15,23,42,0.85)" stroke-width="11" stroke-linecap="round"/>
+        <path d="M 22 112 A 54 54 0 0 1 22 18" fill="none" stroke="rgba(255,255,255,0.22)" stroke-width="7" stroke-linecap="round"/>
+        <!-- Green Sweet-Spot Window -->
+        <path id="meter-green-zone" d="M 15 44 A 54 54 0 0 1 22 24" fill="none" stroke="#10b981" stroke-width="8" stroke-linecap="round"/>
+        <!-- Dynamic Fill Arc -->
+        <path id="meter-fill-arc" d="M 22 112 A 54 54 0 0 1 22 18" fill="none" stroke="#38bdf8" stroke-width="7" stroke-linecap="round" stroke-dasharray="115" stroke-dashoffset="115"/>
+        <!-- Release Tick Marker -->
+        <circle id="meter-tick" cx="22" cy="112" r="5.5" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    </svg>
+    <div id="meter-quality-tag" class="text-center font-sports text-sm tracking-wider uppercase font-bold -mt-3 text-sky-300">TIMING</div>
+</div>
+
+<!-- Top Broadcast Header & Controls -->
+<div class="fixed top-3 left-3 right-3 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+    <!-- Live Broadcast Watermark -->
+    <div class="broadcast-panel px-3.5 py-1.5 rounded-lg flex items-center gap-2.5 pointer-events-auto">
+        <span class="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_#ef4444]"></span>
+        <span class="font-sports text-xl font-bold tracking-wider text-white">2K SPORTS <span class="text-amber-400">NEXT-GEN</span></span>
+        <span class="hidden sm:inline text-xs uppercase tracking-widest text-slate-400 border-l border-slate-600 pl-2.5">4K HDR BROADCAST</span>
+    </div>
+
+    <!-- Mode, Camera & Audio Quick Toggles -->
+    <div class="flex items-center gap-2 pointer-events-auto">
+        <button id="btn-mode" class="broadcast-panel hover:border-amber-400/60 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider text-amber-300 transition cursor-pointer">
+            Mode: <span id="mode-label">5v5 FULL</span>
+        </button>
+        <button id="btn-cam" class="broadcast-panel hover:border-sky-400/60 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider text-sky-300 transition cursor-pointer">
+            Cam [C]: <span id="cam-label">2K CLASSIC</span>
+        </button>
+        <button id="btn-audio" class="broadcast-panel hover:border-emerald-400/60 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider text-emerald-300 transition cursor-pointer">
+            SFX: <span id="audio-label">ON</span>
+        </button>
+    </div>
+</div>
+
+<!-- Center Dynamic Callout Banner ("GREEN LIGHT!", "POSTERIZER!", "ANKLE BREAKER!") -->
+<div id="callout-container" class="fixed top-20 left-1/2 -translate-x-1/2 z-30 pointer-events-none flex flex-col items-center"></div>
+
+<!-- TV Broadcast Scorebug (Bottom Center-Left on Desktop, Top-Center Compact on Mobile) -->
+<div class="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-none w-[95%] max-w-2xl">
+    <div class="broadcast-panel scorebug-skew rounded-xl overflow-hidden border border-white/20 shadow-2xl">
+        <div class="scorebug-unskew flex items-center justify-between px-3 sm:px-5 py-2">
+            <!-- Away Team -->
+            <div class="flex items-center gap-2.5 sm:gap-3">
+                <div class="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-gradient-to-br from-rose-600 to-red-900 border border-rose-400/50 flex items-center justify-center font-sports text-xl sm:text-2xl font-bold shadow-inner">
+                    AWY
+                </div>
+                <div>
+                    <div class="text-[10px] sm:text-xs font-bold tracking-widest text-rose-300 uppercase">VISITORS</div>
+                    <div class="font-sports text-2xl sm:text-3xl font-bold leading-none text-white" id="score-away">0</div>
+                </div>
+            </div>
+
+            <!-- Game Clock, Quarter & Shot Clock -->
+            <div class="flex items-center gap-3 sm:gap-5 bg-slate-950/80 px-3 sm:px-5 py-1.5 rounded-lg border border-white/10">
+                <div class="text-center">
+                    <div class="text-[10px] font-bold text-amber-400 tracking-widest" id="quarter-label">1ST QTR</div>
+                    <div class="font-sports text-xl sm:text-2xl font-bold tracking-wider text-white leading-none" id="game-clock">03:00</div>
+                </div>
+                <div class="h-7 w-[1px] bg-white/15"></div>
+                <div class="text-center">
+                    <div class="text-[10px] font-bold text-slate-400 tracking-widest">SHOT</div>
+                    <div class="font-sports text-xl sm:text-2xl font-bold text-amber-400 leading-none" id="shot-clock">24</div>
+                </div>
+            </div>
+
+            <!-- Home Team -->
+            <div class="flex items-center gap-2.5 sm:gap-3 text-right">
+                <div>
+                    <div class="text-[10px] sm:text-xs font-bold tracking-widest text-sky-300 uppercase">2K PROS</div>
+                    <div class="font-sports text-2xl sm:text-3xl font-bold leading-none text-white" id="score-home">0</div>
+                </div>
+                <div class="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-gradient-to-br from-sky-500 to-blue-900 border border-sky-300/50 flex items-center justify-center font-sports text-xl sm:text-2xl font-bold shadow-inner">
+                    2KP
+                </div>
+            </div>
+        </div>
+        <!-- Active Controlled Player & Stamina Bar -->
+        <div class="scorebug-unskew bg-slate-950/90 px-4 py-1 flex items-center justify-between text-[11px] border-t border-white/10">
+            <div class="flex items-center gap-2">
+                <span class="px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 font-bold" id="player-pos-badge">PG #1</span>
+                <span class="font-bold tracking-wide text-slate-200" id="controlled-player-name">J. STORM</span>
+                <span class="text-slate-400 hidden sm:inline" id="possession-indicator">• OFFENSE</span>
+            </div>
+            <div class="flex items-center gap-2 w-36 sm:w-48">
+                <span class="text-[10px] font-bold text-amber-400">TURBO</span>
+                <div class="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden border border-white/10">
+                    <div id="stamina-bar" class="h-full bg-gradient-to-r from-amber-500 to-yellow-300 transition-all duration-75" style="width: 100%;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Desktop Keybind Cheat-Sheet (Bottom Left) -->
+<div class="hidden lg:flex fixed bottom-4 left-4 z-20 broadcast-panel px-3.5 py-2.5 rounded-xl flex-col gap-1 text-[11px] text-slate-300 pointer-events-none">
+    <div class="font-sports text-base text-amber-400 tracking-wider uppercase">PRO CONTROLS</div>
+    <div><span class="text-white font-bold">WASD / Arrows:</span> Move &nbsp;|&nbsp; <span class="text-white font-bold">Shift:</span> Sprint</div>
+    <div><span class="text-white font-bold">Hold SPACE:</span> 2K Shot Meter (Release in Green!)</div>
+    <div><span class="text-white font-bold">E:</span> Crossover / Ankle-Breaker &nbsp;|&nbsp; <span class="text-white font-bold">F:</span> Pass / Lob</div>
+    <div><span class="text-white font-bold">Q:</span> Steal / Contest Block &nbsp;|&nbsp; <span class="text-white font-bold">C:</span> Switch Camera</div>
+</div>
+
+<!-- Touch / On-Screen Action Controls (Mobile & Tablet + Mouse Clickable) -->
+<div class="fixed bottom-24 right-4 z-20 flex flex-col items-end gap-2.5 sm:bottom-5 sm:right-5">
+    <div class="flex items-center gap-2.5">
+        <button id="touch-sprint" class="action-btn w-13 h-13 sm:w-14 sm:h-14 rounded-full flex flex-col items-center justify-center text-[10px] font-extrabold text-amber-300 tracking-wider">
+            <span>TURBO</span>
+            <span class="text-[8px] text-slate-300">SHIFT</span>
+        </button>
+        <button id="touch-cross" class="action-btn w-13 h-13 sm:w-14 sm:h-14 rounded-full flex flex-col items-center justify-center text-[10px] font-extrabold text-purple-300 tracking-wider">
+            <span>CROSS</span>
+            <span class="text-[8px] text-slate-300">[E]</span>
+        </button>
+    </div>
+    <div class="flex items-center gap-2.5">
+        <button id="touch-pass" class="action-btn w-14 h-14 sm:w-15 sm:h-15 rounded-full flex flex-col items-center justify-center text-[10px] font-extrabold text-sky-300 tracking-wider">
+            <span id="pass-btn-label">PASS</span>
+            <span class="text-[8px] text-slate-300">[F]</span>
+        </button>
+        <button id="touch-shoot" class="action-btn w-16 h-16 sm:w-18 sm:h-18 rounded-full flex flex-col items-center justify-center text-xs font-extrabold text-emerald-300 border-emerald-400/60 tracking-wider shadow-[0_0_20px_rgba(16,185,129,0.35)]">
+            <span id="shoot-btn-label">SHOOT</span>
+            <span class="text-[9px] text-slate-200">[SPACE]</span>
+        </button>
+    </div>
+</div>
+
+<!-- Virtual Analog Joystick for Touch Devices (Bottom Left on Touch Screens) -->
+<div id="joystick-zone" class="lg:hidden fixed bottom-24 left-5 z-20 w-28 h-28 rounded-full bg-slate-900/50 border border-white/20 backdrop-blur-sm flex items-center justify-center touch-none">
+    <div id="joystick-knob" class="w-11 h-11 rounded-full bg-gradient-to-br from-sky-400 to-blue-600 border-2 border-white/70 shadow-lg pointer-events-none"></div>
+</div>
+
+<script>
+/**
+ * ============================================================================
+ * 2K26 NEXT-GEN PRO ARENA — ULTRA-REALISTIC 3D BASKETBALL ENGINE
+ * Single-file WebGL PBR + Procedural Hardwood + Articulated Players + 5v5 AI
+ * ============================================================================
+ */
+
+// --- 1. WEB AUDIO API PROCEDURAL ARENA SOUND ENGINE ---
+class ArenaAudio {
+    constructor() {
+        this.enabled = true;
+        this.ctx = null;
+    }
+
+    init() {
+        if (!this.ctx) {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            this.ctx = new AudioCtx();
+        }
+        if (this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+    }
+
+    playBounce(velocity = 1.0) {
+        if (!this.enabled) return;
+        this.init();
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        const baseFreq = 115 + Math.random() * 14;
+        osc.frequency.setValueAtTime(baseFreq, now);
+        osc.frequency.exponentialRampToValueAtTime(42, now + 0.14);
+
+        const vol = Math.min(0.45, Math.max(0.06, velocity * 0.35));
+        gain.gain.setValueAtTime(vol, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.17);
+    }
+
+    playSqueak() {
+        if (!this.enabled || Math.random() > 0.35) return;
+        this.init();
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'triangle';
+        const f1 = 2200 + Math.random() * 900;
+        osc.frequency.setValueAtTime(f1, now);
+        osc.frequency.exponentialRampToValueAtTime(f1 * 1.25, now + 0.04);
+        osc.frequency.exponentialRampToValueAtTime(f1 * 0.85, now + 0.09);
+
+        gain.gain.setValueAtTime(0.035, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.095);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.1);
+    }
+
+    playSwish() {
+        if (!this.enabled) return;
+        this.init();
+        const now = this.ctx.currentTime;
+        const bufferSize = this.ctx.sampleRate * 0.32;
+        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.sin((i / bufferSize) * Math.PI);
+        }
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = buffer;
+
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.setValueAtTime(2400, now);
+        filter.frequency.exponentialRampToValueAtTime(950, now + 0.3);
+        filter.Q.value = 1.6;
+
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.45, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
+
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.ctx.destination);
+        noise.start(now);
+    }
+
+    playRimClank() {
+        if (!this.enabled) return;
+        this.init();
+        const now = this.ctx.currentTime;
+        [320, 485, 790].forEach((freq, idx) => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = idx === 0 ? 'triangle' : 'sine';
+            osc.frequency.setValueAtTime(freq, now);
+            osc.frequency.exponentialRampToValueAtTime(freq * 0.72, now + 0.22);
+            gain.gain.setValueAtTime(0.18 / (idx + 1), now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.25);
+        });
+    }
+
+    playGreenRelease() {
+        if (!this.enabled) return;
+        this.init();
+        const now = this.ctx.currentTime;
+        [587.33, 880, 1174.66].forEach((freq, idx) => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now + idx * 0.045);
+            gain.gain.setValueAtTime(0.16, now + idx * 0.045);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.045 + 0.35);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(now + idx * 0.045);
+            osc.stop(now + idx * 0.045 + 0.36);
+        });
+    }
+
+    playCrowdRoar(intensity = 1.0) {
+        if (!this.enabled) return;
+        this.init();
+        const now = this.ctx.currentTime;
+        const duration = 1.6;
+        const bufferSize = this.ctx.sampleRate * duration;
+        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            const env = Math.pow(Math.sin((i / bufferSize) * Math.PI), 0.7);
+            data[i] = (Math.random() * 2 - 1) * env;
+        }
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = buffer;
+
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(650, now);
+        filter.frequency.linearRampToValueAtTime(1350, now + 0.4);
+        filter.frequency.linearRampToValueAtTime(520, now + duration);
+
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.28 * intensity, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.ctx.destination);
+        noise.start(now);
+    }
+
+    playBuzzer() {
+        if (!this.enabled) return;
+        this.init();
+        const now = this.ctx.currentTime;
+        [110, 146.8].forEach(freq => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(freq, now);
+            gain.gain.setValueAtTime(0.22, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.85);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.88);
+        });
+    }
+}
+
+const sfx = new ArenaAudio();
+
+// --- 2. PROCEDURAL HIGH-RES TEXTURE GENERATORS (NBA HARDWOOD, NORMAL, ROUGHNESS, LED) ---
+function createHardwoodTextures() {
+    const width = 2048;
+    const height = 1024;
+
+    const colorCanvas = document.createElement('canvas');
+    colorCanvas.width = width;
+    colorCanvas.height = height;
+    const ctx = colorCanvas.getContext('2d');
+
+    const roughCanvas = document.createElement('canvas');
+    roughCanvas.width = width;
+    roughCanvas.height = height;
+    const rCtx = roughCanvas.getContext('2d');
+
+    const bumpCanvas = document.createElement('canvas');
+    bumpCanvas.width = width;
+    bumpCanvas.height = height;
+    const bCtx = bumpCanvas.getContext('2d');
+
+    // 1. Maple Hardwood Planks (Staggered boards across the 94ft x 50ft court)
+    const rows = 56;
+    const plankH = height / rows;
+    for (let r = 0; r < rows; r++) {
+        let xCursor = -(r % 4) * 95;
+        while (xCursor < width) {
+            const plankW = 140 + ((r * 37 + Math.floor(xCursor)) % 110);
+            const tone = ((r * 19 + Math.floor(xCursor * 0.1)) % 24) - 12;
+            const baseR = 206 + tone;
+            const baseG = 152 + Math.floor(tone * 0.8);
+            const baseB = 92 + Math.floor(tone * 0.5);
+
+            ctx.fillStyle = `rgb(${baseR}, ${baseG}, ${baseB})`;
+            ctx.fillRect(xCursor, r * plankH, plankW, plankH);
+
+            // Subtle wood grain streaks inside plank
+            ctx.fillStyle = `rgba(120, 72, 30, 0.08)`;
+            for (let g = 0; g < 3; g++) {
+                const gy = r * plankH + (g + 0.5) * (plankH / 3);
+                ctx.fillRect(xCursor + 4, gy, plankW - 8, 1.2);
+            }
+
+            // Plank seam
+            ctx.strokeStyle = 'rgba(85, 48, 18, 0.32)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(xCursor, r * plankH, plankW, plankH);
+
+            // Roughness variation per plank (glossy clearcoat with subtle grain)
+            const roughVal = 36 + ((r + Math.floor(xCursor)) % 22);
+            rCtx.fillStyle = `rgb(${roughVal},${roughVal},${roughVal})`;
+            rCtx.fillRect(xCursor, r * plankH, plankW, plankH);
+
+            // Bump seam
+            bCtx.fillStyle = '#888888';
+            bCtx.fillRect(xCursor, r * plankH, plankW, plankH);
+            bCtx.strokeStyle = '#333333';
+            bCtx.lineWidth = 1.5;
+            bCtx.strokeRect(xCursor, r * plankH, plankW, plankH);
+
+            xCursor += plankW;
+        }
+    }
+
+    // Court coordinate mapping: 94ft (28.65m) length x 50ft (15.24m) width
+    // Plus 4ft apron around perimeter -> total mesh 31.2m x 17.8m
+    const padX = width * (1.275 / 31.2);
+    const padY = height * (1.28 / 17.8);
+    const courtW = width - padX * 2;
+    const courtH = height - padY * 2;
+    const ftToPxX = courtW / 94;
+    const ftToPxY = courtH / 50;
+
+    // 2. Dark Navy / Obsidian Out-of-Bounds Apron
+    ctx.fillStyle = '#0b1324';
+    ctx.fillRect(0, 0, width, padY);
+    ctx.fillRect(0, height - padY, width, padY);
+    ctx.fillRect(0, 0, padX, height);
+    ctx.fillRect(width - padX, 0, padX, height);
+
+    // Apron matte roughness
+    rCtx.fillStyle = 'rgb(115, 115, 115)';
+    rCtx.fillRect(0, 0, width, padY);
+    rCtx.fillRect(0, height - padY, width, padY);
+    rCtx.fillRect(0, 0, padX, height);
+    rCtx.fillRect(width - padX, 0, padX, height);
+
+    // 3. Painted Keys / Lanes (Deep Royal Blue with Gold Trim)
+    const keyLen = 19 * ftToPxX;
+    const keyWid = 16 * ftToPxY;
+    const keyTop = padY + (courtH - keyWid) / 2;
+
+    ctx.fillStyle = 'rgba(14, 58, 128, 0.92)';
+    ctx.fillRect(padX, keyTop, keyLen, keyWid);
+    ctx.fillRect(width - padX - keyLen, keyTop, keyLen, keyWid);
+
+    // 4. Center Court Holographic / Metallic "2K PRO ARENA" Emblem
+    const cx = width / 2;
+    const cy = height / 2;
+    ctx.save();
+    ctx.translate(cx, cy);
+
+    // Outer metallic ring
+    const grad = ctx.createLinearGradient(-150, -150, 150, 150);
+    grad.addColorStop(0, '#0284c7');
+    grad.addColorStop(0.5, '#f59e0b');
+    grad.addColorStop(1, '#1d4ed8');
+    ctx.beginPath();
+    ctx.arc(0, 0, 6.5 * ftToPxY, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(10, 20, 42, 0.92)';
+    ctx.fill();
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = grad;
+    ctx.stroke();
+
+    // Inner basketball seam lines on logo
+    ctx.beginPath();
+    ctx.arc(0, 0, 5.2 * ftToPxY, 0, Math.PI * 2);
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = 'rgba(245, 158, 11, 0.55)';
+    ctx.stroke();
+
+    // Crisp Logo Typography
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '900 76px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('2K', 0, -14);
+
+    ctx.fillStyle = '#fbbf24';
+    ctx.font = '800 24px Inter, sans-serif';
+    ctx.fillText('PRO ARENA', 0, 34);
+    ctx.restore();
+
+    // 5. Crisp White & Gold NBA Court Lines
+    ctx.strokeStyle = '#f8fafc';
+    ctx.lineWidth = 4.5;
+
+    // Outer boundary
+    ctx.strokeRect(padX, padY, courtW, courtH);
+
+    // Half-court line
+    ctx.beginPath();
+    ctx.moveTo(cx, padY);
+    ctx.lineTo(cx, height - padY);
+    ctx.stroke();
+
+    // Center jump circle
+    ctx.beginPath();
+    ctx.arc(cx, cy, 6 * ftToPxY, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Left & Right Keys, Free Throw Circles, Restricted Areas & 3-Point Arcs
+    [1, -1].forEach(dir => {
+        const baseX = dir === 1 ? padX : width - padX;
+        const hoopX = baseX + dir * (5.25 * ftToPxX);
+        const ftX = baseX + dir * keyLen;
+
+        // Key outline
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = 4;
+        ctx.strokeRect(dir === 1 ? baseX : ftX, keyTop, keyLen, keyWid);
+
+        // Free throw circle
+        ctx.strokeStyle = '#f8fafc';
+        ctx.beginPath();
+        ctx.arc(ftX, cy, 6 * ftToPxY, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Restricted area arc (4ft radius from hoop center)
+        ctx.beginPath();
+        ctx.arc(hoopX, cy, 4 * ftToPxY, dir === 1 ? -Math.PI / 2 : Math.PI / 2, dir === 1 ? Math.PI / 2 : -Math.PI / 2);
+        ctx.stroke();
+
+        // NBA 3-Point Line (23.75ft arc + 22ft corner straight lines)
+        const cornerDist = 3 * ftToPxY;
+        const cornerLen = 14 * ftToPxX;
+        const r3 = 23.75 * ftToPxY;
+        const angle = Math.asin((courtH / 2 - cornerDist) / r3);
+
+        ctx.lineWidth = 4.5;
+        ctx.beginPath();
+        if (dir === 1) {
+            ctx.moveTo(baseX, padY + cornerDist);
+            ctx.lineTo(baseX + cornerLen, padY + cornerDist);
+            ctx.arc(hoopX, cy, r3, -angle, angle);
+            ctx.lineTo(baseX, height - padY - cornerDist);
+        } else {
+            ctx.moveTo(baseX, padY + cornerDist);
+            ctx.lineTo(baseX - cornerLen, padY + cornerDist);
+            ctx.arc(hoopX, cy, r3, Math.PI + angle, Math.PI - angle, true);
+            ctx.lineTo(baseX, height - padY - cornerDist);
+        }
+        ctx.stroke();
+
+        // Lane hash marks
+        [7, 8, 11, 14].forEach(distFt => {
+            const hx = baseX + dir * (distFt * ftToPxX);
+            ctx.beginPath();
+            ctx.moveTo(hx, keyTop - 10);
+            ctx.lineTo(hx, keyTop);
+            ctx.moveTo(hx, keyTop + keyWid);
+            ctx.lineTo(hx, keyTop + keyWid + 10);
+            ctx.stroke();
+        });
+    });
+
+    // Baseline Team Wordmarks
+    ctx.save();
+    ctx.fillStyle = '#38bdf8';
+    ctx.font = '900 34px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.translate(padX * 0.5, cy);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText('2K PROS BASKETBALL', 0, 6);
+    ctx.restore();
+
+    ctx.save();
+    ctx.fillStyle = '#f43f5e';
+    ctx.font = '900 34px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.translate(width - padX * 0.5, cy);
+    ctx.rotate(Math.PI / 2);
+    ctx.fillText('NEXT-GEN ARENA', 0, 6);
+    ctx.restore();
+
+    const colorTex = new THREE.CanvasTexture(colorCanvas);
+    colorTex.anisotropy = 16;
+    const roughTex = new THREE.CanvasTexture(roughCanvas);
+    const bumpTex = new THREE.CanvasTexture(bumpCanvas);
+
+    return { colorTex, roughTex, bumpTex };
+}
+
+function createBasketballTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = '#d95b16';
+    ctx.fillRect(0, 0, 512, 256);
+
+    // Pebble grain noise
+    for (let i = 0; i < 6500; i++) {
+        ctx.fillStyle = i % 2 === 0 ? 'rgba(0,0,0,0.14)' : 'rgba(255,190,130,0.12)';
+        ctx.fillRect(Math.random() * 512, Math.random() * 256, 2, 2);
+    }
+
+    // Black leather ribs
+    ctx.strokeStyle = '#18181b';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(0, 128);
+    ctx.lineTo(512, 128);
+    ctx.moveTo(128, 0);
+    ctx.lineTo(128, 256);
+    ctx.moveTo(384, 0);
+    ctx.lineTo(384, 256);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(128, 128, 92, -Math.PI / 2, Math.PI / 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(384, 128, 92, Math.PI / 2, -Math.PI / 2);
+    ctx.stroke();
+
+    return new THREE.CanvasTexture(canvas);
+}
+
+function createJerseyTexture(numberText, primaryHex, trimHex) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = primaryHex;
+    ctx.fillRect(0, 0, 256, 256);
+
+    // Subtle athletic mesh pattern
+    ctx.fillStyle = 'rgba(0,0,0,0.08)';
+    for (let y = 0; y < 256; y += 4) {
+        for (let x = 0; x < 256; x += 4) {
+            ctx.fillRect(x, y, 2, 2);
+        }
+    }
+
+    // Side stripes
+    ctx.fillStyle = trimHex;
+    ctx.fillRect(0, 0, 18, 256);
+    ctx.fillRect(238, 0, 18, 256);
+    ctx.fillRect(119, 0, 18, 256);
+
+    // Front Number (around x = 64) & Back Number (around x = 192)
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = trimHex;
+    ctx.lineWidth = 4;
+    ctx.font = '900 68px Teko, Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    ctx.strokeText(numberText, 64, 130);
+    ctx.fillText(numberText, 64, 130);
+
+    ctx.strokeText(numberText, 192, 130);
+    ctx.fillText(numberText, 192, 130);
+
+    // Team wordmark above front number
+    ctx.font = '700 20px Inter, sans-serif';
+    ctx.fillText('2K PRO', 64, 72);
+
+    return new THREE.CanvasTexture(canvas);
+}
+
+// --- 3. THREE.JS SCENE, RENDERER, BLOOM POST-PROCESSING & ARENA BUILDER ---
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x04060b);
+scene.fog = new THREE.FogExp2(0x04060b, 0.0085);
+
+const camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.1, 220);
+camera.position.set(0, 13.5, 22.5);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+container.appendChild(renderer.domElement);
+
+// Post-Processing Composer with Subtle Broadcast Bloom
+let composer = null;
+try {
+    composer = new THREE.EffectComposer(renderer);
+    const renderPass = new THREE.RenderPass(scene, camera);
+    composer.addPass(renderPass);
+
+    const bloomPass = new THREE.UnrealBloomPass(
+        new THREE.Vector2(window.innerWidth, window.innerHeight),
+        0.38, // strength
+        0.55, // radius
+        0.85  // threshold
+    );
+    composer.addPass(bloomPass);
+} catch (e) {
+    composer = null;
+}
+
+// Arena Floodlights & Rim Lighting
+const hemiLight = new THREE.HemisphereLight(0xdbeafe, 0x1e293b, 0.65);
+scene.add(hemiLight);
+
+const mainSpot1 = new THREE.SpotLight(0xfffbeb, 1.45, 95, Math.PI / 3.4, 0.45, 1.1);
+mainSpot1.position.set(-8, 26, 10);
+mainSpot1.castShadow = true;
+mainSpot1.shadow.mapSize.width = 2048;
+mainSpot1.shadow.mapSize.height = 2048;
+mainSpot1.shadow.camera.near = 6;
+mainSpot1.shadow.camera.far = 55;
+mainSpot1.shadow.bias = -0.0005;
+scene.add(mainSpot1);
+
+const mainSpot2 = new THREE.SpotLight(0xe0f2fe, 1.35, 95, Math.PI / 3.4, 0.45, 1.1);
+mainSpot2.position.set(8, 26, -10);
+mainSpot2.castShadow = true;
+mainSpot2.shadow.mapSize.width = 1024;
+mainSpot2.shadow.mapSize.height = 1024;
+scene.add(mainSpot2);
+
+// Cool broadcast rim light for player silhouette pop
+const rimLight = new THREE.DirectionalLight(0x38bdf8, 0.55);
+rimLight.position.set(0, 12, -26);
+scene.add(rimLight);
+
+// --- 4. BUILD THE NEXT-GEN HARDWOOD COURT ---
+const COURT_LENGTH = 28.65; // 94 ft in meters
+const COURT_WIDTH = 15.24;  // 50 ft in meters
+const HOOP_X = 12.72;       // Distance from center court to each hoop center
+const RIM_HEIGHT = 3.05;    // 10 ft regulation rim
+
+const { colorTex, roughTex, bumpTex } = createHardwoodTextures();
+const courtMat = new THREE.MeshPhysicalMaterial({
+    map: colorTex,
+    roughnessMap: roughTex,
+    bumpMap: bumpTex,
+    bumpScale: 0.008,
+    roughness: 0.34,
+    metalness: 0.04,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.09,
+    reflectivity: 0.9
+});
+
+const courtMesh = new THREE.Mesh(new THREE.PlaneGeometry(31.2, 17.8), courtMat);
+courtMesh.rotation.x = -Math.PI / 2;
+courtMesh.receiveShadow = true;
+scene.add(courtMesh);
+
+// Outer Arena Concrete Bowl Floor
+const arenaFloor = new THREE.Mesh(
+    new THREE.PlaneGeometry(130, 110),
+    new THREE.MeshStandardMaterial({ color: 0x070b14, roughness: 0.85 })
+);
+arenaFloor.rotation.x = -Math.PI / 2;
+arenaFloor.position.y = -0.02;
+scene.add(arenaFloor);
+
+// --- 5. BUILD PRO HYDRAULIC STANCHIONS, TEMPERED GLASS BACKBOARDS, LED BORDERS & PROCEDURAL NETS ---
+const hoops = [];
+
+function createHoopAssembly(side) {
+    // side: +1 = Right Hoop (+X), -1 = Left Hoop (-X)
+    const group = new THREE.Group();
+    const rimWorldX = side * HOOP_X;
+    group.position.set(rimWorldX, 0, 0);
+    scene.add(group);
+
+    // Padded Hydraulic Base & Boom Arm (extends outward behind baseline)
+    const padMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.55, metalness: 0.2 });
+    const trimMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.4, metalness: 0.4 });
+
+    const baseMast = new THREE.Mesh(new THREE.BoxGeometry(1.1, 2.2, 1.15), padMat);
+    baseMast.position.set(side * 2.55, 1.1, 0);
+    baseMast.castShadow = true;
+    group.add(baseMast);
+
+    const boomArm = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.34, 0.38), padMat);
+    boomArm.position.set(side * 1.45, 2.75, 0);
+    boomArm.rotation.z = side * -0.26;
+    boomArm.castShadow = true;
+    group.add(boomArm);
+
+    const boomStripe = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.08, 0.4), trimMat);
+    boomStripe.position.set(side * 1.45, 2.86, 0);
+    boomStripe.rotation.z = side * -0.26;
+    group.add(boomStripe);
+
+    // Tempered Glass Backboard (1.83m wide x 1.07m tall)
+    const bbX = side * 0.38;
+    const bbY = 3.35;
+    const glassMat = new THREE.MeshPhysicalMaterial({
+        color: 0xe0f2fe,
+        transparent: true,
+        opacity: 0.32,
+        roughness: 0.05,
+        metalness: 0.1,
+        transmission: 0.65,
+        clearcoat: 1.0
+    });
+    const backboard = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.07, 1.83), glassMat);
+    backboard.position.set(bbX, bbY, 0);
+    group.add(backboard);
+
+    // Backboard Aluminum Frame & Glowing LED Shot-Clock Strip
+    const ledMat = new THREE.MeshStandardMaterial({
+        color: 0xff2a2a,
+        emissive: 0xff1e1e,
+        emissiveIntensity: 0.35
+    });
+    const topBar = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.05, 1.88), ledMat);
+    topBar.position.set(bbX, bbY + 0.54, 0);
+    const botBar = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.05, 1.88), ledMat);
+    botBar.position.set(bbX, bbY - 0.54, 0);
+    const leftBar = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.12, 0.05), ledMat);
+    leftBar.position.set(bbX, bbY, -0.92);
+    const rightBar = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.12, 0.05), ledMat);
+    rightBar.position.set(bbX, bbY, 0.92);
+    group.add(topBar, botBar, leftBar, rightBar);
+
+    // Shooter's White Target Square
+    const sqMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const sqTop = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.03, 0.61), sqMat);
+    sqTop.position.set(bbX - side * 0.005, 3.48, 0);
+    const sqBot = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.03, 0.61), sqMat);
+    sqBot.position.set(bbX - side * 0.005, 3.05, 0);
+    const sqL = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.45, 0.03), sqMat);
+    sqL.position.set(bbX - side * 0.005, 3.265, -0.29);
+    const sqR = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.45, 0.03), sqMat);
+    sqR.position.set(bbX - side * 0.005, 3.265, 0.29);
+    group.add(sqTop, sqBot, sqL, sqR);
+
+    // Top-Mounted 24-Second Shot Clock Box
+    const clockBox = new THREE.Mesh(
+        new THREE.BoxGeometry(0.32, 0.42, 0.56),
+        new THREE.MeshStandardMaterial({ color: 0x090d16, roughness: 0.4 })
+    );
+    clockBox.position.set(bbX, bbY + 0.84, 0);
+    group.add(clockBox);
+
+    const clockScreenCanvas = document.createElement('canvas');
+    clockScreenCanvas.width = 128;
+    clockScreenCanvas.height = 128;
+    const clockCtx = clockScreenCanvas.getContext('2d');
+    const clockTex = new THREE.CanvasTexture(clockScreenCanvas);
+    const clockFace = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.48, 0.36),
+        new THREE.MeshBasicMaterial({ map: clockTex })
+    );
+    clockFace.position.set(bbX - side * 0.165, bbY + 0.84, 0);
+    clockFace.rotation.y = side === 1 ? -Math.PI / 2 : Math.PI / 2;
+    group.add(clockFace);
+
+    // Breakaway Pro Orange Rim (radius 0.23m = 18in diameter)
+    const rimMat = new THREE.MeshStandardMaterial({
+        color: 0xea580c,
+        roughness: 0.3,
+        metalness: 0.75
+    });
+    const rimMesh = new THREE.Mesh(new THREE.TorusGeometry(0.235, 0.018, 14, 32), rimMat);
+    rimMesh.rotation.x = Math.PI / 2;
+    rimMesh.position.set(0, RIM_HEIGHT, 0);
+    rimMesh.castShadow = true;
+    group.add(rimMesh);
+
+    // Procedural Dynamic String Net (Swishes & Ripples on Made Shots)
+    const netGeo = new THREE.CylinderGeometry(0.23, 0.145, 0.44, 16, 5, true);
+    const netPositions = netGeo.attributes.position.array.slice();
+    const netMat = new THREE.MeshBasicMaterial({
+        color: 0xf8fafc,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.82
+    });
+    const netMesh = new THREE.Mesh(netGeo, netMat);
+    netMesh.position.set(0, RIM_HEIGHT - 0.22, 0);
+    group.add(netMesh);
+
+    const hoopObj = {
+        side,
+        pos: new THREE.Vector3(rimWorldX, RIM_HEIGHT, 0),
+        backboardX: rimWorldX + bbX,
+        ledMat,
+        ledFlashTimer: 0,
+        rimMesh,
+        rimBend: 0,
+        netMesh,
+        netGeo,
+        netBasePos: netPositions,
+        netSwishTime: 0,
+        clockCtx,
+        clockTex
+    };
+    hoops.push(hoopObj);
+    return hoopObj;
+}
+
+createHoopAssembly(1);
+createHoopAssembly(-1);
+
+// --- 6. COURTSIDE LED RIBBON BOARDS, JUMBOTRON & 4,500 INSTANCED SPECTATORS ---
+// Scrolling LED Courtside Ribbon
+const ledCanvas = document.createElement('canvas');
+ledCanvas.width = 1024;
+ledCanvas.height = 128;
+const ledCtx = ledCanvas.getContext('2d');
+const ledRibbonTex = new THREE.CanvasTexture(ledCanvas);
+ledRibbonTex.wrapS = THREE.RepeatWrapping;
+
+function updateLedRibbon(time, bannerText = '2K26 NEXT-GEN PRO ARENA  ★  DEFEND THE PAINT  ★  GREEN RELEASE READY  ★  ') {
+    ledCtx.fillStyle = '#050914';
+    ledCtx.fillRect(0, 0, 1024, 128);
+
+    const grad = ledCtx.createLinearGradient(0, 0, 1024, 0);
+    grad.addColorStop(0, '#0284c7');
+    grad.addColorStop(0.5, '#f59e0b');
+    grad.addColorStop(1, '#e11d48');
+    ledCtx.fillStyle = grad;
+    ledCtx.fillRect(0, 0, 1024, 10);
+    ledCtx.fillRect(0, 118, 1024, 10);
+
+    ledCtx.font = '900 58px Teko, Inter, sans-serif';
+    ledCtx.fillStyle = '#ffffff';
+    ledCtx.textBaseline = 'middle';
+    const scrollX = -((time * 160) % 1024);
+    ledCtx.fillText(bannerText + bannerText, scrollX, 66);
+    ledRibbonTex.needsUpdate = true;
+}
+
+const ribbonMat = new THREE.MeshBasicMaterial({ map: ledRibbonTex });
+const farRibbon = new THREE.Mesh(new THREE.BoxGeometry(28, 0.85, 0.25), ribbonMat);
+farRibbon.position.set(0, 0.42, -10.4);
+scene.add(farRibbon);
+
+const leftRibbon = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.85, 16), ribbonMat);
+leftRibbon.position.set(-16.8, 0.42, 0);
+scene.add(leftRibbon);
+
+const rightRibbon = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.85, 16), ribbonMat);
+rightRibbon.position.set(16.8, 0.42, 0);
+scene.add(rightRibbon);
+
+// Center-Hung 4-Sided Jumbotron
+const jumboGroup = new THREE.Group();
+jumboGroup.position.set(0, 15.2, 0);
+scene.add(jumboGroup);
+
+const jumboCore = new THREE.Mesh(
+    new THREE.BoxGeometry(5.6, 3.2, 5.6),
+    new THREE.MeshStandardMaterial({ color: 0x0a0f1c, metalness: 0.7, roughness: 0.3 })
+);
+jumboGroup.add(jumboCore);
+
+const jumboCanvas = document.createElement('canvas');
+jumboCanvas.width = 512;
+jumboCanvas.height = 256;
+const jumboCtx = jumboCanvas.getContext('2d');
+const jumboTex = new THREE.CanvasTexture(jumboCanvas);
+const jumboScreenMat = new THREE.MeshBasicMaterial({ map: jumboTex });
+
+[
+    { pos: [0, 0, 2.83], rot: [0, 0, 0] },
+    { pos: [0, 0, -2.83], rot: [0, Math.PI, 0] },
+    { pos: [2.83, 0, 0], rot: [0, Math.PI / 2, 0] },
+    { pos: [-2.83, 0, 0], rot: [0, -Math.PI / 2, 0] }
+].forEach(face => {
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 2.7), jumboScreenMat);
+    plane.position.set(...face.pos);
+    plane.rotation.set(...face.rot);
+    jumboGroup.add(plane);
+});
+
+// Overhead Arena Volumetric Light Beams & Championship Banners
+const beamMat = new THREE.MeshBasicMaterial({
+    color: 0xe0f2fe,
+    transparent: true,
+    opacity: 0.035,
+    side: THREE.DoubleSide,
+    depthWrite: false
+});
+[[-9, -5], [9, -5], [-9, 5], [9, 5]].forEach(([bx, bz]) => {
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(9.5, 25, 24, 1, true), beamMat);
+    cone.position.set(bx, 12.5, bz);
+    scene.add(cone);
+});
+
+// Championship Banners hanging from rafters
+['2022', '2024', '2025', '2026'].forEach((yr, idx) => {
+    const bCanvas = document.createElement('canvas');
+    bCanvas.width = 128; bCanvas.height = 256;
+    const bCtx = bCanvas.getContext('2d');
+    bCtx.fillStyle = idx % 2 === 0 ? '#0369a1' : '#1e3a8a';
+    bCtx.fillRect(0, 0, 128, 256);
+    bCtx.strokeStyle = '#fbbf24';
+    bCtx.lineWidth = 8;
+    bCtx.strokeRect(6, 6, 116, 244);
+    bCtx.fillStyle = '#fbbf24';
+    bCtx.font = '900 32px Teko, sans-serif';
+    bCtx.textAlign = 'center';
+    bCtx.fillText('WORLD', 64, 65);
+    bCtx.fillText('CHAMPS', 64, 100);
+    bCtx.fillStyle = '#ffffff';
+    bCtx.font = '900 54px Teko, sans-serif';
+    bCtx.fillText(yr, 64, 175);
+
+    const banner = new THREE.Mesh(
+        new THREE.PlaneGeometry(2.1, 4.0),
+        new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(bCanvas), side: THREE.DoubleSide })
+    );
+    banner.position.set(-12 + idx * 8, 17.5, -24);
+    scene.add(banner);
+});
+
+// Multi-Tiered Stadium Bowl & 3,600 Instanced 3D Spectators
+const CROWD_COUNT = 3600;
+const crowdGeo = new THREE.BoxGeometry(0.36, 0.72, 0.28);
+const crowdMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+const crowdInstanced = new THREE.InstancedMesh(crowdGeo, crowdMat, CROWD_COUNT);
+const crowdData = [];
+const dummy = new THREE.Object3D();
+const fanColors = [
+    new THREE.Color(0x0284c7), new THREE.Color(0x1d4ed8), new THREE.Color(0xf8fafc),
+    new THREE.Color(0xe11d48), new THREE.Color(0xf59e0b), new THREE.Color(0x334155)
+];
+
+let cIdx = 0;
+for (let tier = 0; tier < 18; tier++) {
+    const y = 1.1 + tier * 0.68;
+    const rx = 18.8 + tier * 0.95;
+    const rz = 12.2 + tier * 0.85;
+    const fansInRing = 200;
+    for (let i = 0; i < fansInRing && cIdx < CROWD_COUNT; i++) {
+        const angle = (i / fansInRing) * Math.PI * 2 + (tier % 2) * 0.015;
+        const fx = Math.cos(angle) * rx;
+        const fz = Math.sin(angle) * rz;
+        // Leave aisle gaps
+        if (Math.abs(fx) < 1.2 || Math.abs(fz) < 1.0) continue;
+
+        dummy.position.set(fx, y, fz);
+        dummy.lookAt(0, y - 1, 0);
+        dummy.updateMatrix();
+        crowdInstanced.setMatrixAt(cIdx, dummy.matrix);
+        crowdInstanced.setColorAt(cIdx, fanColors[(cIdx + tier) % fanColors.length]);
+
+        crowdData.push({
+            index: cIdx,
+            x: fx,
+            baseY: y,
+            z: fz,
+            phase: Math.random() * Math.PI * 2,
+            speed: 3.5 + Math.random() * 3.0
+        });
+        cIdx++;
+    }
+}
+crowdInstanced.count = cIdx;
+scene.add(crowdInstanced);
+
+// Camera Flash Strobes in the Crowd
+const flashLight = new THREE.PointLight(0xffffff, 0, 35);
+scene.add(flashLight);
+
+// --- 7. ARTICULATED 3D BASKETBALL PLAYER RIG & PROCEDURAL ANIMATION ENGINE ---
+const SKIN_TONES = [0x8d5524, 0xc68642, 0xe0ac69, 0x5c3818, 0xf1c27d];
+const HOME_NAMES = ['J. STORM', 'K. BLAZE', 'A. TITAN', 'M. VIPER', 'D. ATLAS'];
+const AWAY_NAMES = ['R. SHADOW', 'L. FROST', 'T. PHANTOM', 'C. REX', 'V. GOLIATH'];
+const POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C'];
+const NUMBERS = ['1', '23', '7', '34', '15'];
+
+function createArticulatedPlayer(team, index) {
+    // team: 'home' (+1 attacks Right hoop +X) or 'away' (-1 attacks Left hoop -X)
+    const root = new THREE.Group();
+    const isHome = team === 'home';
+    const skinColor = SKIN_TONES[(index + (isHome ? 0 : 2)) % SKIN_TONES.length];
+    const primaryColor = isHome ? '#0369a1' : '#be123c';
+    const trimColor = isHome ? '#fbbf24' : '#f8fafc';
+    const jerseyHex = isHome ? 0x0369a1 : 0xbe123c;
+
+    const skinMat = new THREE.MeshStandardMaterial({
+        color: skinColor,
+        roughness: 0.42, // Subtle arena sweat sheen
+        metalness: 0.06
+    });
+    const jerseyTex = createJerseyTexture(NUMBERS[index], primaryColor, trimColor);
+    const jerseyMat = new THREE.MeshStandardMaterial({
+        map: jerseyTex,
+        roughness: 0.65
+    });
+    const shortsMat = new THREE.MeshStandardMaterial({
+        color: jerseyHex,
+        roughness: 0.65
+    });
+    const shoeMat = new THREE.MeshStandardMaterial({
+        color: isHome ? 0x38bdf8 : 0xf43f5e,
+        emissive: isHome ? 0x0284c7 : 0xe11d48,
+        emissiveIntensity: 0.25,
+        roughness: 0.3
+    });
+    const sleeveMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.7 });
+
+    // Height variation by position (PG 1.92m -> C 2.13m)
+    const scale = 0.96 + index * 0.025;
+    root.scale.setScalar(scale);
+
+    // Pelvis / Hips pivot
+    const hips = new THREE.Group();
+    hips.position.y = 1.02;
+    root.add(hips);
+
+    // Shorts
+    const shorts = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.19, 0.34, 14), shortsMat);
+    shorts.position.y = -0.06;
+    shorts.castShadow = true;
+    hips.add(shorts);
+
+    // Torso (Jersey)
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.20, 0.155, 0.56, 16), jerseyMat);
+    torso.position.y = 0.32;
+    torso.rotation.y = -Math.PI / 2; // Align front number to +Z
+    torso.castShadow = true;
+    hips.add(torso);
+
+    // Head + Hair + Headband
+    const headGroup = new THREE.Group();
+    headGroup.position.y = 0.72;
+    hips.add(headGroup);
+
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.125, 16, 16), skinMat);
+    head.scale.set(0.92, 1.08, 0.98);
+    head.castShadow = true;
+    headGroup.add(head);
+
+    const hair = new THREE.Mesh(
+        new THREE.SphereGeometry(0.132, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.58),
+        new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 })
+    );
+    hair.position.y = 0.015;
+    headGroup.add(hair);
+
+    if (index % 2 === 0) {
+        const headband = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.133, 0.133, 0.04, 16, 1, true),
+            new THREE.MeshStandardMaterial({ color: isHome ? 0xfbbf24 : 0xffffff, side: THREE.DoubleSide })
+        );
+        headband.position.y = 0.04;
+        headGroup.add(headband);
+    }
+
+    // Articulated Limbs Helper
+    function createLimb(upperLen, lowerLen, upperRad, lowerRad, upperMat, lowerMat, isLeg = false) {
+        const hipOrShoulder = new THREE.Group();
+        const upper = new THREE.Mesh(new THREE.CylinderGeometry(upperRad, upperRad * 0.85, upperLen, 12), upperMat);
+        upper.position.y = -upperLen / 2;
+        upper.castShadow = true;
+        hipOrShoulder.add(upper);
+
+        const joint = new THREE.Group();
+        joint.position.y = -upperLen;
+        hipOrShoulder.add(joint);
+
+        const lower = new THREE.Mesh(new THREE.CylinderGeometry(lowerRad, lowerRad * 0.78, lowerLen, 12), lowerMat);
+        lower.position.y = -lowerLen / 2;
+        lower.castShadow = true;
+        joint.add(lower);
+
+        if (isLeg) {
+            // High-top sneaker
+            const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.09, 0.26), shoeMat);
+            shoe.position.set(0, -lowerLen - 0.03, 0.05);
+            shoe.castShadow = true;
+            joint.add(shoe);
+        }
+
+        return { root: hipOrShoulder, joint };
+    }
+
+    const leftArm = createLimb(0.32, 0.30, 0.062, 0.048, skinMat, index === 0 ? sleeveMat : skinMat, false);
+    leftArm.root.position.set(0.24, 0.54, 0);
+    hips.add(leftArm.root);
+
+    const rightArm = createLimb(0.32, 0.30, 0.062, 0.048, skinMat, index === 1 ? sleeveMat : skinMat, false);
+    rightArm.root.position.set(-0.24, 0.54, 0);
+    hips.add(rightArm.root);
+
+    const leftLeg = createLimb(0.46, 0.46, 0.088, 0.065, skinMat, index % 3 === 0 ? sleeveMat : skinMat, true);
+    leftLeg.root.position.set(0.105, -0.10, 0);
+    hips.add(leftLeg.root);
+
+    const rightLeg = createLimb(0.46, 0.46, 0.088, 0.065, skinMat, skinMat, true);
+    rightLeg.root.position.set(-0.105, -0.10, 0);
+    hips.add(rightLeg.root);
+
+    // 2K Floor Selection Ring under player
+    const ringGeo = new THREE.RingGeometry(0.46, 0.58, 32);
+    const ringMat = new THREE.MeshBasicMaterial({
+        color: isHome ? 0x38bdf8 : 0xf43f5e,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.0
+    });
+    const selectRing = new THREE.Mesh(ringGeo, ringMat);
+    selectRing.rotation.x = -Math.PI / 2;
+    selectRing.position.y = 0.02;
+    root.add(selectRing);
+
+    scene.add(root);
+
+    return {
+        id: `${team}_${index}`,
+        team,
+        index,
+        name: isHome ? HOME_NAMES[index] : AWAY_NAMES[index],
+        posLabel: `${POSITIONS[index]} #${NUMBERS[index]}`,
+        root,
+        hips,
+        headGroup,
+        leftArm,
+        rightArm,
+        leftLeg,
+        rightLeg,
+        selectRing,
+        pos: new THREE.Vector3(),
+        vel: new THREE.Vector3(),
+        facing: isHome ? Math.PI / 2 : -Math.PI / 2,
+        stamina: 100,
+        stridePhase: Math.random() * Math.PI * 2,
+        dribblePhase: 0,
+        dribbleHand: 1, // 1 = right, -1 = left
+        crossoverTimer: 0,
+        stunTimer: 0, // Ankle-broken timer
+        jumpY: 0,
+        jumpVel: 0,
+        isJumping: false,
+        isDunking: false,
+        dunkTarget: new THREE.Vector3(),
+        stealCooldown: 0,
+        contestValue: 0,
+        active: true
+    };
+}
+
+// --- 8. BASKETBALL & GAME STATE ENGINE ---
+const ballTex = createBasketballTexture();
+const ballMat = new THREE.MeshStandardMaterial({
+    map: ballTex,
+    roughness: 0.48,
+    metalness: 0.05
+});
+const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(0.125, 24, 24), ballMat);
+ballMesh.castShadow = true;
+scene.add(ballMesh);
+
+const gameState = {
+    mode: '5v5', // '5v5', '3v3', '1v1'
+    camMode: 0,  // 0: 2K Classic, 1: Broadcast TV, 2: Courtside Low, 3: Player Action
+    homeScore: 0,
+    awayScore: 0,
+    quarter: 1,
+    gameClock: 180, // 3:00 quarters
+    shotClock: 24,
+    players: [],
+    controlledPlayer: null,
+    ballHandler: null,
+    ballState: 'held', // 'held', 'shot', 'pass', 'loose'
+    ballPos: new THREE.Vector3(0, 1.1, 0),
+    ballVel: new THREE.Vector3(),
+    shotStartPos: new THREE.Vector3(),
+    shotTargetPos: new THREE.Vector3(),
+    shotProgress: 0,
+    shotDuration: 1.0,
+    shotArcHeight: 4.5,
+    shotIsThree: false,
+    shotIsGreen: false,
+    shotWillMake: false,
+    shotIsDunk: false,
+    shooter: null,
+    passTarget: null,
+    isChargingShot: false,
+    shotCharge: 0, // 0..1
+    greenWindowCenter: 0.74,
+    greenWindowWidth: 0.11,
+    slowMoTimer: 0,
+    crowdHype: 0.2,
+    inboundTimer: 0,
+    inboundTeam: 'home'
+};
+
+// Instantiate 5 Home + 5 Away Players
+for (let i = 0; i < 5; i++) {
+    gameState.players.push(createArticulatedPlayer('home', i));
+    gameState.players.push(createArticulatedPlayer('away', i));
+}
+
+function applyGameModeRoster() {
+    const activeCount = gameState.mode === '5v5' ? 5 : (gameState.mode === '3v3' ? 3 : 1);
+    gameState.players.forEach(p => {
+        p.active = p.index < activeCount;
+        p.root.visible = p.active;
+    });
+    if (!gameState.controlledPlayer || !gameState.controlledPlayer.active) {
+        gameState.controlledPlayer = gameState.players.find(p => p.team === 'home' && p.active);
+    }
+}
+
+function resetPositionsForPossession(offenseTeam, isTipoff = false) {
+    applyGameModeRoster();
+    const dir = offenseTeam === 'home' ? 1 : -1;
+    const activeOff = gameState.players.filter(p => p.team === offenseTeam && p.active);
+    const activeDef = gameState.players.filter(p => p.team !== offenseTeam && p.active);
+
+    const offOffsets = [
+        [dir * 2.2, 0],
+        [dir * 6.5, -5.2],
+        [dir * 6.5, 5.2],
+        [dir * 10.2, -3.4],
+        [dir * 10.2, 3.4]
+    ];
+
+    activeOff.forEach((p, idx) => {
+        const [ox, oz] = offOffsets[idx];
+        p.pos.set(isTipoff ? -dir * 2.0 : ox, 0, oz);
+        p.vel.set(0, 0, 0);
+        p.jumpY = 0;
+        p.isJumping = false;
+        p.isDunking = false;
+        p.stunTimer = 0;
+        p.facing = dir === 1 ? Math.PI / 2 : -Math.PI / 2;
+    });
+
+    activeDef.forEach((p, idx) => {
+        const match = activeOff[idx] || activeOff[0];
+        p.pos.set(match.pos.x + dir * 2.1, 0, match.pos.z * 0.85);
+        p.vel.set(0, 0, 0);
+        p.jumpY = 0;
+        p.isJumping = false;
+        p.isDunking = false;
+        p.stunTimer = 0;
+        p.facing = dir === 1 ? -Math.PI / 2 : Math.PI / 2;
+    });
+
+    const pg = activeOff[0];
+    gameState.ballHandler = pg;
+    gameState.ballState = 'held';
+    gameState.shotClock = 24;
+    if (offenseTeam === 'home') {
+        gameState.controlledPlayer = pg;
+    } else {
+        gameState.controlledPlayer = activeDef[0];
+    }
+    updateHudLabels();
+}
+
+resetPositionsForPossession('home', true);
+
+// --- 9. CALLOUTS & BROADCAST HUD HELPERS ---
+function triggerCallout(text, colorClass = 'text-emerald-400', subtext = '') {
+    const container = document.getElementById('callout-container');
+    const el = document.createElement('div');
+    el.className = `callout-anim broadcast-panel px-5 py-2 rounded-xl border border-white/25 text-center mb-1.5 shadow-2xl`;
+    el.innerHTML = `
+        <div class="font-sports text-3xl sm:text-4xl font-bold tracking-wider ${colorClass} drop-shadow">${text}</div>
+        ${subtext ? `<div class="text-[11px] font-bold uppercase tracking-widest text-slate-200 -mt-1">${subtext}</div>` : ''}
+    `;
+    container.appendChild(el);
+    setTimeout(() => el.remove(), 1700);
+}
+
+function updateHudLabels() {
+    const cp = gameState.controlledPlayer;
+    if (!cp) return;
+    document.getElementById('player-pos-badge').textContent = cp.posLabel;
+    document.getElementById('controlled-player-name').textContent = cp.name;
+    const onOffense = gameState.ballHandler && gameState.ballHandler.team === 'home';
+    document.getElementById('possession-indicator').textContent = onOffense ? '• OFFENSE' : '• DEFENSE';
+    document.getElementById('shoot-btn-label').textContent = onOffense ? 'SHOOT' : 'BLOCK';
+    document.getElementById('pass-btn-label').textContent = onOffense ? 'PASS' : 'STEAL';
+}
+
+// --- 10. INPUT HANDLING (KEYBOARD + VIRTUAL JOYSTICK + TOUCH BUTTONS) ---
+const keys = {};
+const joyInput = { x: 0, y: 0, active: false };
+let touchSprint = false;
+
+window.addEventListener('keydown', (e) => {
+    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+        e.preventDefault();
+    }
+    if (keys[e.code]) return;
+    keys[e.code] = true;
+
+    if (e.code === 'Space') handleActionPress();
+    if (e.code === 'KeyF') handlePassOrSteal();
+    if (e.code === 'KeyE') handleCrossover();
+    if (e.code === 'KeyQ') handleStealOrBlock();
+    if (e.code === 'KeyC') cycleCamera();
+});
+
+window.addEventListener('keyup', (e) => {
+    keys[e.code] = false;
+    if (e.code === 'Space') handleActionRelease();
+});
+
+// UI Buttons
+document.getElementById('btn-mode').addEventListener('click', () => {
+    const modes = ['5v5', '3v3', '1v1'];
+    const next = modes[(modes.indexOf(gameState.mode) + 1) % modes.length];
+    gameState.mode = next;
+    document.getElementById('mode-label').textContent = next === '5v5' ? '5v5 FULL' : (next === '3v3' ? '3v3 HALF' : '1v1 ISO');
+    resetPositionsForPossession('home', false);
+    triggerCallout(`${next.toUpperCase()} MODE`, 'text-amber-400', 'LINEUP UPDATED');
+});
+
+const CAM_NAMES = ['2K CLASSIC', 'BROADCAST TV', 'COURTSIDE LOW', 'PLAYER ACTION'];
+function cycleCamera() {
+    gameState.camMode = (gameState.camMode + 1) % CAM_NAMES.length;
+    document.getElementById('cam-label').textContent = CAM_NAMES[gameState.camMode];
+}
+document.getElementById('btn-cam').addEventListener('click', cycleCamera);
+
+document.getElementById('btn-audio').addEventListener('click', () => {
+    sfx.enabled = !sfx.enabled;
+    document.getElementById('audio-label').textContent = sfx.enabled ? 'ON' : 'OFF';
+    if (sfx.enabled) sfx.init();
+});
+
+// On-Screen Action Buttons
+const shootBtn = document.getElementById('touch-shoot');
+shootBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); handleActionPress(); });
+shootBtn.addEventListener('pointerup', (e) => { e.preventDefault(); handleActionRelease(); });
+shootBtn.addEventListener('pointerleave', () => { if (gameState.isChargingShot) handleActionRelease(); });
+
+document.getElementById('touch-pass').addEventListener('pointerdown', (e) => { e.preventDefault(); handlePassOrSteal(); });
+document.getElementById('touch-cross').addEventListener('pointerdown', (e) => { e.preventDefault(); handleCrossover(); });
+
+const sprintBtn = document.getElementById('touch-sprint');
+sprintBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); touchSprint = true; });
+sprintBtn.addEventListener('pointerup', (e) => { e.preventDefault(); touchSprint = false; });
+sprintBtn.addEventListener('pointerleave', () => { touchSprint = false; });
+
+// Virtual Joystick
+const joyZone = document.getElementById('joystick-zone');
+const joyKnob = document.getElementById('joystick-knob');
+joyZone.addEventListener('pointerdown', (e) => {
+    joyInput.active = true;
+    updateJoystick(e);
+});
+window.addEventListener('pointermove', (e) => {
+    if (joyInput.active) updateJoystick(e);
+});
+window.addEventListener('pointerup', () => {
+    joyInput.active = false;
+    joyInput.x = 0;
+    joyInput.y = 0;
+    joyKnob.style.transform = 'translate(0px, 0px)';
+});
+
+function updateJoystick(e) {
+    const rect = joyZone.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const maxR = rect.width * 0.36;
+    let dx = e.clientX - cx;
+    let dy = e.clientY - cy;
+    const dist = Math.hypot(dx, dy);
+    if (dist > maxR) {
+        dx = (dx / dist) * maxR;
+        dy = (dy / dist) * maxR;
+    }
+    joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+    joyInput.x = dx / maxR;
+    joyInput.y = dy / maxR;
+}
+
+// --- 11. BASKETBALL MECHANICS: SHOT METER, DUNKS, CROSSOVERS, PASSING, STEALS ---
+function handleActionPress() {
+    const cp = gameState.controlledPlayer;
+    if (!cp) return;
+
+    if (gameState.ballState === 'held' && gameState.ballHandler === cp) {
+        // Begin 2K Shot Meter Charge
+        const targetHoopX = cp.team === 'home' ? HOOP_X : -HOOP_X;
+        const distToRim = Math.hypot(targetHoopX - cp.pos.x, 0 - cp.pos.z);
+
+        // Check nearest defender contest distance
+        let minDefDist = 99;
+        gameState.players.forEach(d => {
+            if (d.active && d.team !== cp.team && d.stunTimer <= 0) {
+                const dd = d.pos.distanceTo(cp.pos);
+                if (dd < minDefDist) minDefDist = dd;
+            }
+        });
+
+        // Adjust green window based on distance & defender contest
+        const baseWindow = distToRim < 3.6 ? 0.14 : (distToRim < 7.3 ? 0.115 : 0.092);
+        const contestPenalty = minDefDist < 1.8 ? (1.8 - minDefDist) * 0.025 : 0;
+        gameState.greenWindowWidth = Math.max(0.045, baseWindow - contestPenalty);
+        gameState.greenWindowCenter = 0.76;
+
+        gameState.isChargingShot = true;
+        gameState.shotCharge = 0.05;
+        cp.isJumping = true;
+        cp.jumpVel = distToRim < 3.4 ? 4.4 : 3.4;
+    } else {
+        // On Defense or Loose Ball: Jump for Block / Rebound
+        handleStealOrBlock();
+    }
+}
+
+function handleActionRelease() {
+    if (!gameState.isChargingShot) return;
+    gameState.isChargingShot = false;
+    document.getElementById('shot-meter-wrap').style.opacity = '0';
+
+    const cp = gameState.controlledPlayer;
+    if (gameState.ballState === 'held' && gameState.ballHandler === cp) {
+        launchShot(cp, gameState.shotCharge);
+    }
+}
+
+function launchShot(shooter, timingValue) {
+    const targetHoop = hoops.find(h => h.side === (shooter.team === 'home' ? 1 : -1));
+    const distToRim = Math.hypot(targetHoop.pos.x - shooter.pos.x, targetHoop.pos.z - shooter.pos.z);
+    const isThree = distToRim >= 7.24; // NBA 23.75ft arc
+
+    // Evaluate timing accuracy
+    const diff = Math.abs(timingValue - gameState.greenWindowCenter);
+    const isGreen = diff <= gameState.greenWindowWidth * 0.55;
+
+    // Calculate Defender Contest %
+    let contestPct = 0;
+    gameState.players.forEach(d => {
+        if (d.active && d.team !== shooter.team && d.stunTimer <= 0) {
+            const dd = d.pos.distanceTo(shooter.pos);
+            if (dd < 2.3) {
+                const c = Math.round(((2.3 - dd) / 2.3) * (d.isJumping ? 88 : 54));
+                if (c > contestPct) contestPct = c;
+            }
+        }
+    });
+
+    // Check if Driving Dunk!
+    const isDunk = distToRim < 3.25 && shooter.vel.length() > 2.2;
+
+    let makeProb = 0.68 - (distToRim * 0.025) - (contestPct * 0.0045);
+    if (isDunk) makeProb = 0.88 - (contestPct * 0.003);
+    const willMake = isGreen || (Math.random() < Math.max(0.12, makeProb));
+
+    if (isGreen) {
+        sfx.playGreenRelease();
+        gameState.slowMoTimer = 0.55;
+        triggerCallout('GREEN LIGHT!', 'text-emerald-400', isThree ? '3PT PERFECT RELEASE' : 'EXCELLENT TIMING');
+    } else if (isDunk && willMake) {
+        triggerCallout(contestPct > 35 ? 'POSTERIZER DUNK!' : 'SLAM DUNK!', 'text-amber-400', contestPct > 35 ? `CONTACT ${contestPct}%` : '2K HIGHLIGHT');
+    } else if (shooter.team === 'home') {
+        const timingLabel = timingValue < gameState.greenWindowCenter - 0.06 ? 'SLIGHTLY EARLY' :
+                            (timingValue > gameState.greenWindowCenter + 0.06 ? 'SLIGHTLY LATE' : 'GOOD RELEASE');
+        triggerCallout(timingLabel, 'text-sky-300', contestPct > 12 ? `${contestPct}% CONTESTED` : 'WIDE OPEN');
+    }
+
+    if (isDunk) {
+        shooter.isDunking = true;
+        shooter.isJumping = true;
+        shooter.dunkTarget.set(targetHoop.pos.x - targetHoop.side * 0.35, 0, 0);
+        shooter.jumpVel = 4.6;
+        gameState.ballState = 'shot';
+        gameState.ballHandler = null;
+        gameState.shooter = shooter;
+        gameState.shotStartPos.copy(shooter.pos).add(new THREE.Vector3(0, 2.1, 0));
+        gameState.shotTargetPos.copy(targetHoop.pos);
+        gameState.shotProgress = 0;
+        gameState.shotDuration = 0.52;
+        gameState.shotArcHeight = 3.55;
+        gameState.shotIsThree = false;
+        gameState.shotIsGreen = isGreen;
+        gameState.shotWillMake = willMake;
+        gameState.shotIsDunk = true;
+        return;
+    }
+
+    // Standard Jump Shot Trajectory
+    gameState.ballState = 'shot';
+    gameState.ballHandler = null;
+    gameState.shooter = shooter;
+    gameState.shotStartPos.set(shooter.pos.x, shooter.pos.y + shooter.jumpY + 2.05, shooter.pos.z);
+
+    if (willMake) {
+        gameState.shotTargetPos.copy(targetHoop.pos);
+    } else {
+        // Miss slightly off the rim
+        const angle = Math.random() * Math.PI * 2;
+        gameState.shotTargetPos.set(
+            targetHoop.pos.x + Math.cos(angle) * 0.26,
+            targetHoop.pos.y,
+            targetHoop.pos.z + Math.sin(angle) * 0.26
+        );
+    }
+
+    gameState.shotProgress = 0;
+    gameState.shotDuration = Math.min(1.25, Math.max(0.68, distToRim * 0.115));
+    gameState.shotArcHeight = Math.max(3.9, 3.6 + distToRim * 0.24);
+    gameState.shotIsThree = isThree;
+    gameState.shotIsGreen = isGreen;
+    gameState.shotWillMake = willMake;
+    gameState.shotIsDunk = false;
+}
+
+function handleCrossover() {
+    const cp = gameState.controlledPlayer;
+    if (!cp || gameState.ballState !== 'held' || gameState.ballHandler !== cp) return;
+    if (cp.crossoverTimer > 0) return;
+
+    cp.crossoverTimer = 0.42;
+    cp.dribbleHand *= -1;
+    sfx.playSqueak();
+
+    // Lateral burst
+    const lateral = new THREE.Vector3(-Math.sin(cp.facing), 0, Math.cos(cp.facing)).multiplyScalar(cp.dribbleHand * 5.2);
+    cp.vel.add(lateral);
+
+    // Check if nearby defender gets ANKLE-BROKEN!
+    gameState.players.forEach(d => {
+        if (d.active && d.team !== cp.team && d.pos.distanceTo(cp.pos) < 2.2) {
+            if (Math.random() < 0.48) {
+                d.stunTimer = 1.45;
+                sfx.playCrowdRoar(0.75);
+                gameState.crowdHype = Math.min(1, gameState.crowdHype + 0.35);
+                triggerCallout('ANKLE BREAKER!', 'text-purple-400', `${d.name} DROPPED!`);
+            }
+        }
+    });
+}
+
+function handlePassOrSteal() {
+    const cp = gameState.controlledPlayer;
+    if (!cp) return;
+
+    if (gameState.ballState === 'held' && gameState.ballHandler === cp) {
+        // Find best open teammate
+        const teammates = gameState.players.filter(p => p.active && p.team === cp.team && p !== cp);
+        if (teammates.length === 0) return;
+
+        let bestMate = teammates[0];
+        let bestScore = -999;
+        const targetHoopX = cp.team === 'home' ? HOOP_X : -HOOP_X;
+
+        teammates.forEach(m => {
+            const distToHoop = Math.abs(targetHoopX - m.pos.x);
+            const passDist = m.pos.distanceTo(cp.pos);
+            const score = -distToHoop * 1.2 - passDist * 0.25 + (Math.random() * 2);
+            if (score > bestScore) {
+                bestScore = score;
+                bestMate = m;
+            }
+        });
+
+        gameState.ballState = 'pass';
+        gameState.ballHandler = null;
+        gameState.passTarget = bestMate;
+        gameState.shotStartPos.copy(ballMesh.position);
+        gameState.shotProgress = 0;
+        gameState.shotDuration = Math.max(0.24, cp.pos.distanceTo(bestMate.pos) * 0.045);
+
+        if (bestMate.team === 'home') {
+            gameState.controlledPlayer = bestMate;
+            updateHudLabels();
+        }
+    } else {
+        handleStealOrBlock();
+    }
+}
+
+function handleStealOrBlock() {
+    const cp = gameState.controlledPlayer;
+    if (!cp || cp.stealCooldown > 0) return;
+    cp.stealCooldown = 0.55;
+
+    // Switch controlled player to nearest defender to ball if on defense
+    if (!gameState.ballHandler || gameState.ballHandler.team !== 'home') {
+        let nearest = cp;
+        let minDist = 999;
+        gameState.players.forEach(p => {
+            if (p.active && p.team === 'home') {
+                const d = p.pos.distanceTo(ballMesh.position);
+                if (d < minDist) {
+                    minDist = d;
+                    nearest = p;
+                }
+            }
+        });
+        if (nearest !== cp) {
+            gameState.controlledPlayer = nearest;
+            updateHudLabels();
+        }
+    }
+
+    const activeDef = gameState.controlledPlayer;
+    if (gameState.ballState === 'shot' || ballMesh.position.y > 2.2) {
+        // Jump Block / Rebound Attempt
+        if (!activeDef.isJumping) {
+            activeDef.isJumping = true;
+            activeDef.jumpVel = 4.3;
+        }
+    } else if (gameState.ballState === 'held' && gameState.ballHandler && gameState.ballHandler.team !== activeDef.team) {
+        // Reach-in Steal Attempt
+        const handler = gameState.ballHandler;
+        if (activeDef.pos.distanceTo(handler.pos) < 1.65) {
+            if (Math.random() < 0.34) {
+                gameState.ballHandler = activeDef;
+                sfx.playSqueak();
+                sfx.playCrowdRoar(0.6);
+                triggerCallout('STEAL!', 'text-sky-400', `TURNOVER FORCED BY ${activeDef.name}`);
+                updateHudLabels();
+            }
+        }
+    }
+}
+
+// --- 12. SMART 5v5 AI & PLAYER KINEMATICS UPDATE ---
+function updatePlayersAndAI(dt) {
+    const offenseTeam = gameState.ballHandler ? gameState.ballHandler.team :
+                        (gameState.shooter ? gameState.shooter.team : 'home');
+
+    gameState.players.forEach(p => {
+        if (!p.active) return;
+
+        p.selectRing.material.opacity = (p === gameState.controlledPlayer) ? 0.85 : 0.0;
+        if (p.crossoverTimer > 0) p.crossoverTimer -= dt;
+        if (p.stealCooldown > 0) p.stealCooldown -= dt;
+
+        // Ankle-breaker stunned state
+        if (p.stunTimer > 0) {
+            p.stunTimer -= dt;
+            p.hips.rotation.z = Math.sin(p.stunTimer * 12) * 0.38;
+            p.hips.position.y = 0.78;
+            return;
+        } else {
+            p.hips.rotation.z *= 0.85;
+        }
+
+        const moveVec = new THREE.Vector3();
+        let isSprinting = false;
+
+        if (p === gameState.controlledPlayer && !p.isDunking) {
+            // Human Input (mapped to camera orientation)
+            let ix = 0, iz = 0;
+            if (keys['KeyW'] || keys['ArrowUp']) iz -= 1;
+            if (keys['KeyS'] || keys['ArrowDown']) iz += 1;
+            if (keys['KeyA'] || keys['ArrowLeft']) ix -= 1;
+            if (keys['KeyD'] || keys['ArrowRight']) ix += 1;
+
+            if (joyInput.active) {
+                ix += joyInput.x;
+                iz += joyInput.y;
+            }
+
+            if (gameState.camMode === 0) {
+                // 2K Classic Camera looks along +X (toward right hoop)
+                moveVec.set(-iz, 0, ix);
+            } else {
+                // Broadcast TV Camera looks along -Z
+                moveVec.set(ix, 0, iz);
+            }
+
+            isSprinting = (keys['ShiftLeft'] || keys['ShiftRight'] || touchSprint) && p.stamina > 5;
+        } else if (!p.isDunking) {
+            // Smart 5v5 AI Logic
+            const targetHoopX = p.team === 'home' ? HOOP_X : -HOOP_X;
+            const ownHoopX = -targetHoopX;
+            const dir = p.team === 'home' ? 1 : -1;
+
+            if (gameState.ballState === 'loose' || gameState.ballState === 'shot') {
+                // Crash the boards for rebound or chase loose ball
+                const target = gameState.ballState === 'loose' ? ballMesh.position :
+                               new THREE.Vector3(targetHoopX - dir * 1.6, 0, (p.index - 2) * 1.3);
+                moveVec.subVectors(target, p.pos);
+                moveVec.y = 0;
+                isSprinting = true;
+            } else if (p === gameState.ballHandler) {
+                // AI Ball Handler drives or pulls up for 3PT/Mid-range
+                const goal = new THREE.Vector3(targetHoopX - dir * 4.8, 0, Math.sin(performance.now() * 0.0012 + p.index) * 3.8);
+                moveVec.subVectors(goal, p.pos);
+                moveVec.y = 0;
+
+                const distToRim = Math.hypot(targetHoopX - p.pos.x, p.pos.z);
+                if (distToRim < 7.8 && Math.random() < dt * 0.75 && !p.isJumping) {
+                    p.isJumping = true;
+                    p.jumpVel = 3.5;
+                    const aiTiming = 0.66 + Math.random() * 0.18;
+                    setTimeout(() => {
+                        if (gameState.ballHandler === p && gameState.ballState === 'held') {
+                            launchShot(p, aiTiming);
+                        }
+                    }, 260);
+                }
+            } else if (p.team === offenseTeam) {
+                // Off-Ball Floor Spacing & Cuts (5-Out / Motion Offense)
+                const spotAngles = [-0.75, -0.35, 0.35, 0.75, 0.0];
+                const ang = spotAngles[p.index % 5];
+                const radius = p.index === 4 ? 2.6 : 7.6;
+                const spotX = targetHoopX - dir * Math.cos(ang) * radius;
+                const spotZ = Math.sin(ang) * radius * 1.1;
+                const spot = new THREE.Vector3(spotX, 0, spotZ);
+                moveVec.subVectors(spot, p.pos);
+                moveVec.y = 0;
+            } else {
+                // Man-to-Man Defense (Stay between assigned man and own hoop)
+                const opponent = gameState.players.find(opp => opp.active && opp.team !== p.team && opp.index === p.index) || gameState.ballHandler;
+                if (opponent) {
+                    const guardPos = new THREE.Vector3().lerpVectors(opponent.pos, new THREE.Vector3(ownHoopX, 0, 0), 0.24);
+                    moveVec.subVectors(guardPos, p.pos);
+                    moveVec.y = 0;
+                    if (moveVec.length() > 2.5) isSprinting = true;
+                }
+            }
+        }
+
+        // Stamina update
+        if (isSprinting && moveVec.lengthSq() > 0.01) {
+            p.stamina = Math.max(0, p.stamina - dt * 22);
+        } else {
+            p.stamina = Math.min(100, p.stamina + dt * 16);
+        }
+        if (p === gameState.controlledPlayer) {
+            document.getElementById('stamina-bar').style.width = `${p.stamina}%`;
+        }
+
+        // Apply Horizontal Movement
+        if (!p.isDunking) {
+            if (moveVec.length() > 0.08) {
+                moveVec.normalize();
+                const speed = (isSprinting ? 6.9 : 4.7) * (p === gameState.ballHandler ? 0.94 : 1.0);
+                p.vel.x = THREE.MathUtils.lerp(p.vel.x, moveVec.x * speed, dt * 11);
+                p.vel.z = THREE.MathUtils.lerp(p.vel.z, moveVec.z * speed, dt * 11);
+            } else {
+                p.vel.x *= Math.pow(0.05, dt);
+                p.vel.z *= Math.pow(0.05, dt);
+            }
+            p.pos.addScaledVector(p.vel, dt);
+        } else {
+            // Dunk Flight Path toward Rim
+            p.pos.lerp(p.dunkTarget, dt * 7.5);
+        }
+
+        // Keep Players In-Bounds on Court
+        p.pos.x = THREE.MathUtils.clamp(p.pos.x, -COURT_LENGTH / 2 + 0.5, COURT_LENGTH / 2 - 0.5);
+        p.pos.z = THREE.MathUtils.clamp(p.pos.z, -COURT_WIDTH / 2 + 0.5, COURT_WIDTH / 2 - 0.5);
+
+        // Jump & Gravity Kinematics
+        if (p.isJumping || p.jumpY > 0) {
+            p.jumpY += p.jumpVel * dt;
+            p.jumpVel -= 11.8 * dt;
+            if (p.jumpY <= 0) {
+                p.jumpY = 0;
+                p.jumpVel = 0;
+                p.isJumping = false;
+                p.isDunking = false;
+            }
+        }
+
+        // Player Orientation (Face movement or face hoop when shooting)
+        if (p === gameState.ballHandler && (gameState.isChargingShot || p.isJumping)) {
+            const hoopX = p.team === 'home' ? HOOP_X : -HOOP_X;
+            p.facing = Math.atan2(hoopX - p.pos.x, 0 - p.pos.z);
+        } else if (p.vel.lengthSq() > 0.25) {
+            const targetYaw = Math.atan2(p.vel.x, p.vel.z);
+            let diff = targetYaw - p.facing;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            p.facing += diff * Math.min(1, dt * 12);
+        }
+
+        p.root.position.set(p.pos.x, p.jumpY, p.pos.z);
+        p.root.rotation.y = p.facing;
+
+        // Procedural Skeletal Limb Animation (Running Stride, Dribbling, Jump Shot Release)
+        const speedHoriz = Math.hypot(p.vel.x, p.vel.z);
+        if (p.isJumping) {
+            // Jump Shot / Dunk Pose
+            p.leftLeg.root.rotation.x = 0.28;
+            p.leftLeg.joint.rotation.x = -0.45;
+            p.rightLeg.root.rotation.x = -0.15;
+            p.rightLeg.joint.rotation.x = -0.25;
+
+            if (p === gameState.ballHandler || p.isDunking || (gameState.shooter === p && gameState.shotProgress < 0.35)) {
+                p.rightArm.root.rotation.x = -2.65;
+                p.rightArm.joint.rotation.x = -0.35;
+                p.leftArm.root.rotation.x = -2.35;
+                p.leftArm.joint.rotation.x = -0.5;
+            } else {
+                // Defensive Contest Arms Up
+                p.rightArm.root.rotation.x = -2.85;
+                p.leftArm.root.rotation.x = -2.85;
+            }
+        } else if (speedHoriz > 0.35) {
+            // Dynamic Running Stride Cycle
+            p.stridePhase += dt * speedHoriz * 2.45;
+            const swing = Math.sin(p.stridePhase) * 0.72;
+            p.leftLeg.root.rotation.x = swing;
+            p.rightLeg.root.rotation.x = -swing;
+            p.leftLeg.joint.rotation.x = Math.max(0, -swing) * 0.85;
+            p.rightLeg.joint.rotation.x = Math.max(0, swing) * 0.85;
+            p.hips.position.y = 1.0 + Math.abs(Math.cos(p.stridePhase)) * 0.05;
+
+            if (p === gameState.ballHandler) {
+                // Dribbling Arm Pumping
+                p.dribblePhase += dt * 9.5;
+                const dWave = Math.sin(p.dribblePhase);
+                const activeArm = p.dribbleHand === 1 ? p.rightArm : p.leftArm;
+                const offArm = p.dribbleHand === 1 ? p.leftArm : p.rightArm;
+                activeArm.root.rotation.x = -0.45 + dWave * 0.38;
+                activeArm.joint.rotation.x = -0.75 - dWave * 0.35;
+                offArm.root.rotation.x = swing * 0.5 - 0.3;
+                offArm.joint.rotation.x = -0.4;
+            } else {
+                p.leftArm.root.rotation.x = -swing * 0.65;
+                p.rightArm.root.rotation.x = swing * 0.65;
+                p.leftArm.joint.rotation.x = -0.45;
+                p.rightArm.joint.rotation.x = -0.45;
+            }
+        } else {
+            // Athletic Stance / Idle Dribble
+            p.hips.position.y = 0.99;
+            p.leftLeg.root.rotation.x = -0.14;
+            p.leftLeg.joint.rotation.x = 0.28;
+            p.rightLeg.root.rotation.x = 0.14;
+            p.rightLeg.joint.rotation.x = 0.28;
+
+            if (p === gameState.ballHandler) {
+                p.dribblePhase += dt * 7.5;
+                const dWave = Math.sin(p.dribblePhase);
+                const activeArm = p.dribbleHand === 1 ? p.rightArm : p.leftArm;
+                activeArm.root.rotation.x = -0.42 + dWave * 0.35;
+                activeArm.joint.rotation.x = -0.72 - dWave * 0.32;
+            } else {
+                // Defensive Wide Stance
+                p.leftArm.root.rotation.z = 0.45;
+                p.rightArm.root.rotation.z = -0.45;
+                p.leftArm.root.rotation.x = -0.35;
+                p.rightArm.root.rotation.x = -0.35;
+            }
+        }
+    });
+}
+
+// --- 13. BASKETBALL PHYSICS, SWISH NETS & SCORING ---
+function updateBallAndScoring(dt) {
+    if (gameState.ballState === 'held' && gameState.ballHandler) {
+        const h = gameState.ballHandler;
+        const forward = new THREE.Vector3(Math.sin(h.facing), 0, Math.cos(h.facing));
+        const right = new THREE.Vector3(Math.cos(h.facing), 0, -Math.sin(h.facing)).multiplyScalar(h.dribbleHand);
+
+        if (gameState.isChargingShot || h.isJumping) {
+            // Set-point above shooter's head
+            ballMesh.position.set(
+                h.pos.x + forward.x * 0.24,
+                h.jumpY + 2.08,
+                h.pos.z + forward.z * 0.24
+            );
+        } else {
+            // Realistic Dribble Bounce to Hardwood
+            const bounceSin = Math.abs(Math.sin(h.dribblePhase));
+            const prevBounce = Math.abs(Math.sin(h.dribblePhase - dt * 8.5));
+            if (bounceSin < 0.14 && prevBounce >= 0.14) {
+                sfx.playBounce(0.75);
+            }
+            const ballY = 0.13 + bounceSin * 0.92;
+            ballMesh.position.set(
+                h.pos.x + forward.x * 0.42 + right.x * 0.26,
+                ballY,
+                h.pos.z + forward.z * 0.42 + right.z * 0.26
+            );
+            ballMesh.rotation.x += dt * 10;
+        }
+    } else if (gameState.ballState === 'pass' && gameState.passTarget) {
+        gameState.shotProgress += dt / gameState.shotDuration;
+        const t = Math.min(1, gameState.shotProgress);
+        const dest = new THREE.Vector3(gameState.passTarget.pos.x, 1.15, gameState.passTarget.pos.z);
+        ballMesh.position.lerpVectors(gameState.shotStartPos, dest, t);
+        ballMesh.position.y += Math.sin(t * Math.PI) * 0.45;
+
+        if (t >= 1) {
+            gameState.ballHandler = gameState.passTarget;
+            gameState.ballState = 'held';
+            sfx.playBounce(0.45);
+        }
+    } else if (gameState.ballState === 'shot') {
+        gameState.shotProgress += dt / gameState.shotDuration;
+        const t = Math.min(1, gameState.shotProgress);
+
+        ballMesh.position.lerpVectors(gameState.shotStartPos, gameState.shotTargetPos, t);
+        // Parabolic arc peaking at shotArcHeight
+        const linearY = THREE.MathUtils.lerp(gameState.shotStartPos.y, gameState.shotTargetPos.y, t);
+        const arcOffset = 4 * (gameState.shotArcHeight - (gameState.shotStartPos.y + gameState.shotTargetPos.y) * 0.5) * t * (1 - t);
+        ballMesh.position.y = linearY + Math.max(0, arcOffset);
+        ballMesh.rotation.x -= dt * 16; // Backspin!
+
+        if (t >= 1) {
+            const targetHoop = hoops.find(h => h.side === (gameState.shooter.team === 'home' ? 1 : -1));
+            if (gameState.shotWillMake) {
+                // MADE BASKET!
+                const pts = gameState.shotIsThree ? 3 : 2;
+                if (gameState.shooter.team === 'home') {
+                    gameState.homeScore += pts;
+                    document.getElementById('score-home').textContent = gameState.homeScore;
+                } else {
+                    gameState.awayScore += pts;
+                    document.getElementById('score-away').textContent = gameState.awayScore;
+                }
+
+                sfx.playSwish();
+                sfx.playCrowdRoar(gameState.shotIsGreen ? 1.2 : 0.85);
+                gameState.crowdHype = 1.0;
+                targetHoop.netSwishTime = 0.75;
+                targetHoop.ledFlashTimer = 1.4;
+                if (gameState.shotIsDunk) targetHoop.rimBend = 0.25;
+
+                // Camera Flash Strobe in crowd
+                flashLight.position.set((Math.random() - 0.5) * 24, 6, -13);
+                flashLight.intensity = 3.5;
+
+                // Ball drops through net & opposing team inbounds
+                gameState.ballState = 'loose';
+                gameState.ballVel.set(-targetHoop.side * 0.6, -2.6, 0);
+                const nextOffense = gameState.shooter.team === 'home' ? 'away' : 'home';
+                setTimeout(() => {
+                    resetPositionsForPossession(nextOffense, false);
+                }, 1150);
+            } else {
+                // RIM CLANK REBOUND!
+                sfx.playRimClank();
+                targetHoop.rimBend = 0.14;
+                gameState.ballState = 'loose';
+                gameState.ballVel.set(
+                    -targetHoop.side * (2.2 + Math.random() * 2.2),
+                    3.2 + Math.random() * 1.5,
+                    (Math.random() - 0.5) * 4.2
+                );
+            }
+        }
+    } else if (gameState.ballState === 'loose') {
+        ballMesh.position.addScaledVector(gameState.ballVel, dt);
+        gameState.ballVel.y -= 9.81 * dt;
+
+        // Hardwood bounce
+        if (ballMesh.position.y <= 0.125) {
+            ballMesh.position.y = 0.125;
+            if (Math.abs(gameState.ballVel.y) > 1.1) {
+                sfx.playBounce(Math.abs(gameState.ballVel.y) / 6);
+                gameState.ballVel.y = -gameState.ballVel.y * 0.68;
+                gameState.ballVel.x *= 0.85;
+                gameState.ballVel.z *= 0.85;
+            } else {
+                gameState.ballVel.y = 0;
+            }
+        }
+
+        // Check Rebound / Loose Ball Pickup
+        if (ballMesh.position.y < 2.4) {
+            for (const p of gameState.players) {
+                if (!p.active) continue;
+                const d = Math.hypot(p.pos.x - ballMesh.position.x, p.pos.z - ballMesh.position.z);
+                if (d < 0.85 && ballMesh.position.y <= p.jumpY + 2.15) {
+                    gameState.ballHandler = p;
+                    gameState.ballState = 'held';
+                    gameState.shotClock = 24;
+                    if (p.team === 'home') {
+                        gameState.controlledPlayer = p;
+                        triggerCallout('REBOUND!', 'text-sky-400', `${p.name} SECURES THE BOARD`);
+                    }
+                    updateHudLabels();
+                    break;
+                }
+            }
+        }
+    }
+}
+
+// --- 14. UPDATE 2K SHOT METER OVERLAY, HOOP NETS, CROWD & JUMBOTRON ---
+function updateShotMeterUI(dt) {
+    const meterWrap = document.getElementById('shot-meter-wrap');
+    if (!gameState.isChargingShot || !gameState.controlledPlayer) {
+        meterWrap.style.opacity = '0';
+        return;
+    }
+
+    gameState.shotCharge = Math.min(1.0, gameState.shotCharge + dt * 1.18);
+    if (gameState.shotCharge >= 1.0) {
+        handleActionRelease();
+        return;
+    }
+
+    // Project 3D player shoulder position to 2D screen coordinates
+    const worldPos = gameState.controlledPlayer.pos.clone().add(new THREE.Vector3(0, 2.25, 0));
+    worldPos.project(camera);
+    const sx = (worldPos.x * 0.5 + 0.5) * window.innerWidth + 46;
+    const sy = (-worldPos.y * 0.5 + 0.5) * window.innerHeight;
+
+    meterWrap.style.left = `${sx}px`;
+    meterWrap.style.top = `${sy}px`;
+    meterWrap.style.opacity = '1';
+
+    const arcLen = 115;
+    const fillArc = document.getElementById('meter-fill-arc');
+    fillArc.style.strokeDashoffset = arcLen * (1 - gameState.shotCharge);
+
+    const inGreen = Math.abs(gameState.shotCharge - gameState.greenWindowCenter) <= gameState.greenWindowWidth * 0.55;
+    fillArc.setAttribute('stroke', inGreen ? '#10b981' : '#38bdf8');
+    const tag = document.getElementById('meter-quality-tag');
+    tag.textContent = inGreen ? 'GREEN!' : 'RELEASE';
+    tag.className = `text-center font-sports text-sm tracking-wider uppercase font-bold -mt-3 ${inGreen ? 'text-emerald-400' : 'text-sky-300'}`;
+}
+
+function updateArenaDetails(dt, elapsed) {
+    // 1. Hoop Net Swish Ripple, Rim Breakaway Spring & Shot Clock LEDs
+    hoops.forEach(h => {
+        if (h.netSwishTime > 0) {
+            h.netSwishTime -= dt;
+            const posAttr = h.netGeo.attributes.position;
+            const wave = Math.sin((0.75 - h.netSwishTime) * 18) * (h.netSwishTime * 0.14);
+            for (let i = 0; i < posAttr.count; i++) {
+                const bx = h.netBasePos[i * 3];
+                const by = h.netBasePos[i * 3 + 1];
+                const bz = h.netBasePos[i * 3 + 2];
+                const factor = Math.max(0, (0.22 - by) / 0.44);
+                posAttr.setXYZ(i, bx * (1 + wave * factor * 2.5), by + Math.abs(wave) * 0.18 * factor, bz * (1 + wave * factor * 2.5));
+            }
+            posAttr.needsUpdate = true;
+        }
+
+        if (h.rimBend > 0.001) {
+            h.rimMesh.rotation.z = h.side * h.rimBend;
+            h.rimBend *= Math.pow(0.04, dt);
+        } else {
+            h.rimMesh.rotation.z = 0;
+        }
+
+        if (h.ledFlashTimer > 0) {
+            h.ledFlashTimer -= dt;
+            h.ledMat.emissiveIntensity = 2.4;
+        } else {
+            h.ledMat.emissiveIntensity = gameState.shotClock <= 5 ? 1.8 : 0.25;
+        }
+
+        // Update 24-second Shot Clock Canvas on Backboard
+        const cCtx = h.clockCtx;
+        cCtx.fillStyle = '#050811';
+        cCtx.fillRect(0, 0, 128, 128);
+        cCtx.fillStyle = gameState.shotClock <= 5 ? '#ef4444' : '#f59e0b';
+        cCtx.font = '900 76px Teko, sans-serif';
+        cCtx.textAlign = 'center';
+        cCtx.textBaseline = 'middle';
+        cCtx.fillText(Math.ceil(gameState.shotClock).toString(), 64, 68);
+        h.clockTex.needsUpdate = true;
+    });
+
+    // 2. Animated 3D Crowd Wave & Camera Flashes
+    if (flashLight.intensity > 0.05) {
+        flashLight.intensity *= Math.pow(0.02, dt);
+    }
+    gameState.crowdHype = Math.max(0.15, gameState.crowdHype - dt * 0.25);
+
+    for (let i = 0; i < crowdInstanced.count; i++) {
+        const f = crowdData[i];
+        const jump = Math.max(0, Math.sin(elapsed * f.speed + f.phase)) * (0.08 + gameState.crowdHype * 0.34);
+        dummy.position.set(f.x, f.baseY + jump, f.z);
+        dummy.lookAt(0, f.baseY - 1, 0);
+        dummy.updateMatrix();
+        crowdInstanced.setMatrixAt(f.index, dummy.matrix);
+    }
+    crowdInstanced.instanceMatrix.needsUpdate = true;
+
+    // 3. Jumbotron Live Score & Clock Render
+    jumboCtx.fillStyle = '#070c18';
+    jumboCtx.fillRect(0, 0, 512, 256);
+    jumboCtx.strokeStyle = '#38bdf8';
+    jumboCtx.lineWidth = 6;
+    jumboCtx.strokeRect(4, 4, 504, 248);
+
+    jumboCtx.fillStyle = '#fbbf24';
+    jumboCtx.font = '800 32px Teko, sans-serif';
+    jumboCtx.textAlign = 'center';
+    jumboCtx.fillText(`2K26 PRO ARENA  •  Q${gameState.quarter}  •  SHOT ${Math.ceil(gameState.shotClock)}`, 256, 42);
+
+    jumboCtx.fillStyle = '#f43f5e';
+    jumboCtx.font = '900 44px Teko, sans-serif';
+    jumboCtx.fillText('VISITORS', 130, 105);
+    jumboCtx.fillStyle = '#ffffff';
+    jumboCtx.font = '900 84px Teko, sans-serif';
+    jumboCtx.fillText(gameState.awayScore.toString(), 130, 185);
+
+    jumboCtx.fillStyle = '#38bdf8';
+    jumboCtx.font = '900 44px Teko, sans-serif';
+    jumboCtx.fillText('2K PROS', 382, 105);
+    jumboCtx.fillStyle = '#ffffff';
+    jumboCtx.font = '900 84px Teko, sans-serif';
+    jumboCtx.fillText(gameState.homeScore.toString(), 382, 185);
+
+    jumboTex.needsUpdate = true;
+    updateLedRibbon(elapsed);
+}
+
+// --- 15. BROADCAST CAMERA RIGS (2K CLASSIC, TV BROADCAST, COURTSIDE, ACTION) ---
+const camTargetPos = new THREE.Vector3();
+const camLookAtPos = new THREE.Vector3();
+
+function updateCamera(dt) {
+    const focus = gameState.ballState === 'held' && gameState.ballHandler ? gameState.ballHandler.pos : ballMesh.position;
+
+    if (gameState.camMode === 0) {
+        // 2K Classic Baseline-Behind-Offense Angle (flips smoothly with possession or tracks right court)
+        const dir = (gameState.ballHandler && gameState.ballHandler.team === 'away') ? -1 : 1;
+        camTargetPos.set(focus.x - dir * 13.8, 7.2, focus.z * 0.55);
+        camLookAtPos.set(focus.x + dir * 5.2, 1.35, focus.z * 0.35);
+    } else if (gameState.camMode === 1) {
+        // NBA on TNT / ESPN Broadcast Sideline Angle
+        camTargetPos.set(focus.x * 0.62, 11.2, 19.8);
+        camLookAtPos.set(focus.x * 0.72, 1.2, 0);
+    } else if (gameState.camMode === 2) {
+        // Courtside Low Photographer Angle
+        camTargetPos.set(focus.x * 0.5, 2.35, 11.4);
+        camLookAtPos.set(focus.x * 0.85, 1.65, 0);
+    } else {
+        // Player Lock Tight Action Cam
+        const cp = gameState.controlledPlayer || gameState.players[0];
+        const dir = cp.team === 'home' ? 1 : -1;
+        camTargetPos.set(cp.pos.x - dir * 5.8, 3.4, cp.pos.z * 0.85);
+        camLookAtPos.set(cp.pos.x + dir * 4.5, 1.5, cp.pos.z * 0.5);
+    }
+
+    camera.position.lerp(camTargetPos, Math.min(1, dt * 4.2));
+    camera.lookAt(camLookAtPos);
+}
+
+// --- 16. MAIN GAME & RENDER LOOP ---
+let lastTime = performance.now();
+
+function animate(now) {
+    requestAnimationFrame(animate);
+
+    let rawDt = Math.min(0.05, (now - lastTime) / 1000);
+    lastTime = now;
+
+    // Cinematic Green-Light Slow Motion
+    if (gameState.slowMoTimer > 0) {
+        gameState.slowMoTimer -= rawDt;
+        rawDt *= 0.42;
+    }
+
+    // Game Clock & 24s Shot Clock
+    if (gameState.ballState === 'held') {
+        gameState.gameClock = Math.max(0, gameState.gameClock - rawDt);
+        gameState.shotClock = Math.max(0, gameState.shotClock - rawDt);
+
+        if (gameState.shotClock <= 0) {
+            sfx.playBuzzer();
+            triggerCallout('SHOT CLOCK VIOLATION', 'text-rose-400', 'TURNOVER');
+            const nextTeam = gameState.ballHandler && gameState.ballHandler.team === 'home' ? 'away' : 'home';
+            resetPositionsForPossession(nextTeam, false);
+        }
+        if (gameState.gameClock <= 0) {
+            sfx.playBuzzer();
+            if (gameState.quarter < 4) {
+                gameState.quarter++;
+                gameState.gameClock = 180;
+                document.getElementById('quarter-label').textContent = `${gameState.quarter}${gameState.quarter === 2 ? 'ND' : (gameState.quarter === 3 ? 'RD' : 'TH')} QTR`;
+                triggerCallout(`QUARTER ${gameState.quarter}`, 'text-amber-400', 'START OF PERIOD');
+            } else {
+                const winText = gameState.homeScore >= gameState.awayScore ? '2K PROS WIN!' : 'VISITORS WIN!';
+                triggerCallout(winText, 'text-emerald-400', `FINAL: ${gameState.homeScore} - ${gameState.awayScore}`);
+                gameState.quarter = 1;
+                gameState.gameClock = 180;
+                gameState.homeScore = 0;
+                gameState.awayScore = 0;
+                document.getElementById('score-home').textContent = '0';
+                document.getElementById('score-away').textContent = '0';
+            }
+        }
+    }
+
+    const mins = Math.floor(gameState.gameClock / 60);
+    const secs = Math.floor(gameState.gameClock % 60);
+    document.getElementById('game-clock').textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    const scEl = document.getElementById('shot-clock');
+    scEl.textContent = Math.ceil(gameState.shotClock);
+    scEl.className = `font-sports text-xl sm:text-2xl font-bold leading-none ${gameState.shotClock <= 5 ? 'text-red-500 animate-pulse' : 'text-amber-400'}`;
+
+    updatePlayersAndAI(rawDt);
+    updateBallAndScoring(rawDt);
+    updateShotMeterUI(rawDt);
+    updateArenaDetails(rawDt, now * 0.001);
+    updateCamera(rawDt);
+
+    if (composer) {
+        composer.render();
+    } else {
+        renderer.render(scene, camera);
+    }
+}
+
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    if (composer) {
+        composer.setSize(window.innerWidth, window.innerHeight);
+    }
+});
+
+window.onload = function () {
+    animate(performance.now());
+};
+</script>
+</body>
+</html>
