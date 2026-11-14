@@ -3052,26 +3052,27 @@ export default function BasketballGame() {
               else if (bAir && !aAir) { wA = 0.8; wB = 0.2; }
 
               if (wA > 0) {
-                a.root.position.x = clamp(a.root.position.x - nx * overlap * wA, -13.85, 13.85);
-                a.root.position.z = clamp(a.root.position.z - nz * overlap * wA, -7.35, 7.35);
+                a.root.position.x = clamp(a.root.position.x - nx * overlap * wA * 0.9, -13.85, 13.85);
+                a.root.position.z = clamp(a.root.position.z - nz * overlap * wA * 0.9, -7.35, 7.35);
               }
               if (wB > 0) {
-                b.root.position.x = clamp(b.root.position.x + nx * overlap * wB, -13.85, 13.85);
-                b.root.position.z = clamp(b.root.position.z + nz * overlap * wB, -7.35, 7.35);
+                b.root.position.x = clamp(b.root.position.x + nx * overlap * wB * 0.9, -13.85, 13.85);
+                b.root.position.z = clamp(b.root.position.z + nz * overlap * wB * 0.9, -7.35, 7.35);
               }
 
-              // Clean collision velocity sliding along tangent plane (prevents sticking/oscillating)
+              // Clean collision velocity sliding along tangent plane with smooth damping (prevents sticking/oscillating)
               const relVx = b.vel.x - a.vel.x;
               const relVz = b.vel.z - a.vel.z;
               const relNormal = relVx * nx + relVz * nz;
               if (relNormal < 0) {
+                const restitution = 0.35;
                 if (wA > 0) {
-                  a.vel.x += nx * relNormal * wA;
-                  a.vel.z += nz * relNormal * wA;
+                  a.vel.x += nx * relNormal * wA * (1 + restitution);
+                  a.vel.z += nz * relNormal * wA * (1 + restitution);
                 }
                 if (wB > 0) {
-                  b.vel.x -= nx * relNormal * wB;
-                  b.vel.z -= nz * relNormal * wB;
+                  b.vel.x -= nx * relNormal * wB * (1 + restitution);
+                  b.vel.z -= nz * relNormal * wB * (1 + restitution);
                 }
               }
 
