@@ -163,10 +163,22 @@ import {
   recordTrainingDrillResult,
 } from "@/lib/trainingDrills";
 import {
+  assignDefensiveMatchups,
+  checkPassLaneInterception,
   chooseAdaptiveAiDefenseScheme,
   computeDefenseAiDecision,
   computeDynamicOffBallTarget,
+  stepSmoothSteering,
+  type SmoothSteerState,
+  type SteerObstacle,
 } from "@/lib/defenseAi";
+import {
+  buildEndGameSummaryData,
+  createEmptyPlayerStats,
+  resolveDeadBallInboundOwner,
+  type FinalPlayerSummaryRow,
+  type TeamTotalsSummary,
+} from "@/lib/gameSummary";
 import {
   buildStrandHairGroup,
   attachFacialExpressionRig,
@@ -280,7 +292,12 @@ export default function BasketballGame() {
   const [trainingDrill, setTrainingDrill] = useState({ made: 0, target: 5, completedCount: 0 });
   const [isBallLoose, setIsBallLoose] = useState(false);
   const isBallLooseRef = useRef(false);
-  const [finalStats, setFinalStats] = useState<any[]>([]);
+  const [finalStats, setFinalStats] = useState<FinalPlayerSummaryRow[]>([]);
+  const [finalTeamTotals, setFinalTeamTotals] = useState<{
+    home: TeamTotalsSummary;
+    away: TeamTotalsSummary;
+  } | null>(null);
+  const [pendingPostgameBroadcast, setPendingPostgameBroadcast] = useState<BroadcastSceneData | null>(null);
   const [isMobileUI, setIsMobileUI] = useState(false);
   const [hasTouchInput, setHasTouchInput] = useState(false);
   const [showOnScreenPad, setShowOnScreenPad] = useState(true);
@@ -307,8 +324,14 @@ export default function BasketballGame() {
   const [showLockerRoom, setShowLockerRoom] = useState(false);
   const [lastMatchEarnings, setLastMatchEarnings] = useState<{
     pts: number;
+    fgm?: number;
+    fga?: number;
+    fgPct?: number;
+    tov?: number;
     reb: number;
     ast: number;
+    stl?: number;
+    blk?: number;
     xpGained: number;
     leveledUp: boolean;
     unlocked: ProgressionItem[];
@@ -613,6 +636,7 @@ export default function BasketballGame() {
   const handleSelectGameMode = useCallback((mode: GameMode, triggerTipOff = true) => {
     setGameMode(mode);
     gameModeRef.current = mode;
+    setShowMainMenu(false);
     setShowSummary(false);
     setShowHighlights(false);
     setShowMeter(false);
@@ -981,6 +1005,7 @@ export default function BasketballGame() {
     showFranchise ||
     showCustomization ||
     showTrainingAcademy ||
+    showUniverseHub ||
     showHelp;
 
   useEffect(() => {
@@ -1003,6 +1028,7 @@ export default function BasketballGame() {
       showFranchise ||
       showCustomization ||
       showTrainingAcademy ||
+      showUniverseHub ||
       Boolean(broadcastScene) ||
       showSummary;
     isOverlayOpenRef.current = open;
@@ -1031,6 +1057,7 @@ export default function BasketballGame() {
     showFranchise,
     showCustomization,
     showTrainingAcademy,
+    showUniverseHub,
     broadcastScene,
     showSummary,
   ]);
@@ -1175,8 +1202,13 @@ export default function BasketballGame() {
         void audioMgr.unlock().catch(() => {});
       }
     };
+    const onGestureUnlock = () => {
+      void audioMgr.unlock().catch(() => {});
+    };
     window.addEventListener("pointerdown", onAutoTouchDetect, { passive: true });
     window.addEventListener("touchstart", onFirstTouchStart, { passive: true });
+    window.addEventListener("touchend", onGestureUnlock, { passive: true });
+    window.addEventListener("click", onGestureUnlock, { passive: true });
     window.addEventListener("keydown", onFirstKeyUnlock, { passive: true });
     document.addEventListener("visibilitychange", onVisibilityAudioResume);
     // Attempt auto-start on mount (starts immediately if permitted by browser, otherwise starts on first gesture)
@@ -2399,6 +2431,7 @@ export default function BasketballGame() {
       gloveRipT?: number;
       volleySwatT?: number;
       cutoffClampT?: number;
+      switchLockT?: number;
     }
 
     interface EntityOffenseState {
@@ -2424,7 +2457,19 @@ export default function BasketballGame() {
       bumpCoolT: number;
       hypeT: number;
       landingT?: number;
-      stats: { pts: number, ast: number, reb: number, fouls: number };
+      stats: {
+        pts: number;
+        fgm: number;
+        fga: number;
+        tpm: number;
+        tpa: number;
+        reb: number;
+        ast: number;
+        stl: number;
+        blk: number;
+        tov: number;
+        fouls: number;
+      };
       pos: string;
       isBench: boolean;
       defState: EntityDefenseState;
@@ -2534,7 +2579,7 @@ export default function BasketballGame() {
         bumpCoolT: 0,
         hypeT: 0,
         cur: { shR: -0.25, elR: -0.5, shL: -0.25, elL: -0.5, hipR: 0, kneeR: 0.05, hipL: 0, kneeL: 0.05, lean: 0, crouch: 0, ankR: 0, ankL: 0, hipRollR: 0, hipRollL: 0, shRollR: 0, shRollL: 0, twist: 0, pelvYaw: 0, pelvRoll: 0, bob: 0 },
-        stats: { pts: 0, ast: 0, reb: 0, fouls: 0 },
+        stats: createEmptyPlayerStats(),
         defState: {
           stanceActive: false,
           stanceT: 0,
@@ -2559,6 +2604,7 @@ export default function BasketballGame() {
           gloveRipT: 0,
           volleySwatT: 0,
           cutoffClampT: 0,
+          switchLockT: 0,
         },
         offState: {
           tripleThreatActive: false,
@@ -2815,6 +2861,7 @@ export default function BasketballGame() {
       deadT: 0,
       deadReason: null as "score" | "foul" | null,
       lastScoringTeam: null as "Home" | "Away" | null,
+      possessingTeam: "Home" as "Home" | "Away",
       fastTransitionT: 0,
       prevPossessionTeam: null as "Home" | "Away" | null,
       looseT: 0, lbUsed: false, rbUsed: false, stealGraceT: 0, ballVel: V(),
@@ -2822,7 +2869,8 @@ export default function BasketballGame() {
       backcourtClock: 0, closelyGuardedClock: 0, backcourtTeam: null as "Home" | "Away" | null,
       keys: {} as any, prevKeys: {} as any, joystick: { x: 0, y: 0, active: false, autoSprint: false }, 
       touchButtons: {} as any, touchPulses: {} as Record<string, boolean>, rightStickCoolT: 0,
-      isDefending: false, uiDefenseToggle: false, lastTime: performance.now(), camLook: V(0, 1.4, 0)
+      isDefending: false, uiDefenseToggle: false, lastTime: performance.now(), camLook: V(0, 1.4, 0),
+      lastSwitchCallAt: 0, justFlippedPossession: false
     };
 
     // --- HELPERS ---
@@ -2832,12 +2880,80 @@ export default function BasketballGame() {
     const handPos = (P: any) => P.hands[P.hand].getWorldPosition(V());
     const isNearHoop = (pos: THREE.Vector3) =>
       Math.hypot(pos.x - HOOP_X, pos.z) < 3.0 || Math.hypot(pos.x + HOOP_X, pos.z) < 3.0;
+    const getUserJumpVy = (baseVy = 5.55) => {
+      const attrs = athleteProfileRef.current.attributes;
+      const boost = 1 + (((attrs.defense + attrs.finishing) * 0.5) - 75) / 230;
+      return clamp(baseVy * boost, 5.1, 6.45);
+    };
     const MOVEMENT_SETTINGS = {
       moveSpeed: 6.2,
-      defenseMoveSpeed: 3.65,
+      defenseMoveSpeed: 4.45,
       sprintMultiplier: 1.45,
       rotationSpeed: 15,
       fixedStep: 1 / 60,
+    };
+
+    const commitPossessionTransition = (
+      nextTeam: "Home" | "Away",
+      nextOwner: GameEntity | null,
+      _reason: string
+    ) => {
+      if (nextOwner !== undefined && nextOwner !== null) {
+        state.owner = nextOwner;
+      }
+      const changed = nextTeam !== state.prevPossessionTeam;
+      state.possessingTeam = nextTeam;
+      if (!changed) return;
+
+      state.prevPossessionTeam = nextTeam;
+      state.fastTransitionT = Math.max(state.fastTransitionT, 3.6);
+      state.justFlippedPossession = true;
+      setPadSideOverride("auto");
+
+      const newOffTeam = nextTeam === "Home" ? teamA : teamB;
+      const newDefTeam = nextTeam === "Home" ? teamB : teamA;
+
+      if (nextTeam === "Home") {
+        state.uiDefenseToggle = false;
+        state.isDefending = false;
+        if (isUiDefendingRef.current) {
+          isUiDefendingRef.current = false;
+          setIsUiDefending(false);
+        }
+      }
+
+      for (const p of newOffTeam) {
+        if (p.isBench) continue;
+        p.defState.stanceActive = false;
+        p.defState.stanceT = 0;
+        p.defState.contestT = 0;
+        p.defState.contestLevel = 0;
+        p.defState.verticalWallT = 0;
+        p.defState.boxOutT = 0;
+        p.defState.hipRideT = 0;
+        p.defState.hipRideTarget = null;
+        p.defState.handCheckT = 0;
+        p.defState.cutoffClampT = 0;
+        p.defState.switchLockT = 0;
+        p.holdT = 0;
+        if (p.act && !p.act.lock) p.act = null;
+        (p as any)._steer = null;
+      }
+
+      for (const p of newDefTeam) {
+        if (p.isBench) continue;
+        p.offState.tripleThreatActive = false;
+        p.offState.tripleThreatT = 0;
+        p.offState.postSealT = 0;
+        p.offState.cutActionT = 0;
+        p.offState.openWaveT = 0;
+        p.shield = false;
+        p.holdT = 0;
+        p.defState.aiMoveCoolT = 0;
+        p.defState.switchLockT = 0;
+        if (p.act && !p.act.lock) p.act = null;
+        (p as any)._steer = null;
+      }
     };
     const STAMINA_SETTINGS = {
       maxStamina: 100,
@@ -2969,52 +3085,34 @@ export default function BasketballGame() {
       }
     };
     const _aiWant = V();
-    const aiSteer = (P: any, tx: number, tz: number, sp: number, dt: number) => {
-      const clampedX = clamp(tx, -13.45, 13.45);
-      const clampedZ = clamp(tz, -7.05, 7.05);
-      const dx = clampedX - P.root.position.x;
-      const dz = clampedZ - P.root.position.z;
-      const d = Math.hypot(dx, dz);
-      const s = Math.min(sp, d * 6.0);
-
-      if (!P._stuck) {
-        P._stuck = { lastX: P.root.position.x, lastZ: P.root.position.z, stuckT: 0, bypassT: 0, side: 1 };
-      }
-      const st = P._stuck;
-      const moved = Math.hypot(P.root.position.x - st.lastX, P.root.position.z - st.lastZ);
-      st.lastX = P.root.position.x;
-      st.lastZ = P.root.position.z;
-
-      if (d > 0.55 && sp > 1.2 && (!P.act || !P.act.lock)) {
-        if (moved < Math.max(0.008, sp * dt * 0.18)) {
-          st.stuckT += dt;
-          if (st.stuckT > 0.22) {
-            st.stuckT = 0;
-            st.bypassT = 0.55;
-            st.side = -st.side;
-          }
-        } else {
-          st.stuckT = Math.max(0, st.stuckT - dt * 1.6);
+    const aiSteer = (P: any, tx: number, tz: number, sp: number, dt: number, squareUpEntity: GameEntity | null = null) => {
+      const obstacles: SteerObstacle[] = [
+        { x: HOOP_X + 0.95, z: 0, radius: 0.72 },
+        { x: -HOOP_X - 0.95, z: 0, radius: 0.72 },
+      ];
+      for (const other of entities) {
+        if (other === P || other.isBench || !other.root.visible) continue;
+        const od = Math.hypot(other.root.position.x - P.root.position.x, other.root.position.z - P.root.position.z);
+        if (other === squareUpEntity && od < 1.8) continue;
+        if (od < 3.5) {
+          obstacles.push({
+            x: other.root.position.x,
+            z: other.root.position.z,
+            radius: other === squareUpEntity ? 0.3 : 0.46,
+          });
         }
-      } else {
-        st.stuckT = 0;
       }
-
-      if (d > 0.04) {
-        const nx = dx / d;
-        const nz = dz / d;
-        if (st.bypassT > 0) {
-          st.bypassT = Math.max(0, st.bypassT - dt);
-          // Blend strong orthogonal sidestep around blocking players/stanchions
-          const ox = -nz * st.side;
-          const oz = nx * st.side;
-          _aiWant.set((nx * 0.4 + ox * 0.95) * Math.max(s, 5.2), 0, (nz * 0.4 + oz * 0.95) * Math.max(s, 5.2));
-        } else {
-          _aiWant.set(nx * s, 0, nz * s);
-        }
-      } else {
-        _aiWant.set(0, 0, 0);
-      }
+      const res = stepSmoothSteering({
+        pos: { x: P.root.position.x, z: P.root.position.z },
+        vel: { x: P.vel.x, z: P.vel.z },
+        target: { x: tx, z: tz },
+        maxSpeed: sp,
+        dt,
+        prevState: (P._steer as SmoothSteerState | undefined) || null,
+        obstacles,
+      });
+      P._steer = res.state;
+      _aiWant.set(res.vx, 0, res.vz);
       applyVel(P, _aiWant, dt);
     };
 
@@ -3060,12 +3158,12 @@ export default function BasketballGame() {
                 b.root.position.z = clamp(b.root.position.z + nz * overlap * wB * 0.9, -7.35, 7.35);
               }
 
-              // Clean collision velocity sliding along tangent plane with smooth damping (prevents sticking/oscillating)
+              // Clean collision velocity sliding along tangent plane with smooth shoulder-slip bypass
               const relVx = b.vel.x - a.vel.x;
               const relVz = b.vel.z - a.vel.z;
               const relNormal = relVx * nx + relVz * nz;
               if (relNormal < 0) {
-                const restitution = 0.35;
+                const restitution = 0.06;
                 if (wA > 0) {
                   a.vel.x += nx * relNormal * wA * (1 + restitution);
                   a.vel.z += nz * relNormal * wA * (1 + restitution);
@@ -3073,6 +3171,21 @@ export default function BasketballGame() {
                 if (wB > 0) {
                   b.vel.x -= nx * relNormal * wB * (1 + restitution);
                   b.vel.z -= nz * relNormal * wB * (1 + restitution);
+                }
+                // Add slight tangential slip so moving players glide smoothly around each other's shoulders
+                if (pass === 0 && relNormal < -1.1) {
+                  const tx = -nz;
+                  const tz = nx;
+                  const slipBias = (a.vel.x * tx + a.vel.z * tz) >= 0 ? 1 : -1;
+                  const slipMag = Math.min(1.6, -relNormal * 0.18);
+                  if (wA > 0 && !a.defState.stanceActive) {
+                    a.vel.x += tx * slipBias * slipMag * wA;
+                    a.vel.z += tz * slipBias * slipMag * wA;
+                  }
+                  if (wB > 0 && !b.defState.stanceActive) {
+                    b.vel.x -= tx * slipBias * slipMag * wB;
+                    b.vel.z -= tz * slipBias * slipMag * wB;
+                  }
                 }
               }
 
@@ -3207,7 +3320,22 @@ export default function BasketballGame() {
               aim.z + ex.passTo.vel.z * FT * 0.42
             )
           : aim;
-      state.flight = { kind: type, shooter: P, passTo: ex.passTo || null, pts: ex.pts || 0, perfect: !!ex.perfect, dunk: !!ex.dunk, dunkStyle: ex.dunkStyle || null, layup: !!ex.layup, t: 0, T: FT, rim: 0 };
+      state.flight = {
+        kind: type,
+        shooter: P,
+        passTo: ex.passTo || null,
+        pts: ex.pts || 0,
+        perfect: !!ex.perfect,
+        dunk: !!ex.dunk,
+        dunkStyle: ex.dunkStyle || null,
+        layup: !!ex.layup,
+        t: 0,
+        T: FT,
+        rim: 0,
+        fromPos: { x: from.x, z: from.z },
+        toPos: { x: targetPos.x, z: targetPos.z },
+        deflectedChecked: new Set<any>(),
+      };
       ball.position.copy(from); state.ballVel.set((targetPos.x - from.x) / FT, (targetPos.y - from.y) / FT + 0.5 * G * FT, (targetPos.z - from.z) / FT);
       state.owner = null; state.ballMode = "flight";
       const pan = clamp(from.z / 7.5, -1, 1);
@@ -3329,7 +3457,9 @@ export default function BasketballGame() {
         Audio.shotRelease({ pan, vol: 0.82 });
       }
 
-      // Reset shot clock on shot attempt
+      // Reset shot clock on shot attempt & record FGA / 3PA
+      P.stats.fga++;
+      if (pts === 3) P.stats.tpa++;
       state.shotClock = resetShotClock("shot_attempt");
       setShotClockResetPulse(k => k + 1);
       setLastShotResetReason("shot_attempt");
@@ -3524,7 +3654,7 @@ export default function BasketballGame() {
       state.deadReason = "foul";
       state.deadT = 1.5;
       state.ballVel.set(0, 0, 0);
-      state.owner = attacker;
+      commitPossessionTransition(teamA.includes(attacker) ? "Home" : "Away", attacker, "defensive_foul");
       state.shotClock = resetShotClock("foul");
       setShotClockResetPulse(k => k + 1);
       setLastShotResetReason("foul");
@@ -3551,6 +3681,7 @@ export default function BasketballGame() {
     function performOffensiveFoul(attacker: GameEntity, defender: GameEntity, reason: string) {
       if (state.deadT > 0) return;
       attacker.stats.fouls++;
+      attacker.stats.tov++;
       attacker.act = null;
       attacker.shield = false;
       defender.act = null;
@@ -3562,8 +3693,7 @@ export default function BasketballGame() {
       state.deadReason = "foul";
       state.deadT = 1.4;
       state.ballVel.set(0, 0, 0);
-      state.owner = defender;
-      state.fastTransitionT = 3.6;
+      commitPossessionTransition(teamA.includes(defender) ? "Home" : "Away", defender, "offensive_foul");
       state.shotClock = resetShotClock("turnover");
       setShotClockResetPulse((k) => k + 1);
       setLastShotResetReason("turnover");
@@ -3588,6 +3718,8 @@ export default function BasketballGame() {
         },
       };
       if (state.owner === attacker) {
+        attacker.stats.tov++;
+        defender.stats.stl++;
         state.owner = null;
         state.ballMode = "loose";
         state.flight = null;
@@ -3601,6 +3733,7 @@ export default function BasketballGame() {
       triggerMsg(reason, "#10b981");
     }
     function triggerShotBlock(blocker: GameEntity, labelText = "REJECTED!") {
+      blocker.stats.blk++;
       if (blocker.isUser) {
         matchExtraStatsRef.current.blocks++;
       }
@@ -3625,6 +3758,8 @@ export default function BasketballGame() {
       const tmp = def1.defState.matchupIdx;
       def1.defState.matchupIdx = def2.defState.matchupIdx;
       def2.defState.matchupIdx = tmp;
+      def1.defState.switchLockT = 1.4;
+      def2.defState.switchLockT = 1.4;
     }
     function getNearestDefenderDist(entity: GameEntity, defenders: GameEntity[]): number {
       let best = Infinity;
@@ -3892,6 +4027,7 @@ export default function BasketballGame() {
       state.deadT = 0;
       state.deadReason = null;
       state.lastScoringTeam = null;
+      state.possessingTeam = "Home";
       state.prevPossessionTeam = null;
       state.fastTransitionT = 0;
       state.looseT = 0;
@@ -3910,7 +4046,7 @@ export default function BasketballGame() {
       isBallLooseRef.current = false;
       setIsBallLoose(false);
       entities.forEach((p) => {
-        p.stats = { pts: 0, ast: 0, reb: 0, fouls: 0 };
+        p.stats = createEmptyPlayerStats();
         p.act = null;
         p.h = 0;
         p.vy = 0;
@@ -3936,6 +4072,8 @@ export default function BasketballGame() {
         p.offState.tripleThreatT = 0;
         p.offState.cutActionT = 0;
         (p as any)._stuck = null;
+        (p as any)._pid = null;
+        (p as any)._steer = null;
       });
 
       if (mode === "streetball") {
@@ -4039,19 +4177,28 @@ export default function BasketballGame() {
       Audio.buzzer("game");
       Audio.crowdScream({ vol: 0.95 });
       Audio.commentary("gameover");
-      const stats = entities
-        .filter((p) => !p.isBench || p.stats.pts > 0 || p.stats.reb > 0 || p.stats.ast > 0 || p.stats.fouls > 0)
-        .map((p) => ({
-          name: p.name,
-          isUser: p.isUser,
-          pts: p.stats.pts,
-          ast: p.stats.ast,
-          reb: p.stats.reb,
-          fouls: p.stats.fouls,
-          team: teamA.includes(p) ? "Home" : "Away",
-        }));
-      const sortedStats = stats.sort((a, b) => (b.pts + b.ast * 2 + b.reb * 1.5) - (a.pts + a.ast * 2 + a.reb * 1.5));
-      setFinalStats(sortedStats);
+      const summaryData = buildEndGameSummaryData(
+        entities
+          .filter(
+            (p) =>
+              !p.isBench ||
+              p.stats.pts > 0 ||
+              p.stats.fga > 0 ||
+              p.stats.reb > 0 ||
+              p.stats.ast > 0 ||
+              p.stats.tov > 0 ||
+              p.stats.fouls > 0
+          )
+          .map((p) => ({
+            name: p.name,
+            pos: p.pos,
+            team: teamA.includes(p) ? "Home" : "Away",
+            isUser: p.isUser,
+            stats: p.stats,
+          }))
+      );
+      setFinalStats(summaryData.players);
+      setFinalTeamTotals({ home: summaryData.homeTotals, away: summaryData.awayTotals });
 
       // Sync Online Multiplayer Final Result
       if (mpClientRef.current?.roomCode) {
@@ -4079,10 +4226,18 @@ export default function BasketballGame() {
       const recordResult = recordMatchToCareer(earnings);
       careerStatsRef.current = recordResult.updatedStats;
       setCareerStats(recordResult.updatedStats);
+      const userFgPct =
+        ME.stats.fga > 0 ? Math.round((ME.stats.fgm / ME.stats.fga) * 1000) / 10 : 0;
       setLastMatchEarnings({
-        pts: earnings.pts,
-        reb: earnings.reb,
-        ast: earnings.ast,
+        pts: ME.stats.pts,
+        fgm: ME.stats.fgm,
+        fga: ME.stats.fga,
+        fgPct: userFgPct,
+        tov: ME.stats.tov,
+        reb: ME.stats.reb,
+        ast: ME.stats.ast,
+        stl: Math.max(ME.stats.stl, matchExtraStatsRef.current.steals),
+        blk: Math.max(ME.stats.blk, matchExtraStatsRef.current.blocks),
         xpGained: recordResult.xpGained,
         leveledUp: recordResult.leveledUp,
         unlocked: recordResult.newlyUnlockedItems,
@@ -4093,8 +4248,8 @@ export default function BasketballGame() {
         pts: earnings.pts,
         reb: earnings.reb,
         ast: earnings.ast,
-        stl: matchExtraStatsRef.current.steals,
-        blk: matchExtraStatsRef.current.blocks,
+        stl: Math.max(ME.stats.stl, matchExtraStatsRef.current.steals),
+        blk: Math.max(ME.stats.blk, matchExtraStatsRef.current.blocks),
         won,
       });
       myCareerRef.current = nextMyCareer;
@@ -4117,23 +4272,22 @@ export default function BasketballGame() {
             awayId = nextSched.awayTeamId;
           }
         }
-        const approxFgm = Math.max(0, Math.round(earnings.pts / 2.2));
         const nextLeague = recordUserPlayedMatch(leagueStateRef.current, {
           homeTeamId: homeId,
           awayTeamId: awayId,
           homeScore: state.scoreHome,
           awayScore: state.scoreAway,
           userStats: {
-            pts: earnings.pts,
-            reb: earnings.reb,
-            ast: earnings.ast,
-            stl: matchExtraStatsRef.current.steals,
-            blk: matchExtraStatsRef.current.blocks,
-            tov: 0,
-            fgm: approxFgm,
-            fga: Math.max(approxFgm, Math.round(approxFgm * 1.9)),
-            tpm: matchExtraStatsRef.current.threes,
-            tpa: Math.max(matchExtraStatsRef.current.threes, Math.floor(approxFgm / 1.8)),
+            pts: ME.stats.pts,
+            reb: ME.stats.reb,
+            ast: ME.stats.ast,
+            stl: Math.max(ME.stats.stl, matchExtraStatsRef.current.steals),
+            blk: Math.max(ME.stats.blk, matchExtraStatsRef.current.blocks),
+            tov: ME.stats.tov,
+            fgm: ME.stats.fgm,
+            fga: ME.stats.fga,
+            tpm: ME.stats.tpm,
+            tpa: ME.stats.tpa,
             ftm: 0,
             fta: 0,
           },
@@ -4164,8 +4318,8 @@ export default function BasketballGame() {
           state.scoreHome,
           state.scoreAway,
           {
-            steals: matchExtraStatsRef.current.steals,
-            threes: matchExtraStatsRef.current.threes,
+            steals: Math.max(ME.stats.stl, matchExtraStatsRef.current.steals),
+            threes: Math.max(ME.stats.tpm, matchExtraStatsRef.current.threes),
             dunks: matchExtraStatsRef.current.dunks,
           }
         );
@@ -4192,36 +4346,40 @@ export default function BasketballGame() {
         triggerMsg("NEW GEAR UNLOCKED!", "#10b981");
       }
 
-      // Broadcast Postgame Interview or Championship Trophy Ceremony
-      const potg = sortedStats[0] || { name: ME.name, pts: ME.stats.pts, reb: ME.stats.reb, ast: ME.stats.ast };
-      pendingPostBroadcastActionRef.current = "show_summary";
-      setTimeout(() => {
-        setBroadcastScene({
-          stage: crownedChampion ? "championship" : "postgame",
-          homeTeamName: studioCustomRef.current.teamName,
-          awayTeamName: currentCity.teamName,
-          homeAbbr: studioCustomRef.current.teamAbbr,
-          awayAbbr: currentCity.name.slice(0, 3).toUpperCase(),
-          homeColor: studioCustomRef.current.primaryColor,
-          awayColor: currentCity.jerseyPrimary,
-          scoreHome: state.scoreHome,
-          scoreAway: state.scoreAway,
-          arenaName: currentCity.arenaName,
-          startersHome: teamA.slice(0, 5).map((p) => p.name),
-          startersAway: teamB.slice(0, 5).map((p) => p.name),
-          potgName: potg.name,
-          potgLine: `${potg.pts} PTS · ${potg.reb} REB · ${potg.ast} AST`,
-          interviewQuestion: won
-            ? "Big-time statement tonight! What turned the momentum in your favor down the stretch?"
-            : "Hard-fought battle until the final buzzer. What is the adjustment heading into the next matchup?",
-          interviewOptions: [
-            { label: "Team Chemistry", quote: "Our spacing and trust in the locker room carried us.", repGain: 4 },
-            { label: "Lockdown Defense", quote: "Stops fueled our transition attack every single quarter.", repGain: 5 },
-            { label: "Championship Standard", quote: "Every possession is preparation for raising the Sovereign Cup.", repGain: 6 },
-          ],
-          trophyName: CHAMPIONSHIP_TROPHY_NAME,
-        });
-      }, 650);
+      // Queue optional Postgame Interview & open End-of-Game Summary immediately at the final buzzer
+      const potg = summaryData.players[0] || {
+        name: ME.name,
+        pts: ME.stats.pts,
+        reb: ME.stats.reb,
+        ast: ME.stats.ast,
+      };
+      setPendingPostgameBroadcast({
+        stage: crownedChampion ? "championship" : "postgame",
+        homeTeamName: studioCustomRef.current.teamName,
+        awayTeamName: currentCity.teamName,
+        homeAbbr: studioCustomRef.current.teamAbbr,
+        awayAbbr: currentCity.name.slice(0, 3).toUpperCase(),
+        homeColor: studioCustomRef.current.primaryColor,
+        awayColor: currentCity.jerseyPrimary,
+        scoreHome: state.scoreHome,
+        scoreAway: state.scoreAway,
+        arenaName: currentCity.arenaName,
+        startersHome: teamA.slice(0, 5).map((p) => p.name),
+        startersAway: teamB.slice(0, 5).map((p) => p.name),
+        potgName: potg.name,
+        potgLine: `${potg.pts} PTS · ${potg.reb} REB · ${potg.ast} AST`,
+        interviewQuestion: won
+          ? "Big-time statement tonight! What turned the momentum in your favor down the stretch?"
+          : "Hard-fought battle until the final buzzer. What is the adjustment heading into the next matchup?",
+        interviewOptions: [
+          { label: "Team Chemistry", quote: "Our spacing and trust in the locker room carried us.", repGain: 4 },
+          { label: "Lockdown Defense", quote: "Stops fueled our transition attack every single quarter.", repGain: 5 },
+          { label: "Championship Standard", quote: "Every possession is preparation for raising the Sovereign Cup.", repGain: 6 },
+        ],
+        trophyName: CHAMPIONSHIP_TROPHY_NAME,
+      });
+      pendingPostBroadcastActionRef.current = "none";
+      setShowSummary(true);
     };
 
     const scoopBall = () => {
@@ -4231,7 +4389,8 @@ export default function BasketballGame() {
       if (distToBall > 4.5) return;
 
       const fromHoop = isNearHoop(ball.position);
-      const wasHeldByOpp = Boolean(state.owner && !teamA.includes(state.owner));
+      const prevOwner = state.owner as GameEntity | null;
+      const wasHeldByOpp = Boolean(prevOwner && !teamA.includes(prevOwner));
       const wasDeadAfterScore = state.ballMode === "dead" && state.deadReason === "score";
 
       if (distToBall > 1.35) {
@@ -4240,8 +4399,13 @@ export default function BasketballGame() {
         ME.root.position.x = clamp(ME.root.position.x + stepX, -13.5, 13.5);
         ME.root.position.z = clamp(ME.root.position.z + stepZ, -7.0, 7.0);
       }
-      if (ball.position.y > 1.65 && ME.h <= 0.1) {
-        ME.vy = 3.8;
+      if (ball.position.y > 1.45 && ME.h <= 0.1) {
+        ME.vy = Math.max(ME.vy, getUserJumpVy(5.4));
+      }
+      if (wasHeldByOpp && prevOwner) {
+        prevOwner.stats.tov++;
+        ME.stats.stl++;
+        matchExtraStatsRef.current.steals++;
       }
       if (state.hadRimContact) {
         ME.stats.reb++;
@@ -4250,11 +4414,9 @@ export default function BasketballGame() {
       state.flight = null;
       state.deadT = 0;
       state.deadReason = null;
-      state.owner = ME;
       state.ballMode = "dribble";
       state.ballVel.set(0, 0, 0);
-      state.fastTransitionT = 3.6;
-      state.prevPossessionTeam = "Home";
+      commitPossessionTransition("Home", ME, "scoop");
       isBallLooseRef.current = false;
       setIsBallLoose(false);
       if (isMpGuestSession() && mpClientRef.current?.roomCode) {
@@ -5515,8 +5677,8 @@ export default function BasketballGame() {
 
         if (defMove === DefenseMove.WALL_UP) {
           // Pure verticality jump near rim with both arms straight up, zero foul
-          ME.vel.set(0, 0, 0);
-          if (ME.h <= 0.05) ME.vy = 4.35;
+          if (Math.hypot(ME.vel.x, ME.vel.z) < 1.5) ME.vel.multiplyScalar(0.35);
+          if (ME.h <= 0.08) ME.vy = Math.max(ME.vy, getUserJumpVy(5.55));
           ME.defState.verticalWallT = 0.95;
           ME.defState.contestT = 0.95;
           ME.defState.contestLevel = 1.0;
@@ -5533,7 +5695,7 @@ export default function BasketballGame() {
               T.elL = -0.06;
             },
           };
-          if (state.ballMode === "flight" && state.flight?.kind === "shot" && ME.root.position.distanceTo(ball.position) < 2.55) {
+          if (state.ballMode === "flight" && state.flight?.kind === "shot" && ME.root.position.distanceTo(ball.position) < 2.65) {
             triggerShotBlock(ME, "VERTICAL WALL-UP!");
             return;
           }
@@ -5544,8 +5706,11 @@ export default function BasketballGame() {
         if (defMove === DefenseMove.SHOT_CONTEST) {
           ME.defState.contestT = 1.15;
           ME.defState.contestLevel = 1.0;
-          const contestSpot = ballOwner.root.position.clone().addScaledVector(ownerDirToHoop, 1.15);
-          ME.vel.copy(dirTo(ME.root.position, contestSpot)).multiplyScalar(5.8);
+          if (ME.h <= 0.08) ME.vy = Math.max(ME.vy, getUserJumpVy(5.45));
+          if (Math.hypot(ME.vel.x, ME.vel.z) < 1.2) {
+            const contestSpot = ballOwner.root.position.clone().addScaledVector(ownerDirToHoop, 1.05);
+            ME.vel.copy(dirTo(ME.root.position, contestSpot)).multiplyScalar(6.4);
+          }
           ME.act = {
             kind: "def_contest",
             name: disp,
@@ -5558,7 +5723,7 @@ export default function BasketballGame() {
               T.shL = -1.0;
             },
           };
-          if (state.ballMode === "flight" && state.flight?.kind === "shot" && ME.root.position.distanceTo(ball.position) < 2.35) {
+          if (state.ballMode === "flight" && state.flight?.kind === "shot" && ME.root.position.distanceTo(ball.position) < 2.55) {
             triggerShotBlock(ME, "CONTESTED SWAT!");
             return;
           }
@@ -5568,8 +5733,8 @@ export default function BasketballGame() {
 
         if (defMove === DefenseMove.CHASE_DOWN_BLOCK) {
           const chaseTarget = state.ballMode === "flight" ? ball.position : ballOwner.root.position;
-          ME.vel.copy(dirTo(ME.root.position, chaseTarget)).multiplyScalar(11.4);
-          if (ME.h <= 0.05) ME.vy = 4.95;
+          ME.vel.copy(dirTo(ME.root.position, chaseTarget)).multiplyScalar(11.6);
+          if (ME.h <= 0.08) ME.vy = Math.max(ME.vy, getUserJumpVy(5.75));
           ME.defState.contestT = 0.9;
           ME.defState.contestLevel = 1.0;
           ME.act = {
@@ -5584,7 +5749,7 @@ export default function BasketballGame() {
               T.elR = -0.08;
             },
           };
-          if (state.ballMode === "flight" && state.flight?.kind === "shot" && ME.root.position.distanceTo(ball.position) < 2.95) {
+          if (state.ballMode === "flight" && state.flight?.kind === "shot" && ME.root.position.distanceTo(ball.position) < 3.05) {
             triggerShotBlock(ME, "CHASE-DOWN BLOCK!");
             return;
           }
@@ -5735,9 +5900,11 @@ export default function BasketballGame() {
           ME.defState.volleySwatT = 0.65;
           ME.defState.contestT = 1.0;
           ME.defState.contestLevel = 1.0;
-          if (ME.h <= 0.06) ME.vy = 5.55;
-          const swatTarget = state.ballMode === "flight" ? ball.position : ballOwner.root.position;
-          ME.vel.copy(dirTo(ME.root.position, swatTarget)).multiplyScalar(8.6);
+          if (ME.h <= 0.08) ME.vy = Math.max(ME.vy, getUserJumpVy(6.05));
+          if (Math.hypot(ME.vel.x, ME.vel.z) < 1.2) {
+            const swatTarget = state.ballMode === "flight" ? ball.position : ballOwner.root.position;
+            ME.vel.copy(dirTo(ME.root.position, swatTarget)).multiplyScalar(8.6);
+          }
           ME.act = {
             kind: "def_contest",
             name: disp,
@@ -6036,8 +6203,10 @@ export default function BasketballGame() {
             }
           } else if (defMove === DefenseMove.WEAK_SIDE_RIM_PROTECTION) {
             const rimSpot = V(-11.2, 0, 0);
-            ME.vel.copy(dirTo(ME.root.position, rimSpot)).multiplyScalar(10.2);
-            if (ME.h <= 0.05) ME.vy = 4.6;
+            if (Math.hypot(ME.vel.x, ME.vel.z) < 1.2) {
+              ME.vel.copy(dirTo(ME.root.position, rimSpot)).multiplyScalar(10.2);
+            }
+            if (ME.h <= 0.08) ME.vy = Math.max(ME.vy, getUserJumpVy(5.55));
             ME.defState.verticalWallT = 0.9;
             ME.defState.contestT = 0.95;
             ME.defState.contestLevel = 1.0;
@@ -6576,10 +6745,12 @@ export default function BasketballGame() {
 
         if (userWon) {
           state.owner = ME;
+          state.possessingTeam = "Home";
           state.ballMode = "dribble";
           ME.root.position.set(-2, 0, 0);
         } else {
           state.owner = teamB[0];
+          state.possessingTeam = "Away";
           state.ballMode = "dribble";
           teamB[0].root.position.set(2, 0, 0);
         }
@@ -6602,8 +6773,17 @@ export default function BasketballGame() {
             const distBall = ME.root.position.distanceTo(ball.position);
             if (distBall < 4.5 && (state.ballMode === "loose" || state.flight?.reboundable || (isNearHoop(ball.position) && ball.position.y < 3.45))) {
               scoopBall();
+            } else if (state.owner && teamA.includes(state.owner)) {
+              if (ME.h <= 0.08) {
+                if (ME.act && !ME.act.lock) ME.act = null;
+                ME.vy = Math.max(ME.vy, getUserJumpVy(5.65));
+                jumpAct(ME, "REBOUND JUMP", 0.62);
+              }
             } else {
-              if (ME.h <= 0.08) ME.vy = Math.max(ME.vy, 4.9);
+              if (ME.h <= 0.08) {
+                if (ME.act && !ME.act.lock) ME.act = null;
+                ME.vy = Math.max(ME.vy, getUserJumpVy(5.55));
+              }
               executeMove(state.flight?.kind === "shot" ? DefenseMove.BOX_OUT : DefenseMove.SHOT_CONTEST);
             }
           }
@@ -6656,9 +6836,16 @@ export default function BasketballGame() {
               scoopBall();
               return;
             }
+            if (ME.h <= 0.08) {
+              if (ME.act && !ME.act.lock) ME.act = null;
+              ME.vy = Math.max(ME.vy, getUserJumpVy(5.75));
+            }
+            if (state.owner && teamA.includes(state.owner)) {
+              jumpAct(ME, "SKY JUMP", 0.65);
+              return;
+            }
             const ballOwner = state.owner && !teamA.includes(state.owner) ? state.owner : null;
             const distOwnHoop = Math.hypot(ME.root.position.x + HOOP_X, ME.root.position.z);
-            if (ME.h <= 0.08) ME.vy = Math.max(ME.vy, 5.2);
             if (ballOwner && ME.root.position.x > ballOwner.root.position.x + 0.65) {
               executeMove(DefenseMove.CHASE_DOWN_BLOCK);
             } else if (distOwnHoop < 4.4) {
@@ -6714,9 +6901,16 @@ export default function BasketballGame() {
             scoopBall();
             return;
           }
+          if (ME.h <= 0.08) {
+            if (ME.act && !ME.act.lock) ME.act = null;
+            ME.vy = Math.max(ME.vy, getUserJumpVy(5.75));
+          }
+          if (state.owner && teamA.includes(state.owner)) {
+            jumpAct(ME, "SKY JUMP", 0.65);
+            return;
+          }
           const ballOwner = state.owner && !teamA.includes(state.owner) ? state.owner : null;
           const distOwnHoop = Math.hypot(ME.root.position.x + HOOP_X, ME.root.position.z);
-          if (ME.h <= 0.08) ME.vy = Math.max(ME.vy, 5.2);
           if (ballOwner && ME.root.position.x > ballOwner.root.position.x + 0.65) {
             executeMove(DefenseMove.CHASE_DOWN_BLOCK);
           } else if (distOwnHoop < 4.4) {
@@ -6739,7 +6933,10 @@ export default function BasketballGame() {
             scoopBall();
             return;
           }
-          if (ME.h <= 0.08) ME.vy = Math.max(ME.vy, 4.7);
+          if (ME.h <= 0.08) {
+            if (ME.act && !ME.act.lock) ME.act = null;
+            ME.vy = Math.max(ME.vy, getUserJumpVy(5.45));
+          }
           executeMove(state.flight?.kind === "shot" ? DefenseMove.BOX_OUT : DefenseMove.CLOSEOUT);
         },
         onShadeButton: () => {
@@ -6878,7 +7075,7 @@ export default function BasketballGame() {
     };
 
     const loop = (now: number) => {
-      const dt = Math.min((now - state.lastTime) / 1000, 0.05); state.lastTime = now;
+      const dt = Math.max(0.001, Math.min((now - state.lastTime) / 1000, 0.05)); state.lastTime = now;
       Audio.updateCheer(state.crowdCheer);
       stepTikiVfx(dt);
 
@@ -6980,7 +7177,10 @@ export default function BasketballGame() {
           triggerMsg("SHOT CLOCK VIOLATION", "#ef4444");
 
           if (state.owner) {
-            state.owner = teamA.includes(state.owner) ? teamB[0] : teamA[0];
+            state.owner.stats.tov++;
+            const wasHome = teamA.includes(state.owner);
+            const nextOwner = wasHome ? (teamB.find((p) => !p.isBench && p.root.visible) || teamB[0]) : ME;
+            commitPossessionTransition(wasHome ? "Away" : "Home", nextOwner, "shot_clock");
             state.ballMode = "dribble";
           }
         }
@@ -7017,11 +7217,15 @@ export default function BasketballGame() {
             Audio.whistle("violation");
             Audio.crowdReaction({ vol: 0.88 });
             triggerMsg(isTrapTo ? "5-SECOND BACKCOURT TRAP TURNOVER!" : "8-SECOND BACKCOURT VIOLATION!", "#f59e0b");
+            state.owner.stats.tov++;
+            if (closePressingDef) {
+              closePressingDef.stats.stl++;
+            }
             if (!ownerHome) matchExtraStatsRef.current.steals++;
-            state.owner = ownerHome ? teamB[0] : ME;
+            const nextOwner = ownerHome ? (teamB.find((p) => !p.isBench && p.root.visible) || teamB[0]) : ME;
+            commitPossessionTransition(ownerHome ? "Away" : "Home", nextOwner, "backcourt_violation");
             state.ballMode = "dribble";
             state.stealGraceT = 1.25;
-            state.fastTransitionT = 3.6;
           }
         } else {
           state.backcourtClock = 0;
@@ -7194,6 +7398,60 @@ export default function BasketballGame() {
       const wantVel = V()
         .addScaledVector(camDir, moveForward * normScale * sp)
         .addScaledVector(camRight, moveRight * normScale * sp);
+
+      // Smooth shoulder-bypass steering for ME so user can glide cleanly around teammates, screeners & defenders
+      if (moveMag > 0.12 && wantVel.lengthSq() > 1e-4 && !ME.act?.lock) {
+        const wLen = Math.hypot(wantVel.x, wantVel.z);
+        const wDirX = wantVel.x / wLen;
+        const wDirZ = wantVel.z / wLen;
+        let steerAdjX = 0;
+        let steerAdjZ = 0;
+        let bypassActive = false;
+        for (const other of entities) {
+          if (other === ME || other.isBench || !other.root.visible) continue;
+          const isGuardedBallHandler =
+            isDefending && state.owner === other && !teamA.includes(other);
+          if (isGuardedBallHandler) continue;
+          const ox = other.root.position.x - ME.root.position.x;
+          const oz = other.root.position.z - ME.root.position.z;
+          const od = Math.hypot(ox, oz);
+          if (od < 0.01 || od > 1.55) continue;
+          const fwdDot = ox * wDirX + oz * wDirZ;
+          if (fwdDot <= 0.2) continue;
+          const perpSigned = ox * -wDirZ + oz * wDirX;
+          const clearance = 0.9;
+          if (Math.abs(perpSigned) < clearance) {
+            bypassActive = true;
+            let side: number;
+            if (Math.abs(perpSigned) > 0.22) {
+              side = perpSigned >= 0 ? -1 : 1;
+              (ME as any)._userBypassSide = side;
+            } else if ((ME as any)._userBypassSide) {
+              side = (ME as any)._userBypassSide;
+            } else {
+              const candPosZ = ME.root.position.z + wDirX * 1.1;
+              const candNegZ = ME.root.position.z - wDirX * 1.1;
+              side = Math.abs(candPosZ) < Math.abs(candNegZ) ? 1 : -1;
+              (ME as any)._userBypassSide = side;
+            }
+            const weight = ((clearance - Math.abs(perpSigned)) / clearance) * ((1.55 - od) / 1.55);
+            steerAdjX += (-wDirZ * side * 1.35) * weight;
+            steerAdjZ += (wDirX * side * 1.35) * weight;
+          }
+        }
+        if (bypassActive) {
+          const combX = wDirX * 0.72 + steerAdjX;
+          const combZ = wDirZ * 0.72 + steerAdjZ;
+          const combLen = Math.hypot(combX, combZ);
+          if (combLen > 1e-4) {
+            wantVel.x = (combX / combLen) * wLen;
+            wantVel.z = (combZ / combLen) * wLen;
+          }
+        } else {
+          (ME as any)._userBypassSide = 0;
+        }
+      }
+
       applyVel(ME, wantVel, dt);
 
       const hoopX = teamA.includes(ME) ? HOOP_X : -HOOP_X;
@@ -7220,8 +7478,15 @@ export default function BasketballGame() {
         if (moveTowardHoopDot < -0.3) startShot(ME, { name: "FADEAWAY", stepback: true, dur: 1.5 });
         else startShot(ME);
       } else if (edge("A") && state.owner !== ME) {
-        if (ME.h <= 0.08) ME.vy = Math.max(ME.vy, 4.7);
-        executeMove(state.flight?.kind === "shot" ? DefenseMove.BOX_OUT : DefenseMove.SHOT_CONTEST);
+        if (ME.h <= 0.08) {
+          if (ME.act && !ME.act.lock) ME.act = null;
+          ME.vy = Math.max(ME.vy, getUserJumpVy(5.55));
+        }
+        if (state.owner && teamA.includes(state.owner)) {
+          jumpAct(ME, "REBOUND JUMP", 0.62);
+        } else {
+          executeMove(state.flight?.kind === "shot" ? DefenseMove.BOX_OUT : DefenseMove.SHOT_CONTEST);
+        }
       }
       if (!input.A && prevInput.A && ME.act?.kind === "shot" && !ME.act.released && !ME.act.auto) releaseShot(ME, ME.act, false);
       if (edge("Y") && state.owner === ME) {
@@ -7233,15 +7498,22 @@ export default function BasketballGame() {
       } else if (edge("Y") && canTakeOrStealFromHoop) {
         scoopBall();
       } else if (edge("Y") && state.owner !== ME) {
-        const ballOwner = state.owner && !teamA.includes(state.owner) ? state.owner : null;
-        const distOwnHoop = Math.hypot(ME.root.position.x + HOOP_X, ME.root.position.z);
-        if (ME.h <= 0.08) ME.vy = Math.max(ME.vy, 5.2);
-        if (ballOwner && ME.root.position.x > ballOwner.root.position.x + 0.65) {
-          executeMove(DefenseMove.CHASE_DOWN_BLOCK);
-        } else if (distOwnHoop < 4.4) {
-          executeMove(DefenseMove.WALL_UP);
+        if (ME.h <= 0.08) {
+          if (ME.act && !ME.act.lock) ME.act = null;
+          ME.vy = Math.max(ME.vy, getUserJumpVy(5.75));
+        }
+        if (state.owner && teamA.includes(state.owner)) {
+          jumpAct(ME, "SKY JUMP", 0.65);
         } else {
-          executeMove(DefenseMove.SHOT_CONTEST);
+          const ballOwner = state.owner && !teamA.includes(state.owner) ? state.owner : null;
+          const distOwnHoop = Math.hypot(ME.root.position.x + HOOP_X, ME.root.position.z);
+          if (ballOwner && ME.root.position.x > ballOwner.root.position.x + 0.65) {
+            executeMove(DefenseMove.CHASE_DOWN_BLOCK);
+          } else if (distOwnHoop < 4.4) {
+            executeMove(DefenseMove.WALL_UP);
+          } else {
+            executeMove(DefenseMove.SHOT_CONTEST);
+          }
         }
       }
       if (edge("X") && state.owner === ME) {
@@ -7493,23 +7765,37 @@ export default function BasketballGame() {
         }
       });
 
-      // AI & FULL-COURT FAST-BREAK TRANSITIONS
+      // AI & FULL-COURT FAST-BREAK TRANSITIONS (Persistent possession prevents offense/defense flipping mid-shot)
       const ownerTeam: "Home" | "Away" | null = state.owner
         ? teamA.includes(state.owner)
           ? "Home"
           : "Away"
-        : null;
-      if (ownerTeam && ownerTeam !== state.prevPossessionTeam) {
-        state.prevPossessionTeam = ownerTeam;
-        state.fastTransitionT = 3.6;
+        : state.flight?.shooter
+          ? teamA.includes(state.flight.shooter)
+            ? "Home"
+            : "Away"
+          : null;
+      if (ownerTeam) {
+        if (ownerTeam !== state.prevPossessionTeam) {
+          commitPossessionTransition(ownerTeam, state.owner, "owner_sync");
+        } else {
+          state.possessingTeam = ownerTeam;
+        }
+      } else if (state.ballMode === "dead" && state.deadReason === "score" && state.lastScoringTeam) {
+        const nextTeam: "Home" | "Away" = state.lastScoringTeam === "Home" ? "Away" : "Home";
+        if (nextTeam !== state.prevPossessionTeam) {
+          commitPossessionTransition(nextTeam, null, "dead_score_sync");
+        } else {
+          state.possessingTeam = nextTeam;
+        }
       }
       if (state.fastTransitionT > 0) {
         state.fastTransitionT = Math.max(0, state.fastTransitionT - dt);
       }
 
-      const isTeamA = state.owner ? teamA.includes(state.owner) : state.lastScoringTeam === "Away";
-      const isTeamATransition = isTeamA && (state.fastTransitionT > 0 || ball.position.x < 3.0);
-      const isTeamBTransition = !isTeamA && (state.fastTransitionT > 0 || ball.position.x > -3.0);
+      const isTeamA = state.possessingTeam === "Home";
+      const isTeamATransition = isTeamA && (ball.position.x < -0.35 || state.fastTransitionT > 1.45);
+      const isTeamBTransition = !isTeamA && (ball.position.x > 0.35 || state.fastTransitionT > 1.45);
       const currentTactics = tacticsRef.current;
 
       // Per-frame Defense State Timers & Physical Collisions (Hip-Ride, Hand-Check, Charge, Pull-the-Chair)
@@ -7604,6 +7890,7 @@ export default function BasketballGame() {
         if (ds.boxOutT > 0) ds.boxOutT = Math.max(0, ds.boxOutT - dt);
         if (ds.passLaneHunterT > 0) ds.passLaneHunterT = Math.max(0, ds.passLaneHunterT - dt);
         if (ds.stumbleT > 0) ds.stumbleT = Math.max(0, ds.stumbleT - dt);
+        if ((ds.switchLockT ?? 0) > 0) ds.switchLockT = Math.max(0, (ds.switchLockT ?? 0) - dt);
 
         // Offense State Timers (Triple-Threat, Hostage Jail Pin, Deep Seal, Rebound Counters)
         const os = P.offState;
@@ -7716,6 +8003,71 @@ export default function BasketballGame() {
         const ballOwnerA = state.owner && teamA.includes(state.owner) ? state.owner : activeTeamA[0] || ME;
         const ballOwnerB = state.owner && teamB.includes(state.owner) ? state.owner : activeTeamB[0] || teamB[0];
 
+        const transitionSwitchActive = state.justFlippedPossession || state.fastTransitionT > 2.75;
+        state.justFlippedPossession = false;
+
+        // Compute unique 1-to-1 defensive matchups per team (runs proactive switches on screens/shuffles/transitions)
+        const defAssignA = assignDefensiveMatchups({
+          defenders: activeTeamA.map((p, idx) => ({
+            idx,
+            pos: { x: p.root.position.x, z: p.root.position.z },
+            role: p.pos,
+            prevMatchupIdx: p.defState.matchupIdx,
+            isUser: p.isUser,
+            switchLockT: p.defState.switchLockT ?? 0,
+          })),
+          attackers: activeTeamB.map((p, idx) => ({
+            idx,
+            pos: { x: p.root.position.x, z: p.root.position.z },
+            role: p.pos,
+          })),
+          ballOwnerIdx: Math.max(0, activeTeamB.indexOf(ballOwnerB)),
+          ourHoopX: -HOOP_X,
+          userGuardIdx: state.isDefending ? Math.max(0, activeTeamA.indexOf(ME)) : null,
+          isTransition: transitionSwitchActive,
+        });
+        const defAssignB = assignDefensiveMatchups({
+          defenders: activeTeamB.map((p, idx) => ({
+            idx,
+            pos: { x: p.root.position.x, z: p.root.position.z },
+            role: p.pos,
+            prevMatchupIdx: p.defState.matchupIdx,
+            switchLockT: p.defState.switchLockT ?? 0,
+          })),
+          attackers: activeTeamA.map((p, idx) => ({
+            idx,
+            pos: { x: p.root.position.x, z: p.root.position.z },
+            role: p.pos,
+          })),
+          ballOwnerIdx: Math.max(0, activeTeamA.indexOf(ballOwnerA)),
+          ourHoopX: HOOP_X,
+          isTransition: transitionSwitchActive,
+        });
+
+        // Apply live defensive switch bursts & callout when defenders run a screen/cross switch
+        if (!isTeamA && defAssignA.switchedDefenderIdxs.length > 0) {
+          for (const sIdx of defAssignA.switchedDefenderIdxs) {
+            const dEnt = activeTeamA[sIdx];
+            if (dEnt) {
+              dEnt.defState.aiMoveCoolT = Math.min(dEnt.defState.aiMoveCoolT ?? 0, 0.12);
+              dEnt.defState.switchLockT = Math.max(dEnt.defState.switchLockT ?? 0, 0.45);
+            }
+          }
+          if (!transitionSwitchActive && now - state.lastSwitchCallAt > 2600) {
+            state.lastSwitchCallAt = now;
+            triggerLabel("DEFENSE: SWITCH!");
+          }
+        }
+        if (isTeamA && defAssignB.switchedDefenderIdxs.length > 0) {
+          for (const sIdx of defAssignB.switchedDefenderIdxs) {
+            const dEnt = activeTeamB[sIdx];
+            if (dEnt) {
+              dEnt.defState.aiMoveCoolT = Math.min(dEnt.defState.aiMoveCoolT ?? 0, 0.12);
+              dEnt.defState.switchLockT = Math.max(dEnt.defState.switchLockT ?? 0, 0.45);
+            }
+          }
+        }
+
         if (state.owner === ME && state.ballMode === "dribble" && isTeamA && ME.root.position.x > 1.0) {
           const openCheck = findOpenTeammate(ME, teamA, teamB, HOOP_X);
           if (openCheck && openCheck.defDist >= 2.75 && openCheck.hoopDist <= 9.8) {
@@ -7736,26 +8088,29 @@ export default function BasketballGame() {
           ownTeam: GameEntity[],
           oppTeam: GameEntity[],
           oppBallHandler: GameEntity | null,
-          scheme: DefenseMove
+          scheme: DefenseMove,
+          activeDefs: GameEntity[],
+          activeAtts: GameEntity[],
+          assignment: ReturnType<typeof assignDefensiveMatchups>
         ) => {
           const ds = P.defState;
           if ((ds.aiMoveCoolT ?? 0) > 0) ds.aiMoveCoolT = Math.max(0, (ds.aiMoveCoolT ?? 0) - dt);
-          const activeOpp = oppTeam.filter((o) => !o.isBench && o.root.visible);
-          const nearestToBallHandler =
-            oppBallHandler &&
-            ownTeam.reduce<GameEntity | null>((best, cand) => {
-              if (cand.isBench || !cand.root.visible) return best;
-              if (!best) return cand;
-              return cand.root.position.distanceTo(oppBallHandler.root.position) <
-                best.root.position.distanceTo(oppBallHandler.root.position)
-                ? cand
-                : best;
-            }, null);
-
+          const activeSlot = activeDefs.indexOf(P);
+          const assignedOppIdx = activeSlot >= 0 ? assignment.matchupByDefenderIdx.get(activeSlot) : undefined;
           const matchup =
-            (oppBallHandler && P === nearestToBallHandler ? oppBallHandler : getMatchupForDefender(P, activeOpp)) ||
-            activeOpp[0];
+            (assignedOppIdx !== undefined ? activeAtts[assignedOppIdx] : null) ||
+            getMatchupForDefender(P, activeAtts) ||
+            activeAtts[0];
           if (!matchup) return;
+          if (assignedOppIdx !== undefined) {
+            ds.matchupIdx = assignedOppIdx;
+          }
+
+          const primaryDefEntity =
+            assignment.primaryDefenderIdx !== null ? activeDefs[assignment.primaryDefenderIdx] || null : null;
+          const isPrimaryOnBall = Boolean(
+            oppBallHandler && (P === primaryDefEntity || (!primaryDefEntity && matchup === oppBallHandler))
+          );
 
           const activeTeammates = ownTeam
             .map((mate, mateIdx) =>
@@ -7770,7 +8125,6 @@ export default function BasketballGame() {
             )
             .filter((t): t is NonNullable<typeof t> => t !== null);
 
-          const isOnBall = Boolean(oppBallHandler && (matchup === oppBallHandler || P === nearestToBallHandler));
           const decision = computeDefenseAiDecision({
             defenderIdx: defIdx,
             defenderPos: { x: P.root.position.x, z: P.root.position.z },
@@ -7785,8 +8139,8 @@ export default function BasketballGame() {
               : null,
             ballOwnerVel: oppBallHandler ? { x: oppBallHandler.vel.x, z: oppBallHandler.vel.z } : null,
             matchupPos: { x: matchup.root.position.x, z: matchup.root.position.z },
-            isOnBall,
-            isNearestToBallHandler: P === nearestToBallHandler,
+            isOnBall: isPrimaryOnBall,
+            isNearestToBallHandler: isPrimaryOnBall,
             shotInFlight: isShotInFlight,
             passInFlight: isPassInFlight,
             scheme,
@@ -7794,12 +8148,12 @@ export default function BasketballGame() {
             timeSec,
             cooldownReady: (ds.aiMoveCoolT ?? 0) <= 0,
             primaryDefenderPos:
-              nearestToBallHandler && nearestToBallHandler !== P
-                ? { x: nearestToBallHandler.root.position.x, z: nearestToBallHandler.root.position.z }
+              primaryDefEntity && primaryDefEntity !== P
+                ? { x: primaryDefEntity.root.position.x, z: primaryDefEntity.root.position.z }
                 : null,
             primaryDefenderVel:
-              nearestToBallHandler && nearestToBallHandler !== P
-                ? { x: nearestToBallHandler.vel.x, z: nearestToBallHandler.vel.z }
+              primaryDefEntity && primaryDefEntity !== P
+                ? { x: primaryDefEntity.vel.x, z: primaryDefEntity.vel.z }
                 : null,
             teammatePositions: activeTeammates,
             helpProximityRadius: 6.2,
@@ -7828,10 +8182,9 @@ export default function BasketballGame() {
             ds.cutoffClampT = Math.max(ds.cutoffClampT ?? 0, 0.55);
           }
 
-          // Animate physical jumps / volley swats / poke steals / glove rips / stunts cleanly without locking movement
-          if ((decision.triggerJump || decision.triggerVolleySwat) && P.h <= 0.04 && !P.act) {
-            ds.aiMoveCoolT = 1.35;
-            P.vy = Math.max(decision.triggerVolleySwat ? 5.3 : 4.6, decision.jumpVel + 1.1);
+          if ((decision.triggerJump || decision.triggerVolleySwat) && P.h <= 0.05 && (!P.act || !P.act.lock)) {
+            ds.aiMoveCoolT = 1.1;
+            P.vy = Math.max(decision.triggerVolleySwat ? 5.85 : 5.35, decision.jumpVel + 0.6);
             if (decision.triggerVolleySwat) ds.volleySwatT = 0.55;
             P.act = {
               kind: "def_jump",
@@ -7847,7 +8200,7 @@ export default function BasketballGame() {
               },
             };
           } else if ((decision.triggerPoke || decision.triggerStunt || decision.triggerGloveRip) && !P.act && oppBallHandler) {
-            ds.aiMoveCoolT = 1.65;
+            ds.aiMoveCoolT = 1.45;
             if (decision.triggerGloveRip) ds.gloveRipT = 0.35;
             const kHand = P.hand || "R";
             P.act = {
@@ -7863,15 +8216,16 @@ export default function BasketballGame() {
                 T.lean = 0.24;
               },
             };
-            // Real timed Poke-Steal / Glove-Rip / Stunt-Dig attempt if very close and ball is not shielded
             if (
               oppBallHandler === state.owner &&
               state.ballMode === "dribble" &&
               state.stealGraceT <= 0 &&
               !oppBallHandler.shield &&
               P.root.position.distanceTo(oppBallHandler.root.position) < (decision.triggerGloveRip ? 1.55 : 1.35) &&
-              Math.random() < (decision.triggerGloveRip ? 0.28 : 0.2)
+              Math.random() < (decision.triggerGloveRip ? 0.24 : 0.16)
             ) {
+              oppBallHandler.stats.tov++;
+              P.stats.stl++;
               state.owner = null;
               state.ballMode = "loose";
               state.flight = null;
@@ -7881,7 +8235,7 @@ export default function BasketballGame() {
             }
           }
 
-          aiSteer(P, decision.targetX, decision.targetZ, decision.speed, dt);
+          aiSteer(P, decision.targetX, decision.targetZ, decision.speed, dt, isPrimaryOnBall ? oppBallHandler : null);
         };
 
         // Helper: Dynamic live Ball-Handler AI for Team A teammates & Team B opponents
@@ -7893,6 +8247,9 @@ export default function BasketballGame() {
           targetHoopX: number
         ) => {
           P.holdT += dt;
+          if (P.act && !P.act.lock) {
+            P.act = null;
+          }
           if (P.act || (state.ballMode !== "dribble" && state.ballMode !== "held")) return;
 
           const attackDir = targetHoopX > 0 ? 1 : -1;
@@ -7900,20 +8257,20 @@ export default function BasketballGame() {
           const hoopDist = Math.hypot(targetHoopX - P.root.position.x, P.root.position.z);
           const openChoice = findOpenTeammate(P, ownTeam, oppTeam, targetHoopX);
 
-          // Advance ball swiftly across half-court timeline
-          const pastMid = attackDir > 0 ? P.root.position.x >= 0.6 : P.root.position.x <= -0.6;
+          // 1. Advance ball cleanly across midcourt avoiding sidelines/traps (no aimless sinusoidal weaving)
+          const pastMid = attackDir > 0 ? P.root.position.x >= 0.75 : P.root.position.x <= -0.75;
           if (!pastMid) {
-            const weaveZ = Math.sin(timeSec * 2.6 + slotIdx) * 2.4;
-            aiSteer(P, targetHoopX - attackDir * 3.8, weaveZ, 11.8, dt);
+            const advanceZ = clamp(P.root.position.z * 0.45, -2.6, 2.6);
+            aiSteer(P, targetHoopX - attackDir * 5.2, advanceZ, 11.6, dt);
             if (
               P.holdT > 0.45 &&
               openChoice &&
-              openChoice.defDist >= 2.25 &&
-              (openChoice.mate.root.position.x - P.root.position.x) * attackDir > 2.2
+              openChoice.defDist >= 2.3 &&
+              (openChoice.mate.root.position.x - P.root.position.x) * attackDir > 2.6
             ) {
               P.holdT = 0;
               state.ballStallT = 0;
-              state.stealGraceT = 0.85;
+              state.stealGraceT = 0.75;
               state.lastPasser = P;
               state.lastPassTime = now;
               fire(P, handPos(P), torsoPos(openChoice.mate), 0.34, "pass", { passTo: openChoice.mate });
@@ -7922,21 +8279,45 @@ export default function BasketballGame() {
           }
 
           const isRedTeam = teamA.includes(P);
-          // Attack driving lanes & perimeter pull-up spots so both teams run genuine offensive sets
-          const drivePhase = Math.sin(timeSec * 2.2 + slotIdx * 1.4);
-          const driveZ = selfDefDist >= 1.9 ? 0 : clamp(drivePhase * 3.6, -5.2, 5.2);
-          const driveX = targetHoopX - attackDir * (selfDefDist >= 1.95 ? 1.45 : 4.6 + Math.cos(timeSec * 1.7) * 1.4);
-          aiSteer(P, driveX, driveZ, selfDefDist >= 1.95 ? 9.4 : 8.4, dt);
+          // 2. Half-court basketball reads: probe open driving seam, use big screener hip, or kick/pull-up cleanly
+          const bigMate = ownTeam.find(
+            (m) => !m.isBench && m.root.visible && m !== P && (m.pos === "C" || m.pos === "PF")
+          );
+          let driveX = targetHoopX - attackDir * 5.8;
+          let driveZ = clamp(P.root.position.z * 0.6, -3.2, 3.2);
+          let moveSpeed = 8.4;
 
-          const wideOpenSelf = selfDefDist >= (isRedTeam ? 1.95 : 2.2) && P.holdT > (isRedTeam ? 0.26 : 0.32);
-          const openSelf = selfDefDist >= (isRedTeam ? 1.65 : 1.8) && P.holdT > (isRedTeam ? 0.52 : 0.65);
+          if (selfDefDist >= 1.95) {
+            // Open lane to the basket -> attack downhill cleanly!
+            driveX = targetHoopX - attackDir * 1.45;
+            driveZ = clamp(P.root.position.z * 0.35, -1.6, 1.6);
+            moveSpeed = 9.5;
+          } else if (bigMate && P.root.position.distanceTo(bigMate.root.position) < 2.9 && P.holdT > 0.35) {
+            // Drive tight around our screener's shoulder toward middle
+            const rubSide = bigMate.root.position.z >= P.root.position.z ? 1 : -1;
+            driveX = targetHoopX - attackDir * 2.8;
+            driveZ = clamp(bigMate.root.position.z + rubSide * 1.35, -4.6, 4.6);
+            moveSpeed = 9.1;
+          } else {
+            // Probe top/wing spacing seam away from heavy pressure
+            const slotSign = slotIdx % 2 === 0 ? 1 : -1;
+            driveX = targetHoopX - attackDir * (hoopDist > 6.6 ? 5.6 : 4.2);
+            driveZ = clamp(P.root.position.z + slotSign * 0.4, -4.8, 4.8);
+          }
+          aiSteer(P, driveX, driveZ, moveSpeed, dt);
+
+          // 3. Passing & shooting decisions based on open defender distance, teammates & shot clock
+          const wideOpenSelf = selfDefDist >= (isRedTeam ? 1.95 : 2.15) && P.holdT > (isRedTeam ? 0.28 : 0.34);
+          const openSelf = selfDefDist >= (isRedTeam ? 1.68 : 1.82) && P.holdT > (isRedTeam ? 0.56 : 0.68);
           const mateIsBetterOption =
             openChoice &&
-            openChoice.defDist >= (isRedTeam ? 1.9 : 2.25) &&
-            (selfDefDist < (isRedTeam ? 1.75 : 1.95) || openChoice.defDist > selfDefDist + 0.55 || (openChoice.mate.isUser && P.holdT > 0.45));
-          const forcedShot = isRedTeam
-            ? P.holdT > 1.75 || state.ballStallT > 1.2
-            : P.holdT > 1.25 || state.ballStallT > 0.9;
+            openChoice.defDist >= (isRedTeam ? 1.95 : 2.2) &&
+            (selfDefDist < (isRedTeam ? 1.85 : 2.0) ||
+              openChoice.defDist > selfDefDist + 0.6 ||
+              (openChoice.mate.isUser && P.holdT > 0.52));
+          const forcedDecision = isRedTeam
+            ? P.holdT > 2.2 || state.ballStallT > 1.35 || state.shotClock < 3.5
+            : P.holdT > 1.65 || state.ballStallT > 1.05 || state.shotClock < 3.5;
 
           if (P.h <= 0.05 && hoopDist <= 10.6 && (wideOpenSelf || openSelf) && !(selfDefDist < 1.95 && mateIsBetterOption)) {
             P.holdT = 0;
@@ -7954,23 +8335,23 @@ export default function BasketballGame() {
                 name: selfDefDist >= 2.2 ? (hoopDist >= 6.75 ? "THREE-POINTER" : "OPEN JUMP SHOT") : "JUMP SHOT",
               });
             }
-          } else if (P.holdT > 0.42 && mateIsBetterOption && openChoice) {
+          } else if (P.holdT > 0.45 && mateIsBetterOption && openChoice) {
             P.holdT = 0;
             state.ballStallT = 0;
             P.h = 0;
             P.vy = 0;
-            state.stealGraceT = 0.85;
+            state.stealGraceT = 0.75;
             state.lastPasser = P;
             state.lastPassTime = now;
             fire(P, handPos(P), torsoPos(openChoice.mate), 0.34, "pass", { passTo: openChoice.mate });
             if (openChoice.mate.isUser) triggerLabel("PASS TO OPEN MAN!");
-          } else if (forcedShot) {
+          } else if (forcedDecision) {
             P.holdT = 0;
             state.ballStallT = 0;
             P.h = 0;
             P.vy = 0;
-            if (isRedTeam && openChoice && openChoice.defDist >= 1.75 && selfDefDist < 1.55) {
-              state.stealGraceT = 0.85;
+            if (openChoice && openChoice.defDist >= 1.8 && (selfDefDist < 1.65 || hoopDist > 9.2)) {
+              state.stealGraceT = 0.75;
               state.lastPasser = P;
               state.lastPassTime = now;
               fire(P, handPos(P), torsoPos(openChoice.mate), 0.34, "pass", { passTo: openChoice.mate });
@@ -7981,8 +8362,8 @@ export default function BasketballGame() {
               } else {
                 startShot(P, { auto: true, stepback: selfDefDist < 2.0, name: "CONTESTED JUMPER" });
               }
-            } else if (openChoice && openChoice.defDist >= 1.45) {
-              state.stealGraceT = 0.85;
+            } else if (openChoice) {
+              state.stealGraceT = 0.75;
               state.lastPasser = P;
               state.lastPassTime = now;
               fire(P, handPos(P), torsoPos(openChoice.mate), 0.34, "pass", { passTo: openChoice.mate });
@@ -7992,18 +8373,27 @@ export default function BasketballGame() {
           }
         };
 
-        // Update Team A AI Players (Offense, Loose Ball, & Full Defense Moves)
+        const teamAPositions = activeTeamA.map((p) => ({ x: p.root.position.x, z: p.root.position.z }));
+        const teamBPositions = activeTeamB.map((p) => ({ x: p.root.position.x, z: p.root.position.z }));
+
+        // Update Team A AI Players (Offense, Rebound Jumping, Loose-Ball Chaser, & Unique 5-Man Defense)
         teamA.forEach((P, i) => {
           if (P.isBench || !P.root.visible || P.isUser || remoteDrivenEntities.has(P)) return;
-          if (P === nearestLooseA || (canAiChaseBall && Math.hypot(P.root.position.x - ball.position.x, P.root.position.z - ball.position.z) < 2.7)) {
+          const distBall2d = Math.hypot(P.root.position.x - ball.position.x, P.root.position.z - ball.position.z);
+          if (P === nearestLooseA) {
             aiSteer(P, ball.position.x, ball.position.z, 12.6, dt);
-            if (ball.position.y > 1.75 && P.h <= 0.05 && Math.hypot(P.root.position.x - ball.position.x, P.root.position.z - ball.position.z) < 2.2) {
-              P.vy = 5.0;
+            if (ball.position.y > 1.45 && P.h <= 0.05 && distBall2d < 2.65) {
+              P.vy = Math.max(P.vy, 5.55);
             }
             return;
           }
+          if (canAiChaseBall && ball.position.y > 1.55 && P.h <= 0.05 && distBall2d < 2.4 && (P.pos === "C" || P.pos === "PF" || i >= 3)) {
+            P.vy = Math.max(P.vy, 5.45);
+          }
           if (isPassInFlight && state.flight?.passTo === P) {
-            aiSteer(P, ball.position.x, ball.position.z, 11.4, dt);
+            const catchX = ball.position.x + state.ballVel.x * 0.08;
+            const catchZ = ball.position.z + state.ballVel.z * 0.08;
+            aiSteer(P, catchX, catchZ, 8.8, dt);
             return;
           }
           if (state.owner === P) {
@@ -8011,8 +8401,10 @@ export default function BasketballGame() {
           } else if (isTeamA) {
             const dyn = computeDynamicOffBallTarget({
               slotIdx: i,
+              playerRole: P.pos,
               targetHoopX: HOOP_X,
               ballOwnerPos: ballOwnerA ? { x: ballOwnerA.root.position.x, z: ballOwnerA.root.position.z } : null,
+              teammatePositions: teamAPositions.filter((_pos, idx) => idx !== activeTeamA.indexOf(P)),
               shotInFlight: isShotInFlight,
               isFastBreak: isTeamATransition,
               offenseTactic: currentTactics.offense,
@@ -8022,22 +8414,28 @@ export default function BasketballGame() {
             if (dyn.isCutting) P.offState.cutActionT = Math.max(P.offState.cutActionT, 0.25);
             aiSteer(P, dyn.x, dyn.z, dyn.speed, dt);
           } else {
-            executeAiDefender(P, i, -HOOP_X, teamA, teamB, ballOwnerB, defSchemeTeamA);
+            executeAiDefender(P, i, -HOOP_X, teamA, teamB, ballOwnerB, defSchemeTeamA, activeTeamA, activeTeamB, defAssignA);
           }
         });
 
-        // Update Team B AI Players (Offense, Loose Ball, & Full Defense Moves)
+        // Update Team B AI Players (Offense, Rebound Jumping, Loose-Ball Chaser, & Unique 5-Man Defense)
         teamB.forEach((P, i) => {
           if (P.isBench || !P.root.visible || remoteDrivenEntities.has(P)) return;
-          if (P === nearestLooseB || (canAiChaseBall && Math.hypot(P.root.position.x - ball.position.x, P.root.position.z - ball.position.z) < 2.7)) {
+          const distBall2d = Math.hypot(P.root.position.x - ball.position.x, P.root.position.z - ball.position.z);
+          if (P === nearestLooseB) {
             aiSteer(P, ball.position.x, ball.position.z, 12.6, dt);
-            if (ball.position.y > 1.75 && P.h <= 0.05 && Math.hypot(P.root.position.x - ball.position.x, P.root.position.z - ball.position.z) < 2.2) {
-              P.vy = 5.0;
+            if (ball.position.y > 1.45 && P.h <= 0.05 && distBall2d < 2.65) {
+              P.vy = Math.max(P.vy, 5.55);
             }
             return;
           }
+          if (canAiChaseBall && ball.position.y > 1.55 && P.h <= 0.05 && distBall2d < 2.4 && (P.pos === "C" || P.pos === "PF" || i >= 3)) {
+            P.vy = Math.max(P.vy, 5.45);
+          }
           if (isPassInFlight && state.flight?.passTo === P) {
-            aiSteer(P, ball.position.x, ball.position.z, 11.4, dt);
+            const catchX = ball.position.x + state.ballVel.x * 0.08;
+            const catchZ = ball.position.z + state.ballVel.z * 0.08;
+            aiSteer(P, catchX, catchZ, 8.8, dt);
             return;
           }
           if (state.owner === P) {
@@ -8045,8 +8443,10 @@ export default function BasketballGame() {
           } else if (!isTeamA) {
             const dyn = computeDynamicOffBallTarget({
               slotIdx: i,
+              playerRole: P.pos,
               targetHoopX: -HOOP_X,
               ballOwnerPos: ballOwnerB ? { x: ballOwnerB.root.position.x, z: ballOwnerB.root.position.z } : null,
+              teammatePositions: teamBPositions.filter((_pos, idx) => idx !== activeTeamB.indexOf(P)),
               shotInFlight: isShotInFlight,
               isFastBreak: isTeamBTransition,
               offenseTactic: "balanced",
@@ -8056,7 +8456,7 @@ export default function BasketballGame() {
             if (dyn.isCutting) P.offState.cutActionT = Math.max(P.offState.cutActionT, 0.25);
             aiSteer(P, dyn.x, dyn.z, dyn.speed, dt);
           } else {
-            executeAiDefender(P, i, HOOP_X, teamB, teamA, ballOwnerA, defSchemeTeamB);
+            executeAiDefender(P, i, HOOP_X, teamB, teamA, ballOwnerA, defSchemeTeamB, activeTeamB, activeTeamA, defAssignB);
           }
         });
 
@@ -8099,9 +8499,10 @@ export default function BasketballGame() {
                 const effFoulProb = opp.defState.verticalWallT > 0 ? 0 : foulProb;
                 if (Math.random() < effFoulProb) performFoul(opp, owner);
                 else {
-                  state.owner = opp;
+                  owner.stats.tov++;
+                  opp.stats.stl++;
+                  commitPossessionTransition(teamA.includes(opp) ? "Home" : "Away", opp, "steal");
                   state.stealGraceT = 1.2;
-                  state.fastTransitionT = 3.6;
                   if (opp.isUser) matchExtraStatsRef.current.steals++;
                   Audio.squeak({ pan: clamp(opp.root.position.z / 7.5, -1, 1), vol: 0.8, entityKey: opp.name });
                   Audio.crowdReaction({ vol: 0.85 });
@@ -8182,7 +8583,10 @@ export default function BasketballGame() {
                 (teamB.includes(P) && teamA.includes(state.owner)))
           );
         const stanceFacingTarget =
-          !P.act && P.defState.stanceActive && isDefendingOpponent && state.owner && sp < 10.6
+          !P.act &&
+          isDefendingOpponent &&
+          state.owner &&
+          ((P.defState.stanceActive && sp < 10.6) || sp < 2.2)
             ? Math.atan2(
                 state.owner.root.position.x - P.root.position.x,
                 state.owner.root.position.z - P.root.position.z
@@ -8513,6 +8917,8 @@ export default function BasketballGame() {
             p.z = dz * 0.35;
             const shooter = state.flight.shooter;
             shooter.stats.pts += state.flight.pts;
+            shooter.stats.fgm++;
+            if (state.flight.pts === 3) shooter.stats.tpm++;
             if (state.lastPasser && state.lastPasser !== shooter && now - state.lastPassTime < 5000) {
               state.lastPasser.stats.ast++;
             }
@@ -8633,6 +9039,7 @@ export default function BasketballGame() {
             setLastShotResetReason("basket_made");
             state.flight = null;
             state.crowdCheer = 3.0; // SCREAMING CHEER!
+            commitPossessionTransition(isHome ? "Away" : "Home", null, "basket_made");
           } else if (d < RIM_R + BALL_R + 0.04 && state.flight.rim < 3) { 
             state.flight.rim++;
             state.flight.reboundable = true;
@@ -8743,23 +9150,40 @@ export default function BasketballGame() {
           state.deadT -= dt;
           if(state.deadT <= 0) {
             const isPractice = gameModeRef.current === "freestyle" || gameModeRef.current === "training";
-            if (!isPractice && state.deadReason === "score" && state.lastScoringTeam === "Home") {
-              const inbounder = teamB.find((p) => !p.isBench && p.root.visible) || teamB[0];
-              inbounder.root.position.set(12.2, 0, clamp(ball.position.z, -2.5, 2.5));
-              inbounder.holdT = 0.15;
-              state.owner = inbounder;
+            const currentOwnerTeam: "Home" | "Away" | null = state.owner
+              ? teamA.includes(state.owner)
+                ? "Home"
+                : "Away"
+              : null;
+            const inboundPlan = resolveDeadBallInboundOwner({
+              isPractice,
+              deadReason: state.deadReason,
+              lastScoringTeam: state.lastScoringTeam,
+              currentOwnerTeam,
+              possessingTeam: state.possessingTeam,
+              ballZ: ball.position.z,
+            });
+            let inbounder: GameEntity = ME;
+            if (inboundPlan.possessingTeam === "Away") {
+              inbounder =
+                state.owner && teamB.includes(state.owner) && !state.owner.isBench && state.owner.root.visible
+                  ? state.owner
+                  : teamB.find((p) => !p.isBench && p.root.visible) || teamB[0];
             } else {
-              if (!isPractice && state.deadReason === "score" && state.lastScoringTeam === "Away") {
-                ME.root.position.set(-12.2, 0, clamp(ball.position.z, -2.5, 2.5));
-              }
-              ME.holdT = 0;
-              state.owner = ME;
+              inbounder =
+                state.owner && teamA.includes(state.owner) && !state.owner.isBench && state.owner.root.visible
+                  ? state.owner
+                  : ME;
             }
+            if (inboundPlan.inboundX !== null && inboundPlan.inboundZ !== null) {
+              inbounder.root.position.set(inboundPlan.inboundX, 0, inboundPlan.inboundZ);
+            }
+            inbounder.holdT = inboundPlan.possessingTeam === "Away" ? 0.15 : 0;
+            commitPossessionTransition(inboundPlan.possessingTeam, inbounder, "inbound_live");
             state.ballMode = "dribble";
             state.deadReason = null;
             state.stealGraceT = 1.35;
             state.ballVel.set(0, 0, 0);
-            state.fastTransitionT = 3.6;
           }
         }
       }
@@ -8767,27 +9191,39 @@ export default function BasketballGame() {
         state.flight.t += dt;
         if(state.flight.kind === "pass") {
           const t = state.flight.passTo;
-          // Passes travel through 3D space as physical projectiles with independent momentum (no auto-lock homing)
-          // Check defenders' extended arm & body passing-lane reach for dynamic deflections & steals
           let interceptedOrDeflected = false;
-          if (state.flight.t > 0.05) {
+          const passerPos = state.flight.fromPos || { x: state.flight.shooter.root.position.x, z: state.flight.shooter.root.position.z };
+          const targetPassPos = t ? { x: t.root.position.x, z: t.root.position.z } : (state.flight.toPos || { x: ball.position.x, z: ball.position.z });
+          const checkedSet: Set<any> = state.flight.deflectedChecked || (state.flight.deflectedChecked = new Set<any>());
+
+          if (state.flight.t > 0.04) {
             const passerIsHome = teamA.includes(state.flight.shooter);
             const laneDefenders = passerIsHome ? teamB : teamA;
             for (const def of laneDefenders) {
-              if (def.isBench || !def.root.visible || def.defState.stumbleT > 0) continue;
+              if (def.isBench || !def.root.visible || def.defState.stumbleT > 0 || checkedSet.has(def)) continue;
               const isUserDef = def === ME && state.isDefending;
               const laneReach =
-                def.defState.passLaneHunterT > 0 ? 2.45 : isUserDef || def.defState.stanceActive ? 1.55 : 1.1;
-              if (ball.position.distanceTo(torsoPos(def)) < laneReach && ball.position.y < 2.75 + def.h) {
-                const wantIntercept =
-                  (def.defState.passLaneHunterT > 0 && def.defState.passLaneMode === "intercept") ||
-                  (isUserDef && Math.random() < 0.72);
-                if (wantIntercept) {
-                  state.owner = def;
+                def.defState.passLaneHunterT > 0 ? 1.75 : isUserDef ? 1.45 : def.defState.stanceActive ? 1.15 : 0.95;
+              if (ball.position.distanceTo(torsoPos(def)) < laneReach) {
+                checkedSet.add(def);
+                const res = checkPassLaneInterception({
+                  from: passerPos,
+                  to: targetPassPos,
+                  ballPos: { x: ball.position.x, y: ball.position.y, z: ball.position.z },
+                  defenderPos: { x: def.root.position.x, z: def.root.position.z },
+                  defenderHeight: def.h,
+                  laneReach,
+                  passLaneHunterActive: def.defState.passLaneHunterT > 0,
+                  passLaneMode: def.defState.passLaneMode,
+                  isUserDef,
+                });
+                if (res.hit && res.action === "intercept") {
+                  if (state.flight?.shooter) state.flight.shooter.stats.tov++;
+                  def.stats.stl++;
+                  commitPossessionTransition(teamA.includes(def) ? "Home" : "Away", def, "intercept");
                   state.ballMode = "dribble";
                   state.flight = null;
                   state.stealGraceT = 1.2;
-                  state.fastTransitionT = 3.6;
                   if (def.isUser) matchExtraStatsRef.current.steals++;
                   state.shotClock = resetShotClock("turnover");
                   setShotClockResetPulse((k) => k + 1);
@@ -8797,10 +9233,10 @@ export default function BasketballGame() {
                   triggerMsg("PASS INTERCEPTED!", "#10b981");
                   interceptedOrDeflected = true;
                   break;
-                } else if (def.defState.passLaneHunterT > 0 || isUserDef || def.defState.stanceActive || Math.random() < 0.28) {
+                } else if (res.hit && res.action === "deflect") {
                   state.flight = null;
                   state.ballMode = "loose";
-                  state.ballVel.set(rnd(4.5), 2.6, rnd(4.5));
+                  state.ballVel.set(rnd(4.2), 2.5, rnd(4.2));
                   Audio.backboardHit({ pan: clamp(def.root.position.z / 7.5, -1, 1), vol: 0.78 });
                   triggerMsg("PASS DEFLECTED!", "#38bdf8");
                   interceptedOrDeflected = true;
@@ -8809,8 +9245,18 @@ export default function BasketballGame() {
               }
             }
           }
-          if (!interceptedOrDeflected && state.flight && t && ball.position.distanceTo(torsoPos(t)) < 1.15) {
-            state.owner = t; state.ballMode = "dribble"; state.flight = null; t.holdT = 0; state.stealGraceT = 0.85;
+          // Subtle final-approach catch window toward receiver's hands if uncontested
+          if (!interceptedOrDeflected && state.flight && t && state.flight.t / Math.max(0.1, state.flight.T) > 0.72) {
+            const tp = torsoPos(t);
+            ball.position.x += (tp.x - ball.position.x) * Math.min(1, dt * 8);
+            ball.position.z += (tp.z - ball.position.z) * Math.min(1, dt * 8);
+          }
+          if (!interceptedOrDeflected && state.flight && t && ball.position.distanceTo(torsoPos(t)) < 1.38) {
+            commitPossessionTransition(teamA.includes(t) ? "Home" : "Away", t, "pass_catch");
+            state.ballMode = "dribble";
+            state.flight = null;
+            t.holdT = 0;
+            state.stealGraceT = 0.85;
             Audio.catchBall({ pan: clamp(t.root.position.z / 7.5, -1, 1), vol: 0.8 });
             if(t.isUser) triggerLabel("GOT IT");
           } else if (!interceptedOrDeflected && state.flight && state.flight.t > state.flight.T + 0.45) {
@@ -8900,14 +9346,13 @@ export default function BasketballGame() {
           grabber.act = null;
           grabber.shield = false;
           grabber.holdT = 0;
-          state.owner = grabber;
+          commitPossessionTransition(teamA.includes(grabber) ? "Home" : "Away", grabber, "rebound_or_loose");
           state.ballMode = "dribble";
           state.flight = null;
           state.deadT = 0;
           state.deadReason = null;
           state.looseT = 0;
           state.stealGraceT = 1.1;
-          state.fastTransitionT = 3.6;
           Audio.catchBall({ pan: clamp(grabber.root.position.z / 7.5, -1, 1), vol: 0.85 });
           if (grabber.isUser) {
             triggerLabel(ballAtHoop ? (wasDeadScore ? "STOLE FROM HOOP!" : "TOOK FROM HOOP!") : "GOT BALL!");
@@ -8932,7 +9377,7 @@ export default function BasketballGame() {
             const d = Math.hypot(P.root.position.x - ball.position.x, P.root.position.z - ball.position.z);
             if (d < bestD) { bestD = d; nearestActive = P; }
           }
-          state.owner = nearestActive;
+          commitPossessionTransition(teamA.includes(nearestActive) ? "Home" : "Away", nearestActive, "watchdog_recover");
           state.ballMode = "dribble";
           nearestActive.act = null;
           nearestActive.holdT = 0;
@@ -9040,7 +9485,7 @@ export default function BasketballGame() {
       );
 
       // 2K WEIGHTED BROADCAST CAMERA PIVOT (Sweeps smoothly down court + subtle zoom shift on offense/defense)
-      const isUserOffense = state.owner ? teamA.includes(state.owner) : state.lastScoringTeam === "Away";
+      const isUserOffense = state.possessingTeam === "Home";
       const targetFov = isUserOffense ? 47.5 : 52.0;
       if (Math.abs(camera.fov - targetFov) > 0.05) {
         camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 3.5);
@@ -9145,6 +9590,8 @@ export default function BasketballGame() {
       window.removeEventListener("resize", onResize);
       window.removeEventListener("pointerdown", onAutoTouchDetect);
       window.removeEventListener("touchstart", onFirstTouchStart);
+      window.removeEventListener("touchend", onGestureUnlock);
+      window.removeEventListener("click", onGestureUnlock);
       window.removeEventListener("keydown", onFirstKeyUnlock);
       document.removeEventListener("visibilitychange", onVisibilityAudioResume);
       renderer.domElement.removeEventListener("pointerdown", onOrbitDown);
@@ -9383,7 +9830,11 @@ export default function BasketballGame() {
               )}
               <button
                 type="button"
-                onClick={() => setPadSideOverride(effectivePadSide === "offense" ? "auto" : "offense")}
+                onClick={() => {
+                  const next = padSideOverride === "offense" ? "auto" : "offense";
+                  setPadSideOverride(next);
+                  gameRef.current?.playerController?.onDefenseButtonToggle?.(false);
+                }}
                 className={`px-2.5 py-1 rounded-lg text-[11px] font-black uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap ${
                   effectivePadSide === "offense"
                     ? "bg-amber-500 text-black"
@@ -9395,7 +9846,11 @@ export default function BasketballGame() {
               </button>
               <button
                 type="button"
-                onClick={() => setPadSideOverride(effectivePadSide === "defense" ? "auto" : "defense")}
+                onClick={() => {
+                  const next = padSideOverride === "defense" ? "auto" : "defense";
+                  setPadSideOverride(next);
+                  gameRef.current?.playerController?.onDefenseButtonToggle?.(next === "defense");
+                }}
                 className={`px-2.5 py-1 rounded-lg text-[11px] font-black uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-colors whitespace-nowrap ${
                   effectivePadSide === "defense"
                     ? "bg-cyan-400 text-black"
@@ -9408,7 +9863,10 @@ export default function BasketballGame() {
               {padSideOverride !== "auto" && (
                 <button
                   type="button"
-                  onClick={() => setPadSideOverride("auto")}
+                  onClick={() => {
+                    setPadSideOverride("auto");
+                    gameRef.current?.playerController?.onDefenseButtonToggle?.(false);
+                  }}
                   className="px-2 py-1 rounded-lg text-[10px] font-bold text-emerald-300 hover:bg-white/10 cursor-pointer whitespace-nowrap"
                   title="Auto-switch on possession"
                 >
@@ -10177,10 +10635,21 @@ export default function BasketballGame() {
         scoreAway={scoreAway}
         selectedCity={selectedCity}
         finalStats={finalStats}
+        teamTotals={finalTeamTotals}
         lastMatchEarnings={lastMatchEarnings}
         careerStats={careerStats}
+        hasPostgameInterview={Boolean(pendingPostgameBroadcast)}
+        onOpenPostgameInterview={() => {
+          if (pendingPostgameBroadcast) {
+            pendingPostBroadcastActionRef.current = "show_summary";
+            setShowSummary(false);
+            setBroadcastScene(pendingPostgameBroadcast);
+            setPendingPostgameBroadcast(null);
+          }
+        }}
         onRematch={() => {
           setShowSummary(false);
+          setPendingPostgameBroadcast(null);
           handleSelectGameMode(gameMode === "streetball" ? "streetball" : "match", true);
         }}
         onOpenWorldTour={() => {

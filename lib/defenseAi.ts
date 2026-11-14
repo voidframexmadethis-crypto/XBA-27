@@ -1,51 +1,5 @@
 import type { DefenseMove, OffenseMove } from "./basketballMoves.ts";
 
-const DM = {
-  DEFENSIVE_STANCE: "DEFENSIVE_STANCE" as DefenseMove,
-  DEFENSIVE_SLIDE: "DEFENSIVE_SLIDE" as DefenseMove,
-  DROP_STEP_SWING: "DROP_STEP_SWING" as DefenseMove,
-  SPRINT_TO_SLIDE: "SPRINT_TO_SLIDE" as DefenseMove,
-  CLOSEOUT: "CLOSEOUT" as DefenseMove,
-  SHADING_FORCING: "SHADING_FORCING" as DefenseMove,
-  HAND_CHECK_ARM_BAR: "HAND_CHECK_ARM_BAR" as DefenseMove,
-  STUNT_DIG: "STUNT_DIG" as DefenseMove,
-  POKE_STEAL: "POKE_STEAL" as DefenseMove,
-  GLOVE_RIP_STRIP: "GLOVE_RIP_STRIP" as DefenseMove,
-  HIP_RIDE: "HIP_RIDE" as DefenseMove,
-  WALL_UP: "WALL_UP" as DefenseMove,
-  SHOT_CONTEST: "SHOT_CONTEST" as DefenseMove,
-  CHASE_DOWN_BLOCK: "CHASE_DOWN_BLOCK" as DefenseMove,
-  VOLLEY_SWAT_BLOCK: "VOLLEY_SWAT_BLOCK" as DefenseMove,
-  BASELINE_TRAP_CUTOFF: "BASELINE_TRAP_CUTOFF" as DefenseMove,
-  DROP_COVERAGE: "DROP_COVERAGE" as DefenseMove,
-  BLITZ_TRAP: "BLITZ_TRAP" as DefenseMove,
-  ICE_BLUE: "ICE_BLUE" as DefenseMove,
-  BALL_YOU_MAN: "BALL_YOU_MAN" as DefenseMove,
-  FULL_DENIAL: "FULL_DENIAL" as DefenseMove,
-  THREE_QUARTER_DENIAL: "THREE_QUARTER_DENIAL" as DefenseMove,
-  GAP_HELP: "GAP_HELP" as DefenseMove,
-  HELP_AND_RECOVER: "HELP_AND_RECOVER" as DefenseMove,
-  X_OUT_ROTATION: "X_OUT_ROTATION" as DefenseMove,
-  JUMP_PASSING_LANE: "JUMP_PASSING_LANE" as DefenseMove,
-  THREE_QUARTER_FRONT: "THREE_QUARTER_FRONT" as DefenseMove,
-  WEAK_SIDE_RIM_PROTECTION: "WEAK_SIDE_RIM_PROTECTION" as DefenseMove,
-  BOX_OUT: "BOX_OUT" as DefenseMove,
-  WEDGE_CRASH: "WEDGE_CRASH" as DefenseMove,
-  MAN_TO_MAN: "MAN_TO_MAN" as DefenseMove,
-  ZONE_2_3: "ZONE_2_3" as DefenseMove,
-  ZONE_3_2: "ZONE_3_2" as DefenseMove,
-  FULL_COURT_PRESS: "FULL_COURT_PRESS" as DefenseMove,
-} as const;
-
-const OM = {
-  FAST_BREAK: "FAST_BREAK" as OffenseMove,
-  PICK_AND_ROLL: "PICK_AND_ROLL" as OffenseMove,
-  SPAIN_PICK_AND_ROLL: "SPAIN_PICK_AND_ROLL" as OffenseMove,
-  SLIP_SCREEN: "SLIP_SCREEN" as OffenseMove,
-  PICK_AND_POP: "PICK_AND_POP" as OffenseMove,
-  GHOST_SCREEN: "GHOST_SCREEN" as OffenseMove,
-} as const;
-
 export interface SpatialVec2 {
   x: number;
   z: number;
@@ -55,7 +9,7 @@ export interface TeammateDefenderInfo {
   idx: number;
   pos: SpatialVec2;
   vel?: SpatialVec2;
-  role?: string;
+  role: string;
 }
 
 export interface DefenseAiInput {
@@ -64,7 +18,7 @@ export interface DefenseAiInput {
   defenderVel: SpatialVec2;
   defenderHeight: number;
   defenderRole: string;
-  ourHoopX: number; // -HOOP_X for Team A, +HOOP_X for Team B
+  ourHoopX: number;
   ballPos: SpatialVec2;
   ballHeight: number;
   ballOwnerPos: SpatialVec2 | null;
@@ -105,7 +59,7 @@ export interface DefenseAiDecision {
   shadingSide: number;
   isLaneCutOff?: boolean;
   isBeatenTeammateHelp?: boolean;
-  helpTargetRole?: "primary_cutoff" | "help_rotate" | "rim_wall" | "recover" | "matchup";
+  helpTargetRole?: "matchup" | "primary_cutoff" | "help_rotate" | "rim_wall" | "recover";
   isBackcourtPress?: boolean;
   backcourtPressure?: number;
   backcourtRecoveryBurst?: boolean;
@@ -133,11 +87,555 @@ export interface DrivingLaneAnalysis {
 }
 
 function clamp(v: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, v));
+  return v < lo ? lo : v > hi ? hi : v;
 }
 
 function dist2d(a: SpatialVec2, b: SpatialVec2): number {
   return Math.hypot(a.x - b.x, a.z - b.z);
+}
+
+const DM = {
+  DEFENSIVE_STANCE: "DEFENSIVE_STANCE" as DefenseMove,
+  DEFENSIVE_SLIDE: "DEFENSIVE_SLIDE" as DefenseMove,
+  DROP_STEP_SWING: "DROP_STEP_SWING" as DefenseMove,
+  SPRINT_TO_SLIDE: "SPRINT_TO_SLIDE" as DefenseMove,
+  CLOSEOUT: "CLOSEOUT" as DefenseMove,
+  SHADING_FORCING: "SHADING_FORCING" as DefenseMove,
+  HAND_CHECK_ARM_BAR: "HAND_CHECK_ARM_BAR" as DefenseMove,
+  STUNT_DIG: "STUNT_DIG" as DefenseMove,
+  POKE_STEAL: "POKE_STEAL" as DefenseMove,
+  GLOVE_RIP_STRIP: "GLOVE_RIP_STRIP" as DefenseMove,
+  HIP_RIDE: "HIP_RIDE" as DefenseMove,
+  WALL_UP: "WALL_UP" as DefenseMove,
+  SHOT_CONTEST: "SHOT_CONTEST" as DefenseMove,
+  CHASE_DOWN_BLOCK: "CHASE_DOWN_BLOCK" as DefenseMove,
+  VOLLEY_SWAT_BLOCK: "VOLLEY_SWAT_BLOCK" as DefenseMove,
+  BASELINE_TRAP_CUTOFF: "BASELINE_TRAP_CUTOFF" as DefenseMove,
+  DROP_COVERAGE: "DROP_COVERAGE" as DefenseMove,
+  BLITZ_TRAP: "BLITZ_TRAP" as DefenseMove,
+  DOUBLE_TEAM: "DOUBLE_TEAM" as DefenseMove,
+  ICE_BLUE: "ICE_BLUE" as DefenseMove,
+  BALL_YOU_MAN: "BALL_YOU_MAN" as DefenseMove,
+  FULL_DENIAL: "FULL_DENIAL" as DefenseMove,
+  THREE_QUARTER_DENIAL: "THREE_QUARTER_DENIAL" as DefenseMove,
+  GAP_HELP: "GAP_HELP" as DefenseMove,
+  HELP_AND_RECOVER: "HELP_AND_RECOVER" as DefenseMove,
+  X_OUT_ROTATION: "X_OUT_ROTATION" as DefenseMove,
+  JUMP_PASSING_LANE: "JUMP_PASSING_LANE" as DefenseMove,
+  THREE_QUARTER_FRONT: "THREE_QUARTER_FRONT" as DefenseMove,
+  WEAK_SIDE_RIM_PROTECTION: "WEAK_SIDE_RIM_PROTECTION" as DefenseMove,
+  BOX_OUT: "BOX_OUT" as DefenseMove,
+  WEDGE_CRASH: "WEDGE_CRASH" as DefenseMove,
+  MAN_TO_MAN: "MAN_TO_MAN" as DefenseMove,
+  ZONE_2_3: "ZONE_2_3" as DefenseMove,
+  ZONE_3_2: "ZONE_3_2" as DefenseMove,
+  FULL_COURT_PRESS: "FULL_COURT_PRESS" as DefenseMove,
+} as const;
+
+const OM = {
+  FAST_BREAK: "FAST_BREAK" as OffenseMove,
+  PICK_AND_ROLL: "PICK_AND_ROLL" as OffenseMove,
+  SPAIN_PICK_AND_ROLL: "SPAIN_PICK_AND_ROLL" as OffenseMove,
+  SLIP_SCREEN: "SLIP_SCREEN" as OffenseMove,
+  PICK_AND_POP: "PICK_AND_POP" as OffenseMove,
+  GHOST_SCREEN: "GHOST_SCREEN" as OffenseMove,
+} as const;
+
+export interface SteerObstacle {
+  x: number;
+  z: number;
+  radius: number;
+}
+
+export interface SmoothSteerState {
+  vx: number;
+  vz: number;
+  stuckT: number;
+  lastProgressX: number;
+  lastProgressZ: number;
+  avoidSide?: number;
+  avoidLockT?: number;
+}
+
+export interface SmoothSteerResult {
+  vx: number;
+  vz: number;
+  state: SmoothSteerState;
+}
+
+/**
+ * Velocity-based smooth critically-damped steering controller with stabilized shoulder-bypass
+ * obstacle avoidance. Commits to a clear side around blocking players so characters glide
+ * cleanly around each other without back-and-forth hesitation.
+ */
+export function stepSmoothSteering(params: {
+  pos: SpatialVec2;
+  vel: SpatialVec2;
+  target: SpatialVec2;
+  maxSpeed: number;
+  dt: number;
+  prevState?: SmoothSteerState | null;
+  obstacles?: SteerObstacle[];
+  bounds?: { minX: number; maxX: number; minZ: number; maxZ: number };
+  arrivalRadius?: number;
+  stopRadius?: number;
+}): SmoothSteerResult {
+  const {
+    pos,
+    vel,
+    target,
+    maxSpeed,
+    dt,
+    prevState,
+    obstacles = [],
+    bounds = { minX: -13.45, maxX: 13.45, minZ: -7.05, maxZ: 7.05 },
+    arrivalRadius = 0.82,
+    stopRadius = 0.08,
+  } = params;
+
+  const safeDt = clamp(Number.isFinite(dt) ? dt : 1 / 60, 0.001, 0.06);
+  const tx = clamp(target.x, bounds.minX, bounds.maxX);
+  const tz = clamp(target.z, bounds.minZ, bounds.maxZ);
+  const dx = tx - pos.x;
+  const dz = tz - pos.z;
+  const dist = Math.hypot(dx, dz);
+
+  const st: SmoothSteerState = prevState
+    ? {
+        vx: prevState.vx || 0,
+        vz: prevState.vz || 0,
+        stuckT: prevState.stuckT || 0,
+        lastProgressX: prevState.lastProgressX ?? pos.x,
+        lastProgressZ: prevState.lastProgressZ ?? pos.z,
+        avoidSide: prevState.avoidSide || 0,
+        avoidLockT: Math.max(0, (prevState.avoidLockT || 0) - safeDt),
+      }
+    : {
+        vx: vel.x || 0,
+        vz: vel.z || 0,
+        stuckT: 0,
+        lastProgressX: pos.x,
+        lastProgressZ: pos.z,
+        avoidSide: 0,
+        avoidLockT: 0,
+      };
+
+  if (dist <= stopRadius) {
+    const decay = Math.exp(-22 * safeDt);
+    st.vx *= decay;
+    st.vz *= decay;
+    if (Math.hypot(st.vx, st.vz) < 0.08) {
+      st.vx = 0;
+      st.vz = 0;
+    }
+    st.stuckT = 0;
+    st.avoidLockT = 0;
+    return { vx: st.vx, vz: st.vz, state: st };
+  }
+
+  const dirX = dx / dist;
+  const dirZ = dz / dist;
+
+  // Obstacle avoidance (stanchions + teammates/opponents): steer smoothly around clear shoulder
+  let avoidX = 0;
+  let avoidZ = 0;
+  let maxBlockStrength = 0;
+  const lookAhead = clamp(maxSpeed * 0.34, 1.35, 3.2);
+  for (const obs of obstacles) {
+    const ox = obs.x - pos.x;
+    const oz = obs.z - pos.z;
+    const od = Math.hypot(ox, oz);
+    const safeDist = obs.radius + 0.68;
+    // Ignore obstacles further than target when already very close to target
+    if (od < 0.001 || od > Math.min(lookAhead + obs.radius, dist + 0.75)) continue;
+    const forwardDot = ox * dirX + oz * dirZ;
+    if (forwardDot <= -0.1) continue; // Obstacle is behind us
+
+    // Lateral miss distance relative to intended ray: perp = dot((ox, oz), (-dirZ, dirX))
+    const perpSigned = ox * -dirZ + oz * dirX;
+    if (Math.abs(perpSigned) < safeDist) {
+      const clearanceRatio = (safeDist - Math.abs(perpSigned)) / safeDist;
+      const distRatio = (lookAhead + obs.radius - od) / Math.max(0.45, lookAhead);
+      const strength = clamp(clearanceRatio * distRatio * 1.25, 0, 1.65);
+      maxBlockStrength = Math.max(maxBlockStrength, strength);
+
+      // Stabilize bypass side so head-on encounters never flip left/right frame-to-frame
+      let side: number;
+      if (Math.abs(perpSigned) > 0.24 && (!st.avoidLockT || st.avoidLockT <= 0)) {
+        side = perpSigned >= 0 ? -1 : 1;
+        st.avoidSide = side;
+        st.avoidLockT = 0.28;
+      } else if (st.avoidSide && st.avoidSide !== 0 && st.avoidLockT && st.avoidLockT > 0) {
+        side = st.avoidSide;
+      } else {
+        // Choose side that aligns with current lateral velocity and stays away from court sidelines
+        const velLat = st.vx * -dirZ + st.vz * dirX;
+        const candPosZ = pos.z + dirX * 1.2;
+        const candNegZ = pos.z - dirX * 1.2;
+        const boundaryBias = Math.abs(candPosZ) < Math.abs(candNegZ) ? 1 : -1;
+        side = Math.abs(velLat) > 0.35 ? Math.sign(velLat) : boundaryBias;
+        st.avoidSide = side;
+        st.avoidLockT = 0.34;
+      }
+
+      // Blend strong tangential shoulder bypass + gentle radial push-out
+      const invOd = 1 / od;
+      avoidX += (-dirZ * side * 1.48 - ox * invOd * 0.52) * strength;
+      avoidZ += (dirX * side * 1.48 - oz * invOd * 0.52) * strength;
+    }
+  }
+
+  if (maxBlockStrength <= 0.05 && st.avoidLockT && st.avoidLockT <= 0) {
+    st.avoidSide = 0;
+  }
+
+  // Soften forward drive proportionally when directly blocked so player arcs smoothly around shoulder
+  const forwardScale = maxBlockStrength > 0.35 ? clamp(1 - (maxBlockStrength - 0.35) * 0.5, 0.42, 1) : 1;
+  let steerX = dirX * forwardScale + avoidX;
+  let steerZ = dirZ * forwardScale + avoidZ;
+  const steerLen = Math.hypot(steerX, steerZ);
+  if (steerLen > 1e-4) {
+    steerX /= steerLen;
+    steerZ /= steerLen;
+  } else {
+    steerX = dirX;
+    steerZ = dirZ;
+  }
+
+  // Track if blocked/stuck despite large desired movement; commit to lateral escape arc earlier
+  const movedFromLast = Math.hypot(pos.x - st.lastProgressX, pos.z - st.lastProgressZ);
+  if (dist > 0.9 && movedFromLast < 0.07 * (safeDt / (1 / 60))) {
+    st.stuckT += safeDt;
+    if (st.stuckT > 0.16) {
+      const escapeSide = st.avoidSide && st.avoidSide !== 0 ? st.avoidSide : (Math.round(tx + tz) & 1) === 0 ? 1 : -1;
+      st.avoidSide = escapeSide;
+      st.avoidLockT = 0.36;
+      steerX = clamp(steerX - dirZ * escapeSide * 0.95, -1, 1);
+      steerZ = clamp(steerZ + dirX * escapeSide * 0.95, -1, 1);
+      const escLen = Math.hypot(steerX, steerZ);
+      if (escLen > 1e-4) {
+        steerX /= escLen;
+        steerZ /= escLen;
+      }
+    }
+  } else {
+    st.stuckT = Math.max(0, st.stuckT - safeDt * 2.5);
+  }
+  st.lastProgressX = pos.x;
+  st.lastProgressZ = pos.z;
+
+  // Smooth arrival ramp prevents overshoot around target
+  const arrivalFactor = dist < arrivalRadius ? dist / arrivalRadius : 1;
+  const targetSpeed = maxSpeed * clamp(arrivalFactor, 0.03, 1);
+  const desiredVx = steerX * targetSpeed;
+  const desiredVz = steerZ * targetSpeed;
+
+  // Acceleration-capped exponential velocity smoothing (no erratic derivative kick)
+  const dampRate = dist < arrivalRadius ? 22.0 : 16.5;
+  const blend = 1 - Math.exp(-dampRate * safeDt);
+  const nextVx = st.vx + (desiredVx - st.vx) * blend;
+  const nextVz = st.vz + (desiredVz - st.vz) * blend;
+  st.vx = Number.isFinite(nextVx) ? nextVx : 0;
+  st.vz = Number.isFinite(nextVz) ? nextVz : 0;
+
+  return { vx: st.vx, vz: st.vz, state: st };
+}
+
+export type DefensiveTacticalRole =
+  | "on_ball"
+  | "deny_wing"
+  | "paint_nail"
+  | "weak_side_help"
+  | "rim_anchor";
+
+export interface DefensiveAssignmentPlayer {
+  idx: number;
+  pos: SpatialVec2;
+  role: string;
+  prevMatchupIdx?: number;
+  isUser?: boolean;
+  switchLockT?: number;
+}
+
+export interface DefensiveAssignmentOutput {
+  matchupByDefenderIdx: Map<number, number>; // defender idx -> attacker idx
+  roleByDefenderIdx: Map<number, DefensiveTacticalRole>;
+  primaryDefenderIdx: number | null;
+  switchedDefenderIdxs: number[];
+}
+
+const ROLE_GROUP: Record<string, number> = {
+  PG: 0,
+  SG: 1,
+  SF: 2,
+  PF: 3,
+  C: 4,
+};
+
+/**
+ * Bijectively assigns 5 active defenders to 5 active offensive players (no duplicate chasing).
+ * Proactively runs defensive switches BEFORE screens/crosses/shuffled offenses break open,
+ * resets stale matchups immediately on transition, and ensures the ball handler is always picked up.
+ */
+export function assignDefensiveMatchups(params: {
+  defenders: DefensiveAssignmentPlayer[];
+  attackers: DefensiveAssignmentPlayer[];
+  ballOwnerIdx: number | null;
+  ourHoopX: number;
+  userGuardIdx?: number | null;
+  isTransition?: boolean;
+}): DefensiveAssignmentOutput {
+  const {
+    defenders,
+    attackers,
+    ballOwnerIdx,
+    ourHoopX,
+    userGuardIdx = null,
+    isTransition = false,
+  } = params;
+  const matchupByDefenderIdx = new Map<number, number>();
+  const roleByDefenderIdx = new Map<number, DefensiveTacticalRole>();
+  const switchedDefenderIdxs: number[] = [];
+
+  if (defenders.length === 0 || attackers.length === 0) {
+    return { matchupByDefenderIdx, roleByDefenderIdx, primaryDefenderIdx: null, switchedDefenderIdxs };
+  }
+
+  const handler =
+    ballOwnerIdx !== null ? attackers.find((a) => a.idx === ballOwnerIdx) ?? attackers[0] : attackers[0];
+  const hoopPos: SpatialVec2 = { x: ourHoopX, z: 0 };
+  const hoopSign = ourHoopX < 0 ? -1 : 1;
+
+  // Detect screen / shuffled cross exchanges among attackers so defense switches cleanly ahead of offense
+  const shuffledAttackerIdxs = new Set<number>();
+  for (let i = 0; i < attackers.length; i++) {
+    for (let j = i + 1; j < attackers.length; j++) {
+      const a = attackers[i];
+      const b = attackers[j];
+      if (dist2d(a.pos, b.pos) < 2.45) {
+        shuffledAttackerIdxs.add(a.idx);
+        shuffledAttackerIdxs.add(b.idx);
+      }
+    }
+  }
+  const hasOnBallScreen = attackers.some((a) => a.idx !== handler.idx && dist2d(a.pos, handler.pos) < 2.6);
+
+  // Step 1: Select ONE primary on-ball defender for `handler`
+  // If handler is screened or user stepped off-ball, immediately switch the better-positioned defender onto the ball!
+  let primaryDef = defenders[0];
+  let bestPrimaryScore = Infinity;
+  for (const def of defenders) {
+    const d = dist2d(def.pos, handler.pos);
+    const defBetweenHoop =
+      (def.pos.x - ourHoopX) * (hoopSign < 0 ? 1 : -1) <= (handler.pos.x - ourHoopX) * (hoopSign < 0 ? 1 : -1) + 0.25;
+    const hoopDistBonus = defBetweenHoop ? -0.65 : 0.75;
+    const defToHoop = dist2d(def.pos, hoopPos);
+    const handlerToHoop = dist2d(handler.pos, hoopPos);
+    const rimSideBonus = defToHoop < handlerToHoop ? -0.35 : 0.35;
+
+    // Drop sticky prevMatchup bonus during transition, on-ball screens, or if user defender wandered off-ball
+    const allowPrevSticky =
+      !isTransition &&
+      !hasOnBallScreen &&
+      !shuffledAttackerIdxs.has(handler.idx) &&
+      !(def.isUser && d > 2.35);
+    const prevBonus =
+      def.switchLockT && def.switchLockT > 0 && def.prevMatchupIdx === handler.idx
+        ? -2.8
+        : allowPrevSticky && def.prevMatchupIdx === handler.idx
+          ? -1.05
+          : 0;
+    const userOnBallBonus = userGuardIdx !== null && def.idx === userGuardIdx && d < 2.8 ? -1.4 : 0;
+    const roleDiff = Math.abs((ROLE_GROUP[def.role] ?? 2) - (ROLE_GROUP[handler.role] ?? 2));
+    const rolePenalty = isTransition || hasOnBallScreen ? roleDiff * 0.08 : roleDiff * 0.2;
+    const score = d + hoopDistBonus + rimSideBonus + prevBonus + userOnBallBonus + rolePenalty;
+    if (score < bestPrimaryScore) {
+      bestPrimaryScore = score;
+      primaryDef = def;
+    }
+  }
+
+  matchupByDefenderIdx.set(primaryDef.idx, handler.idx);
+  roleByDefenderIdx.set(primaryDef.idx, "on_ball");
+  if (primaryDef.prevMatchupIdx !== undefined && primaryDef.prevMatchupIdx !== handler.idx) {
+    switchedDefenderIdxs.push(primaryDef.idx);
+  }
+
+  // Step 2: Minimum-cost bijective matching for remaining defenders -> remaining attackers
+  const remDefs = defenders.filter((d) => d.idx !== primaryDef.idx);
+  const remAtts = attackers.filter((a) => a.idx !== handler.idx);
+
+  if (remDefs.length > 0 && remAtts.length > 0) {
+    const k = remDefs.length;
+    const m = remAtts.length;
+    const used = new Array<boolean>(m).fill(false);
+    const curAssign = new Array<number>(k).fill(0);
+    let bestCost = Infinity;
+    let bestAssign = new Array<number>(k).fill(0);
+
+    const pairCost = (def: DefensiveAssignmentPlayer, att: DefensiveAssignmentPlayer): number => {
+      const d = dist2d(def.pos, att.pos);
+      const isShuffledOrTransition = isTransition || shuffledAttackerIdxs.has(att.idx);
+      const roleDiff = Math.abs((ROLE_GROUP[def.role] ?? 2) - (ROLE_GROUP[att.role] ?? 2));
+      const rolePenalty = isShuffledOrTransition ? roleDiff * 0.14 : roleDiff * 0.42;
+      let hysteresis = 0;
+      if (def.switchLockT && def.switchLockT > 0 && def.prevMatchupIdx === att.idx) {
+        hysteresis = -2.8;
+      } else if (!isShuffledOrTransition && def.prevMatchupIdx === att.idx) {
+        hysteresis = -1.05;
+      }
+      // Bonus for staying between the attacker and our basket
+      const betweenBonus =
+        dist2d(def.pos, hoopPos) <= dist2d(att.pos, hoopPos) + 0.35 ? -0.3 : 0.25;
+      return d + rolePenalty + hysteresis + betweenBonus;
+    };
+
+    const dfs = (depth: number, accCost: number) => {
+      if (accCost >= bestCost) return;
+      if (depth === k) {
+        bestCost = accCost;
+        bestAssign = curAssign.slice();
+        return;
+      }
+      if (depth >= m) {
+        for (let j = 0; j < m; j++) {
+          curAssign[depth] = j;
+          dfs(depth + 1, accCost + pairCost(remDefs[depth], remAtts[j]) + 4.0);
+        }
+        return;
+      }
+      for (let j = 0; j < m; j++) {
+        if (used[j]) continue;
+        used[j] = true;
+        curAssign[depth] = j;
+        dfs(depth + 1, accCost + pairCost(remDefs[depth], remAtts[j]));
+        used[j] = false;
+      }
+    };
+
+    dfs(0, 0);
+    for (let i = 0; i < k; i++) {
+      const def = remDefs[i];
+      const att = remAtts[bestAssign[i]];
+      matchupByDefenderIdx.set(def.idx, att.idx);
+      if (def.prevMatchupIdx !== undefined && def.prevMatchupIdx !== att.idx) {
+        switchedDefenderIdxs.push(def.idx);
+      }
+    }
+  }
+
+  // Step 3: Assign coherent off-ball tactical roles to the 4 off-ball defenders
+  const ballSideSign = handler.pos.z >= 0 ? 1 : -1;
+  const offBallDefs = defenders.filter((d) => d.idx !== primaryDef.idx);
+  let rimAnchorIdx: number | null = null;
+  let bestRimScore = Infinity;
+  for (const d of offBallDefs) {
+    const isBig = d.role === "C" || d.role === "PF" || d.idx >= 3;
+    const score = dist2d(d.pos, hoopPos) - (isBig ? 2.4 : 0);
+    if (score < bestRimScore) {
+      bestRimScore = score;
+      rimAnchorIdx = d.idx;
+    }
+  }
+  for (const d of offBallDefs) {
+    if (d.idx === rimAnchorIdx) {
+      roleByDefenderIdx.set(d.idx, "rim_anchor");
+      continue;
+    }
+    const attIdx = matchupByDefenderIdx.get(d.idx);
+    const att = attackers.find((a) => a.idx === attIdx);
+    const attDistToBall = att ? dist2d(att.pos, handler.pos) : 6;
+    const sameSide = att ? Math.sign(att.pos.z || 0.01) === ballSideSign : false;
+    if (attDistToBall < 5.8 && sameSide) {
+      roleByDefenderIdx.set(d.idx, "deny_wing");
+    } else if (d.role === "PF" || d.role === "SF" || dist2d(d.pos, hoopPos) < 7.5) {
+      roleByDefenderIdx.set(d.idx, "paint_nail");
+    } else {
+      roleByDefenderIdx.set(d.idx, "weak_side_help");
+    }
+  }
+
+  return {
+    matchupByDefenderIdx,
+    roleByDefenderIdx,
+    primaryDefenderIdx: primaryDef.idx,
+    switchedDefenderIdxs,
+  };
+}
+
+/**
+ * Evaluates whether a defender intersects a pass segment cleanly.
+ * Prevents the passer's own on-ball guard from auto-deflecting passes right out of the passer's hands.
+ */
+export function checkPassLaneInterception(params: {
+  from: SpatialVec2;
+  to: SpatialVec2;
+  ballPos: { x: number; y: number; z: number };
+  defenderPos: SpatialVec2;
+  defenderHeight: number;
+  laneReach: number;
+  passLaneHunterActive: boolean;
+  passLaneMode: "intercept" | "deflect";
+  isUserDef: boolean;
+  roll?: number; // deterministic 0..1 for testing, defaults to Math.random()
+}): { hit: boolean; action: "intercept" | "deflect" | null } {
+  const {
+    from,
+    to,
+    ballPos,
+    defenderPos,
+    defenderHeight,
+    laneReach,
+    passLaneHunterActive,
+    passLaneMode,
+    isUserDef,
+    roll = Math.random(),
+  } = params;
+
+  // Height reach ceiling
+  if (ballPos.y > 2.65 + defenderHeight) {
+    return { hit: false, action: null };
+  }
+
+  const passDx = to.x - from.x;
+  const passDz = to.z - from.z;
+  const passLenSq = passDx * passDx + passDz * passDz;
+  const passLen = Math.sqrt(passLenSq);
+  if (passLen < 0.75) return { hit: false, action: null };
+
+  // Project defender & ball along the pass ray
+  const defAlong = ((defenderPos.x - from.x) * passDx + (defenderPos.z - from.z) * passDz) / passLenSq;
+  const ballAlong = ((ballPos.x - from.x) * passDx + (ballPos.z - from.z) * passDz) / passLenSq;
+
+  // Never trigger steals right at the passer's hands or receiver's catch pocket unless directly in front of ray
+  if (ballAlong < 0.16 || ballAlong > 0.88) {
+    return { hit: false, action: null };
+  }
+  if (defAlong < 0.14 || defAlong > 0.9) {
+    return { hit: false, action: null };
+  }
+
+  // Distance from ball to defender and perpendicular distance from defender to pass line
+  const distToBall = Math.hypot(ballPos.x - defenderPos.x, ballPos.z - defenderPos.z);
+  const closestX = from.x + passDx * defAlong;
+  const closestZ = from.z + passDz * defAlong;
+  const perpDist = Math.hypot(defenderPos.x - closestX, defenderPos.z - closestZ);
+
+  if (distToBall > laneReach || perpDist > laneReach * 0.78) {
+    return { hit: false, action: null };
+  }
+
+  // Defender is legitimately sitting in the passing lane
+  if (passLaneHunterActive && passLaneMode === "intercept") {
+    return { hit: true, action: "intercept" };
+  }
+  if (isUserDef) {
+    return { hit: true, action: roll < 0.65 ? "intercept" : "deflect" };
+  }
+  if (perpDist < 0.72 || passLaneHunterActive || roll < 0.34) {
+    return { hit: true, action: perpDist < 0.5 && roll < 0.35 ? "intercept" : "deflect" };
+  }
+  return { hit: false, action: null };
 }
 
 /**
@@ -236,7 +734,6 @@ export function evaluateDrivingLaneAndBeatenTeammate(params: {
       handlerToHoopDist < 8.4;
     isPrimaryBeaten = (depthBehind || closerToHoop || coneBlowBy) && handlerToHoopDist < 9.2;
   } else {
-    // Fallback heuristic when caller doesn't supply teammate positions
     isPrimaryBeaten = handlerToHoopDist < 6.8 && ownerSpeed > 3.2 && driveForwardSpeed > 0.25;
   }
 
@@ -308,22 +805,18 @@ export function chooseAdaptiveAiDefenseScheme(params: {
   timeSec: number;
 }): DefenseMove {
   const { quarter, gameClock, scoreDiff, timeSec } = params;
-  // Trailing late -> aggressive full-court press or blitz trap
   if (quarter >= 4 && gameClock < 75 && scoreDiff <= -4) {
     return Math.floor(timeSec / 12) % 2 === 0
       ? DM.FULL_COURT_PRESS
       : DM.BLITZ_TRAP;
   }
-  // Holding a late lead -> protect the paint with Drop / 2-3 Zone
   if (quarter >= 4 && gameClock < 60 && scoreDiff >= 6) {
     return DM.ZONE_2_3;
   }
-  // Rotate authentic pro coverages every ~18 seconds so matches feel alive and tactical
-  const phase = Math.floor(timeSec / 18) % 5;
+  const phase = Math.floor(timeSec / 22) % 4;
   if (phase === 1) return DM.ZONE_2_3;
   if (phase === 2) return DM.DROP_COVERAGE;
   if (phase === 3) return DM.ICE_BLUE;
-  if (phase === 4) return DM.ZONE_3_2;
   return DM.MAN_TO_MAN;
 }
 
@@ -406,7 +899,7 @@ export function computeDefenseAiDecision(input: DefenseAiInput): DefenseAiDecisi
   let activateCutoffClamp = false;
   let triggerGloveRip = false;
   let triggerVolleySwat = false;
-  // Shade toward the direction the driver is attacking laterally (or toward middle/sideline force)
+
   const shadingSide =
     Math.abs(lane.driveLateralSpeed) > 0.65
       ? Math.sign(lane.driveLateralSpeed)
@@ -414,46 +907,46 @@ export function computeDefenseAiDecision(input: DefenseAiInput): DefenseAiDecisi
         ? 1
         : -1;
 
-  // 1. SHOT IN FLIGHT -> SHOT CONTEST / VOLLEY SWAT / WALL-UP / CHASE-DOWN / BOX OUT & WEDGE CRASH
+  // 1. SHOT IN FLIGHT -> AGGRESSIVE SHOT CONTEST / VOLLEY SWAT / WALL-UP / CHASE-DOWN / BOX OUT & WEDGE CRASH
   if (shotInFlight) {
-    if (isOnBall || isNearestToBallHandler || distToHandler < 3.2) {
+    if (isOnBall || isNearestToBallHandler || distToHandler < 3.6 || defenderToHoopDist < 3.2) {
       const shooterBehindDef =
         (handlerPos.x - hoop.x) * defendHalfDir < (defenderPos.x - hoop.x) * defendHalfDir;
-      if (shooterBehindDef && distToHandler < 3.4) {
+      if (shooterBehindDef && distToHandler < 3.8) {
         move = DM.CHASE_DOWN_BLOCK;
-        speed = 11.4;
+        speed = 12.4;
       } else if (defenderToHoopDist < 3.4) {
         move = DM.WALL_UP;
         activateWallUp = true;
-        speed = 9.2;
-      } else if (cooldownReady && defenderToHoopDist < 7.8 && distToHandler < 2.8) {
+        speed = 10.6;
+      } else if (defenderToHoopDist < 8.4 && distToHandler < 3.2) {
         move = DM.VOLLEY_SWAT_BLOCK;
         triggerVolleySwat = true;
         activateWallUp = true;
-        speed = 10.2;
+        speed = 11.4;
       } else {
         move = DM.SHOT_CONTEST;
-        speed = 9.8;
+        speed = 11.2;
       }
-      targetX = handlerPos.x + (hoop.x - handlerPos.x) * 0.25;
-      targetZ = handlerPos.z * 0.85;
+      targetX = handlerPos.x + (hoop.x - handlerPos.x) * 0.22;
+      targetZ = handlerPos.z * 0.88;
       activateContest = true;
       contestLevel = 2;
-      if (cooldownReady && defenderHeight <= 0.05 && distToHandler < 2.8) {
+      // Never gate shot-contest/block jumping behind swipe cooldown! Jump immediately if near shooter/rim.
+      if (defenderHeight <= 0.06 && (distToHandler < 3.35 || defenderToHoopDist < 2.8)) {
         triggerJump = true;
-        jumpVel = move === DM.VOLLEY_SWAT_BLOCK ? 5.0 : move === DM.CHASE_DOWN_BLOCK ? 4.3 : 3.6;
+        jumpVel = move === DM.VOLLEY_SWAT_BLOCK ? 5.65 : move === DM.CHASE_DOWN_BLOCK ? 5.25 : 4.95;
       }
     } else {
-      // Off-ball defenders immediately box out their man toward the defensive glass
       move = defenderIdx % 3 === 0 ? DM.WEDGE_CRASH : DM.BOX_OUT;
       activateBoxOut = true;
       const toMatchupX = matchupPos.x - hoop.x;
       const toMatchupZ = matchupPos.z - hoop.z;
       const len = Math.max(0.5, Math.hypot(toMatchupX, toMatchupZ));
-      const boxDist = Math.max(1.4, Math.min(4.8, len - 0.85));
+      const boxDist = Math.max(1.3, Math.min(4.6, len - 0.9));
       targetX = hoop.x + (toMatchupX / len) * boxDist;
       targetZ = hoop.z + (toMatchupZ / len) * boxDist;
-      speed = 9.4;
+      speed = 10.2;
     }
     return {
       move,
@@ -478,44 +971,53 @@ export function computeDefenseAiDecision(input: DefenseAiInput): DefenseAiDecisi
     };
   }
 
-  // 2. PASS IN FLIGHT -> JUMP PASSING LANE / DEFLECTION / X-OUT CLOSEOUT
+  // 2. PASS IN FLIGHT -> JUMP PASSING LANE / DEFLECTION / X-OUT CLOSEOUT (only nearest off-ball defender to ball or close matchup)
   if (passInFlight && !isOnBall) {
-    move = distToMatchup > 3.0 ? DM.X_OUT_ROTATION : DM.JUMP_PASSING_LANE;
-    activatePassLane = true;
-    passLaneMode = dist2d(defenderPos, ballPos) < 3.4 ? "intercept" : "deflect";
-    targetX = (ballPos.x + matchupPos.x) * 0.5;
-    targetZ = (ballPos.z + matchupPos.z) * 0.5;
-    speed = 10.6;
-    stanceActive = true;
-    return {
-      move,
-      targetX: clamp(targetX, -13.4, 13.4),
-      targetZ: clamp(targetZ, -6.9, 6.9),
-      speed,
-      stanceActive,
-      activateContest,
-      contestLevel,
-      activateWallUp,
-      activateBoxOut,
-      activateHipRide,
-      activateHandCheck,
-      activatePassLane,
-      passLaneMode,
-      triggerPoke,
-      triggerStunt,
-      triggerJump,
-      jumpVel,
-      shadingSide,
-    };
+    const distBall = dist2d(defenderPos, ballPos);
+    if (distBall < 4.5 || distToMatchup > 3.2) {
+      move = distToMatchup > 3.0 ? DM.X_OUT_ROTATION : DM.JUMP_PASSING_LANE;
+      activatePassLane = distBall < 3.8;
+      passLaneMode = distBall < 2.9 ? "intercept" : "deflect";
+      targetX = distBall < 3.4 ? (ballPos.x + matchupPos.x) * 0.5 : matchupPos.x + (hoop.x - matchupPos.x) * 0.25;
+      targetZ = distBall < 3.4 ? (ballPos.z + matchupPos.z) * 0.5 : matchupPos.z * 0.88;
+      speed = 10.4;
+      stanceActive = true;
+      return {
+        move,
+        targetX: clamp(targetX, -13.4, 13.4),
+        targetZ: clamp(targetZ, -6.9, 6.9),
+        speed,
+        stanceActive,
+        activateContest,
+        contestLevel,
+        activateWallUp,
+        activateBoxOut,
+        activateHipRide,
+        activateHandCheck,
+        activatePassLane,
+        passLaneMode,
+        triggerPoke,
+        triggerStunt,
+        triggerJump,
+        jumpVel,
+        shadingSide,
+      };
+    }
   }
 
-  // 3. TRANSITION RECOVERY (Sprint back when caught behind the ball)
+  // 3. TRANSITION RECOVERY (Sprint back to paint/matchup side when caught behind the ball)
   const handlerCloserToHoop =
     (handlerPos.x - hoop.x) * defendHalfDir + 0.65 < (defenderPos.x - hoop.x) * defendHalfDir;
   if (handlerCloserToHoop && handlerToHoopDist < 14.5) {
     move = isOnBall ? DM.SPRINT_TO_SLIDE : DM.HELP_AND_RECOVER;
-    targetX = hoop.x + defendHalfDir * Math.max(1.8, handlerToHoopDist * 0.48);
-    targetZ = clamp(matchupPos.z * 0.65 + ballPos.z * 0.25, -5.2, 5.2);
+    if (isOnBall) {
+      targetX = hoop.x + defendHalfDir * Math.max(1.8, handlerToHoopDist * 0.48);
+      targetZ = clamp(handlerPos.z * 0.72, -4.8, 4.8);
+    } else {
+      // Off-ball defenders sprint back to between their own assignment and basket (not all chasing ball!)
+      targetX = hoop.x + defendHalfDir * clamp(dist2d(matchupPos, hoop) * 0.52, 2.0, 9.5);
+      targetZ = clamp(matchupPos.z * 0.72, -5.4, 5.4);
+    }
     speed = 12.6;
     return {
       move,
@@ -555,7 +1057,6 @@ export function computeDefenseAiDecision(input: DefenseAiInput): DefenseAiDecisi
     const aimZ = ownerSpeed > 1.0 ? lane.projectedHandlerZ : handlerPos.z;
 
     if (!defBetween && ownerSpeed > 2.2) {
-      // Beaten in the backcourt -> explosive recovery sprint to cut off midline
       move = DM.SPRINT_TO_SLIDE;
       backcourtRecoveryBurst = true;
       targetX = aimX - defendHalfDir * 1.45;
@@ -563,7 +1064,6 @@ export function computeDefenseAiDecision(input: DefenseAiInput): DefenseAiDecisi
       speed = clamp(12.2 + ownerSpeed * 0.18, 12.2, 13.4);
       stanceActive = false;
     } else if (distToHandler < 1.55 && cooldownReady && (ownerSpeed < 4.2 || Math.abs(handlerPos.z) > 3.6)) {
-      // Active Glove Rip Strip in backcourt press
       move = DM.GLOVE_RIP_STRIP;
       triggerGloveRip = true;
       triggerPoke = true;
@@ -574,7 +1074,6 @@ export function computeDefenseAiDecision(input: DefenseAiInput): DefenseAiDecisi
       stanceActive = true;
       backcourtPressure = 0.95;
     } else {
-      // Sideline Cutoff Clamp: force handler toward sideline, seal middle escape lane
       move = DM.BASELINE_TRAP_CUTOFF;
       activateCutoffClamp = true;
       activateHandCheck = true;
@@ -621,7 +1120,6 @@ export function computeDefenseAiDecision(input: DefenseAiInput): DefenseAiDecisi
   // 4. ON-BALL INTELLIGENT DEFENSIVE STANCE & DRIVING LANE CUTOFF
   if (isOnBall || isNearestToBallHandler) {
     const ownerSpeed = lane.ownerSpeed;
-    // Project along ball-handler driving velocity vector so defender beats driver to the lane spot
     const aimHandlerX = ownerSpeed > 1.2 ? lane.projectedHandlerX : handlerPos.x;
     const aimHandlerZ = ownerSpeed > 1.2 ? lane.projectedHandlerZ : handlerPos.z;
     const dx = hoop.x - aimHandlerX;
@@ -632,69 +1130,67 @@ export function computeDefenseAiDecision(input: DefenseAiInput): DefenseAiDecisi
     const latX = -dirZ;
     const latZ = dirX;
 
-    // Check if offensive player has already gained a step past our hoop-side containment plane
     const defBetween =
       (defenderPos.x - hoop.x) * defendHalfDir <= (handlerPos.x - hoop.x) * defendHalfDir + 0.35;
 
-    if (distToHandler > 3.6) {
-      // Closing out onto perimeter ball handler while staying inside driving lane
+    if (distToHandler > 3.2) {
       move = DM.CLOSEOUT;
-      targetX = aimHandlerX + dirX * 1.22;
-      targetZ = aimHandlerZ + dirZ * 1.22;
-      speed = 10.9;
+      targetX = aimHandlerX + dirX * 1.08;
+      targetZ = aimHandlerZ + dirZ * 1.08;
+      speed = 11.8;
       stanceActive = distToHandler < 4.5;
       activateContest = true;
       contestLevel = 1;
       isLaneCutOff = true;
       helpTargetRole = "primary_cutoff";
-    } else if (!defBetween && ownerSpeed > 2.8) {
-      // Beaten on a drive -> Drop Step Swing & Sprint-to-Slide cut-off ahead of driving line
+    } else if (!defBetween && ownerSpeed > 2.4) {
       move = DM.DROP_STEP_SWING;
-      targetX = aimHandlerX + dirX * 1.55;
-      targetZ = aimHandlerZ + dirZ * 1.55;
-      speed = clamp(10.8 + ownerSpeed * 0.2, 10.8, 12.2);
+      targetX = aimHandlerX + dirX * 1.38;
+      targetZ = aimHandlerZ + dirZ * 1.38;
+      speed = clamp(11.6 + ownerSpeed * 0.22, 11.6, 13.0);
       stanceActive = true;
       isLaneCutOff = true;
       helpTargetRole = "primary_cutoff";
-    } else if (handlerToHoopDist < 3.6 && distToHandler < 2.2) {
-      // Rim protection verticality + wall-up
+    } else if (handlerToHoopDist < 3.8 && distToHandler < 2.3) {
       move = DM.WALL_UP;
-      targetX = aimHandlerX + dirX * 1.0;
-      targetZ = aimHandlerZ + dirZ * 1.0;
-      speed = 9.0;
+      targetX = aimHandlerX + dirX * 0.98;
+      targetZ = aimHandlerZ + dirZ * 0.98;
+      speed = 10.2;
       stanceActive = true;
       activateWallUp = true;
       activateContest = true;
       contestLevel = 2;
       isLaneCutOff = true;
       helpTargetRole = "rim_wall";
-      if (cooldownReady && ownerSpeed > 4.0 && defenderHeight <= 0.05) {
+      if (cooldownReady && ownerSpeed > 3.6 && defenderHeight <= 0.05) {
         triggerJump = true;
-        jumpVel = 3.2;
+        jumpVel = 4.6;
       }
-    } else if (ownerSpeed > 3.2 && distToHandler < 2.35) {
-      // Driving-lane cutoff: ride hip & cutoff clamp directly into projected lateral driving path
-      const lateralLead = clamp(lane.driveLateralSpeed * 0.16, -0.55, 0.55);
+    } else if (ownerSpeed > 2.8 && distToHandler < 2.4) {
+      const lateralLead = clamp(lane.driveLateralSpeed * 0.18, -0.58, 0.58);
       move = Math.abs(handlerPos.z) > 4.2 ? DM.BASELINE_TRAP_CUTOFF : cooldownReady ? DM.HIP_RIDE : DM.DEFENSIVE_SLIDE;
-      targetX = aimHandlerX + dirX * 1.15 + latX * (shadingSide * 0.24 + lateralLead);
-      targetZ = aimHandlerZ + dirZ * 1.15 + latZ * (shadingSide * 0.24 + lateralLead);
-      speed = clamp(9.4 + ownerSpeed * 0.18, 9.4, 11.4);
+      targetX = aimHandlerX + dirX * 1.05 + latX * (shadingSide * 0.2 + lateralLead);
+      targetZ = aimHandlerZ + dirZ * 1.05 + latZ * (shadingSide * 0.2 + lateralLead);
+      speed = clamp(10.2 + ownerSpeed * 0.2, 10.2, 12.2);
       stanceActive = true;
       activateHipRide = true;
       activateHandCheck = true;
+      activateContest = handlerToHoopDist < 9.5;
+      contestLevel = handlerToHoopDist < 8.5 ? 1 : 0;
       activateCutoffClamp = move === DM.BASELINE_TRAP_CUTOFF;
       isLaneCutOff = true;
       helpTargetRole = "primary_cutoff";
     } else {
-      // Active Defensive Stance: squared to handler, micro-shading to cut off preferred driving angle
-      const latOsc = ownerSpeed > 0.8 ? 0 : Math.sin(timeSec * 2.8 + defenderIdx) * 0.16;
-      const gap = defenseTactic === "conservative" ? 1.85 : defenseTactic === "press" ? 1.05 : 1.26;
-      const lateralLead = clamp(lane.driveLateralSpeed * 0.14, -0.45, 0.45);
-      targetX = aimHandlerX + dirX * gap + latX * (shadingSide * 0.22 + lateralLead + latOsc);
-      targetZ = aimHandlerZ + dirZ * gap + latZ * (shadingSide * 0.22 + lateralLead + latOsc);
-      speed = ownerSpeed > 2.2 ? 9.4 : 8.2;
+      // Zero artificial stationary sine-wave oscillation! Hold tight lockdown squared defensive stance.
+      const gap = defenseTactic === "conservative" ? 1.55 : defenseTactic === "press" ? 0.96 : 1.12;
+      const lateralLead = clamp(lane.driveLateralSpeed * 0.16, -0.48, 0.48);
+      targetX = aimHandlerX + dirX * gap + latX * (shadingSide * 0.16 + lateralLead);
+      targetZ = aimHandlerZ + dirZ * gap + latZ * (shadingSide * 0.16 + lateralLead);
+      speed = ownerSpeed > 1.8 ? 10.2 : 9.2;
       stanceActive = true;
-      isLaneCutOff = ownerSpeed > 1.2;
+      activateContest = distToHandler < 2.35 && handlerToHoopDist < 9.5;
+      contestLevel = distToHandler < 1.85 ? 2 : activateContest ? 1 : 0;
+      isLaneCutOff = ownerSpeed > 1.0;
       helpTargetRole = "primary_cutoff";
       if (cooldownReady && distToHandler < 1.65 && ownerSpeed < 4.5) {
         move = defenseTactic === "press" ? DM.GLOVE_RIP_STRIP : DM.POKE_STEAL;
@@ -712,14 +1208,12 @@ export function computeDefenseAiDecision(input: DefenseAiInput): DefenseAiDecisi
     const ballShiftZ = clamp(ballPos.z * 0.35, -2.2, 2.2);
     const isBig = defenderRole === "C" || defenderRole === "PF" || defenderIdx >= 3;
 
-    // Proximity-based dynamic Help Defense takes priority whenever a teammate is beaten on a drive
-    // (except full-court press assignments far upcourt where handlerToHoopDist >= 9.2)
     if (lane.shouldHelpRotate) {
       const nearRimThreat = handlerToHoopDist < 4.8 || dist2d({ x: lane.interceptX, z: lane.interceptZ }, hoop) < 3.1;
       move = nearRimThreat ? DM.WEAK_SIDE_RIM_PROTECTION : DM.HELP_AND_RECOVER;
       targetX = lane.interceptX;
       targetZ = lane.interceptZ;
-      speed = clamp(10.5 + lane.ownerSpeed * 0.22 + lane.helpUrgency * 0.9, 10.4, 12.2);
+      speed = clamp(11.0 + lane.ownerSpeed * 0.24 + lane.helpUrgency * 1.0, 10.8, 12.8);
       stanceActive = true;
       isLaneCutOff = true;
       isBeatenTeammateHelp = true;
@@ -727,9 +1221,9 @@ export function computeDefenseAiDecision(input: DefenseAiInput): DefenseAiDecisi
       activateWallUp = handlerToHoopDist < 4.9;
       activateContest = handlerToHoopDist < 4.6;
       contestLevel = handlerToHoopDist < 4.2 ? 2 : handlerToHoopDist < 4.8 ? 1 : 0;
-      if (cooldownReady && nearRimThreat && distToHandler < 2.5 && defenderHeight <= 0.05 && lane.ownerSpeed > 4.2) {
+      if (cooldownReady && nearRimThreat && distToHandler < 2.6 && defenderHeight <= 0.05 && lane.ownerSpeed > 3.8) {
         triggerJump = true;
-        jumpVel = 3.3;
+        jumpVel = 4.6;
       }
     } else if (scheme === DM.FULL_COURT_PRESS || defenseTactic === "press") {
       move = distToMatchup < 2.5 ? DM.FULL_DENIAL : DM.BALL_YOU_MAN;
@@ -738,53 +1232,73 @@ export function computeDefenseAiDecision(input: DefenseAiInput): DefenseAiDecisi
       const l = Math.max(0.8, Math.hypot(toBallX, toBallZ));
       targetX = matchupPos.x + (toBallX / l) * 0.95 + hoopSign * 0.45;
       targetZ = matchupPos.z + (toBallZ / l) * 0.95;
-      speed = 9.6;
+      speed = 10.4;
       activatePassLane = true;
       passLaneMode = "intercept";
-      stanceActive = distToMatchup < 3.0;
+      stanceActive = distToMatchup < 3.2;
     } else if (scheme === DM.ZONE_2_3 || defenseTactic === "zone") {
-      move = isBig ? DM.WEAK_SIDE_RIM_PROTECTION : DM.GAP_HELP;
-      const baseDepth = defenderIdx < 2 ? 4.4 : 1.95;
-      const spreadZ =
-        defenderIdx === 0 ? -2.5 : defenderIdx === 1 ? 2.5 : (defenderIdx - 3) * 2.8;
-      targetX = hoop.x + defendHalfDir * baseDepth + ballShiftX * 0.55;
-      targetZ = spreadZ + ballShiftZ * 0.72;
-      speed = 8.4;
-      stanceActive = distToHandler < 4.6;
+      const inMyZone = distToHandler < 4.4 && (isBig ? handlerToHoopDist < 5.6 : true);
+      if (inMyZone) {
+        move = DM.CLOSEOUT;
+        targetX = handlerPos.x + (hoop.x - handlerPos.x) * 0.22;
+        targetZ = handlerPos.z * 0.9;
+        speed = 10.4;
+        stanceActive = true;
+        activateContest = true;
+        contestLevel = distToHandler < 2.5 ? 2 : 1;
+      } else {
+        move = isBig ? DM.WEAK_SIDE_RIM_PROTECTION : DM.GAP_HELP;
+        const baseDepth = defenderIdx < 2 ? 4.4 : 1.95;
+        const spreadZ =
+          defenderIdx === 0 ? -2.5 : defenderIdx === 1 ? 2.5 : (defenderIdx - 3) * 2.8;
+        targetX = hoop.x + defendHalfDir * baseDepth + ballShiftX * 0.55;
+        targetZ = spreadZ + ballShiftZ * 0.72;
+        speed = 9.2;
+        stanceActive = distToHandler < 4.8;
+      }
     } else if (scheme === DM.ZONE_3_2) {
-      move = defenderIdx < 3 ? DM.GAP_HELP : DM.WEAK_SIDE_RIM_PROTECTION;
-      const baseDepth = defenderIdx < 3 ? 5.2 : 2.1;
-      const spreadZ =
-        defenderIdx < 3 ? (defenderIdx - 1) * 3.1 : defenderIdx === 3 ? -2.3 : 2.3;
-      targetX = hoop.x + defendHalfDir * baseDepth + ballShiftX * 0.6;
-      targetZ = spreadZ + ballShiftZ * 0.7;
-      speed = 8.4;
-      stanceActive = true;
-    } else if (scheme === DM.BLITZ_TRAP && defenderIdx === 1) {
-      // Second defender doubles / stunts on the ball handler!
+      const inMyZone = distToHandler < 4.4;
+      if (inMyZone) {
+        move = DM.CLOSEOUT;
+        targetX = handlerPos.x + (hoop.x - handlerPos.x) * 0.22;
+        targetZ = handlerPos.z * 0.9;
+        speed = 10.4;
+        stanceActive = true;
+        activateContest = true;
+        contestLevel = distToHandler < 2.5 ? 2 : 1;
+      } else {
+        move = defenderIdx < 3 ? DM.GAP_HELP : DM.WEAK_SIDE_RIM_PROTECTION;
+        const baseDepth = defenderIdx < 3 ? 5.2 : 2.1;
+        const spreadZ =
+          defenderIdx < 3 ? (defenderIdx - 1) * 3.1 : defenderIdx === 3 ? -2.3 : 2.3;
+        targetX = hoop.x + defendHalfDir * baseDepth + ballShiftX * 0.6;
+        targetZ = spreadZ + ballShiftZ * 0.7;
+        speed = 9.2;
+        stanceActive = true;
+      }
+    } else if ((scheme === DM.BLITZ_TRAP || scheme === DM.DOUBLE_TEAM) && defenderIdx === 1) {
       move = DM.STUNT_DIG;
       targetX = lane.projectedHandlerX + defendHalfDir * 0.95;
       targetZ = lane.projectedHandlerZ + (handlerPos.z >= 0 ? -0.9 : 0.9);
-      speed = 10.4;
+      speed = 11.2;
       stanceActive = true;
       isLaneCutOff = true;
-      triggerStunt = cooldownReady && distToHandler < 2.2;
+      triggerStunt = cooldownReady && distToHandler < 2.3;
     } else if (scheme === DM.DROP_COVERAGE && isBig) {
       move = DM.DROP_COVERAGE;
-      targetX = hoop.x + defendHalfDir * 2.55;
+      targetX = hoop.x + defendHalfDir * 2.45;
       targetZ = clamp(lane.projectedHandlerZ * 0.42, -2.1, 2.1);
-      speed = 8.4;
+      speed = 9.4;
       stanceActive = true;
-      activateWallUp = handlerToHoopDist < 4.4;
+      activateWallUp = handlerToHoopDist < 4.6;
     } else {
-      // Man-to-Man / Ice Blue with intelligent Ball-You-Man, Gap Help, Post Fronting & Recovery
+      // Man-to-Man / Ice Blue: Ball-You-Man positioning, Gap Help, Post Fronting & Rim Anchor
       const matchupToHoopDist = dist2d(matchupPos, hoop);
       const matchupToBallDist = dist2d(matchupPos, handlerPos);
       const laneDx = hoop.x - matchupPos.x;
       const laneDz = hoop.z - matchupPos.z;
       const laneLen = Math.max(0.6, Math.hypot(laneDx, laneDz));
 
-      // Proactive gap help if defender is close to driving lane even before primary is fully beaten
       const mildDriveShrink =
         handlerToHoopDist < 6.4 &&
         lane.ownerSpeed > 2.8 &&
@@ -795,40 +1309,38 @@ export function computeDefenseAiDecision(input: DefenseAiInput): DefenseAiDecisi
         move = DM.GAP_HELP;
         targetX = matchupPos.x * 0.62 + lane.interceptX * 0.38;
         targetZ = matchupPos.z * 0.62 + lane.interceptZ * 0.38;
-        speed = 9.2;
+        speed = 10.2;
         stanceActive = true;
         isLaneCutOff = true;
         helpTargetRole = "recover";
       } else if (matchupToHoopDist < 4.3 && isBig) {
-        // Post defense: Front / 3/4 Front & Dig Down
         move = DM.THREE_QUARTER_FRONT;
-        targetX = matchupPos.x + (laneDx / laneLen) * 1.05;
-        targetZ = matchupPos.z + (laneDz / laneLen) * 1.05 + (ballPos.z - matchupPos.z) * 0.14;
-        speed = 8.4;
+        targetX = matchupPos.x + (laneDx / laneLen) * 0.98;
+        targetZ = matchupPos.z + (laneDz / laneLen) * 0.98 + (ballPos.z - matchupPos.z) * 0.16;
+        speed = 9.4;
         stanceActive = true;
       } else if (matchupToBallDist < 5.6) {
-        // 1-pass away -> Three-Quarter Denial + occasional Stunt & Dig at the driver
-        if (cooldownReady && distToHandler < 3.1 && Math.sin(timeSec * 2.3 + defenderIdx) > 0.45) {
+        if (cooldownReady && distToHandler < 2.8 && lane.ownerSpeed > 2.4 && lane.driveForwardSpeed > 0.6) {
           move = DM.STUNT_DIG;
-          targetX = (matchupPos.x + handlerPos.x) * 0.5;
-          targetZ = (matchupPos.z + handlerPos.z) * 0.5;
+          targetX = matchupPos.x * 0.72 + handlerPos.x * 0.28;
+          targetZ = matchupPos.z * 0.72 + handlerPos.z * 0.28;
           triggerStunt = true;
         } else {
           move = DM.THREE_QUARTER_DENIAL;
-          targetX = matchupPos.x + (laneDx / laneLen) * 1.3 + (ballPos.x - matchupPos.x) * 0.18;
-          targetZ = matchupPos.z + (laneDz / laneLen) * 1.3 + (ballPos.z - matchupPos.z) * 0.18;
-          activatePassLane = true;
+          targetX = matchupPos.x + (laneDx / laneLen) * 1.05 + (ballPos.x - matchupPos.x) * 0.18;
+          targetZ = matchupPos.z + (laneDz / laneLen) * 1.05 + (ballPos.z - matchupPos.z) * 0.18;
+          activatePassLane = distToMatchup < 2.5;
           passLaneMode = "deflect";
         }
-        speed = 8.6;
+        speed = 9.8;
         stanceActive = true;
       } else {
-        // Weak-side Ball-You-Man / Gap Help & Rim Protection recovery
+        // Weak-side Ball-You-Man / Help I & Rim Anchor protection
         move = isBig ? DM.WEAK_SIDE_RIM_PROTECTION : DM.BALL_YOU_MAN;
-        const helpBlend = handlerToHoopDist < 5.5 ? 0.44 : 0.28;
-        targetX = matchupPos.x * (1 - helpBlend) + (hoop.x + defendHalfDir * 2.4) * helpBlend;
-        targetZ = matchupPos.z * (1 - helpBlend) + clamp(ballPos.z * 0.35, -2.2, 2.2) * helpBlend;
-        speed = distToMatchup > 2.6 ? 9.4 : 8.2;
+        const helpBlend = handlerToHoopDist < 5.5 ? 0.42 : 0.26;
+        targetX = matchupPos.x * (1 - helpBlend) + (hoop.x + defendHalfDir * 2.5) * helpBlend;
+        targetZ = matchupPos.z * (1 - helpBlend) + clamp(ballPos.z * 0.3, -2.0, 2.0) * helpBlend;
+        speed = distToMatchup > 2.6 ? 10.4 : 9.2;
         stanceActive = distToHandler < 4.8;
         helpTargetRole = distToMatchup > 2.6 ? "recover" : "matchup";
       }
@@ -867,8 +1379,8 @@ export function computeDefenseAiDecision(input: DefenseAiInput): DefenseAiDecisi
 }
 
 /**
- * Computes continuous, lively off-ball offensive targets so teammates NEVER stand still.
- * Includes perimeter spacing, corner relocations, backdoor cuts, P&R rolls/pops, and rebound crashes.
+ * Resolves 5-role offensive off-ball spacing, cutting, Pick-and-Roll screens,
+ * drive-and-kick fades, rebound crashing, and fast-break lanes without aimless jitter.
  */
 export function computeDynamicOffBallTarget(params: {
   slotIdx: number; // 0..4
@@ -879,6 +1391,8 @@ export function computeDynamicOffBallTarget(params: {
   offenseTactic: string;
   activePlayCall: OffenseMove | null;
   timeSec: number;
+  playerRole?: string;
+  teammatePositions?: SpatialVec2[];
 }): { x: number; z: number; speed: number; isCutting: boolean } {
   const {
     slotIdx,
@@ -889,160 +1403,172 @@ export function computeDynamicOffBallTarget(params: {
     offenseTactic,
     activePlayCall,
     timeSec,
+    playerRole,
+    teammatePositions = [],
   } = params;
 
   const attackDir = targetHoopX > 0 ? 1 : -1;
   const hoopX = targetHoopX;
+  const role = (playerRole || ["PG", "SG", "SF", "PF", "C"][slotIdx % 5]).toUpperCase();
+  const ballSideSign = ballOwnerPos && Math.abs(ballOwnerPos.z) > 0.35 ? Math.sign(ballOwnerPos.z) : 1;
 
-  // On shot in flight, 2 frontcourt players crash offensive boards while perimeter stays balanced
+  const separateFromMates = (tx: number, tz: number, isScreening = false): { x: number; z: number } => {
+    let rx = tx;
+    let rz = tz;
+    if (ballOwnerPos && !isScreening) {
+      const dx = rx - ballOwnerPos.x;
+      const dz = rz - ballOwnerPos.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 3.2) {
+        const pushZ = Math.abs(dz) > 0.2 ? Math.sign(dz) : ballSideSign > 0 ? -1 : 1;
+        rz = clamp(rz + pushZ * (3.35 - d), -6.55, 6.55);
+        rx = clamp(rx - attackDir * 0.9, -13.1, 13.1);
+      }
+    }
+    for (const mate of teammatePositions) {
+      const dx = rx - mate.x;
+      const dz = rz - mate.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 0.05 && d < 2.2) {
+        const push = (2.3 - d) / d;
+        rx = clamp(rx + dx * push * 0.5, -13.1, 13.1);
+        rz = clamp(rz + dz * push * 0.5, -6.55, 6.55);
+      }
+    }
+    return { x: clamp(rx, -13.2, 13.2), z: clamp(rz, -6.7, 6.7) };
+  };
+
+  // 1. SHOT IN FLIGHT -> PF & C crash offensive glass; perimeter balances transition safety
   if (shotInFlight) {
-    if (slotIdx >= 3) {
+    if (role === "PF" || role === "C" || slotIdx >= 3) {
       return {
-        x: clamp(hoopX - attackDir * 2.1, -13.3, 13.3),
-        z: slotIdx === 3 ? -1.4 : 1.4,
+        x: clamp(hoopX - attackDir * (role === "C" ? 1.85 : 2.35), -13.2, 13.2),
+        z: role === "C" || slotIdx === 4 ? -1.55 : 1.55,
         speed: 10.8,
         isCutting: true,
       };
     }
+    if (role === "PG") {
+      return {
+        x: clamp(hoopX - attackDir * 7.8, -13.2, 13.2),
+        z: 0,
+        speed: 8.6,
+        isCutting: false,
+      };
+    }
     return {
-      x: clamp(hoopX - attackDir * 6.8, -13.3, 13.3),
-      z: (slotIdx - 1) * 3.8,
+      x: clamp(hoopX - attackDir * 5.6, -13.2, 13.2),
+      z: role === "SG" ? 4.4 : -4.4,
       speed: 8.4,
       isCutting: false,
     };
   }
 
-  // Fast Break -> sprint down wide wings & rim runner lane
+  // 2. FAST BREAK -> Crisp 5-lane transition (rim runners, wide wings, safety trailer)
   if (isFastBreak || activePlayCall === OM.FAST_BREAK || offenseTactic === "fast_break") {
-    const laneZs = [0, -5.8, 5.8, -2.4, 2.4];
-    const laneXs = [hoopX - attackDir * 4.5, hoopX - attackDir * 2.8, hoopX - attackDir * 2.8, hoopX - attackDir * 1.9, hoopX - attackDir * 6.2];
-    const drift = Math.sin(timeSec * 2.2 + slotIdx) * 0.45;
-    return {
-      x: clamp(laneXs[slotIdx % 5] + drift, -13.3, 13.3),
-      z: clamp(laneZs[slotIdx % 5], -6.8, 6.8),
-      speed: 12.6,
-      isCutting: true,
+    const lanePos: Record<string, [number, number]> = {
+      PG: [5.4, 0],
+      SG: [2.9, -5.85],
+      SF: [2.9, 5.85],
+      PF: [3.2, -2.3],
+      C: [1.95, 1.85],
     };
+    const [distHoop, zSpot] = lanePos[role] || [4.0, (slotIdx - 2) * 2.5];
+    const sep = separateFromMates(hoopX - attackDir * distHoop, zSpot);
+    return { x: sep.x, z: sep.z, speed: 12.4, isCutting: true };
   }
 
-  // Automatic & Called Pick & Roll / Screen-and-Roll / Pick-and-Pop (keeps AI active with ball handler drives)
+  // 3. PICK & ROLL / SCREEN ACTION -> C (or slot 4) sets screen toward hoop shoulder, then dives or pops
   const inFrontCourt = ballOwnerPos ? (ballOwnerPos.x - hoopX) * attackDir > -11.5 : false;
   const ballDistToHoop = ballOwnerPos ? Math.hypot(hoopX - ballOwnerPos.x, ballOwnerPos.z) : 99;
   const isCalledPnr =
     activePlayCall === OM.PICK_AND_ROLL ||
     activePlayCall === OM.SPAIN_PICK_AND_ROLL ||
     activePlayCall === OM.SLIP_SCREEN;
+  const isCalledPop = activePlayCall === OM.PICK_AND_POP || activePlayCall === OM.GHOST_SCREEN;
 
-  if (slotIdx === 4 && ballOwnerPos && (isCalledPnr || (inFrontCourt && ballDistToHoop > 3.8))) {
-    const rollCycle = (timeSec * 0.65) % 2.4;
-    if (rollCycle < 0.95 && ballDistToHoop > 4.2) {
-      // Set physical on-ball screen at ball-handler shoulder toward hoop
-      return {
-        x: clamp(ballOwnerPos.x + attackDir * 1.25, -13.2, 13.2),
-        z: clamp(ballOwnerPos.z + (ballOwnerPos.z >= 0 ? -0.95 : 0.95), -6.5, 6.5),
-        speed: 9.2,
-        isCutting: true,
-      };
+  if ((role === "C" || slotIdx === 4) && ballOwnerPos && (isCalledPop || isCalledPnr || (inFrontCourt && ballDistToHoop > 4.4))) {
+    if (isCalledPop) {
+      const pop = separateFromMates(hoopX - attackDir * 7.2, ballSideSign > 0 ? -5.0 : 5.0);
+      return { x: pop.x, z: pop.z, speed: 9.0, isCutting: false };
     }
-    if (rollCycle < 1.85) {
-      // Hard dive/roll down the paint lane
-      return {
-        x: clamp(hoopX - attackDir * 2.0, -13.2, 13.2),
-        z: ballOwnerPos.z >= 0 ? -1.1 : 1.1,
-        speed: 10.6,
-        isCutting: true,
-      };
+    const pnrCycle = timeSec % 4.2;
+    if (pnrCycle < 1.35) {
+      // Set physical screen on ball-handler's hip toward the middle
+      const screenX = clamp(ballOwnerPos.x + attackDir * 1.15, -13.1, 13.1);
+      const screenZ = clamp(ballOwnerPos.z + (ballOwnerPos.z >= 0 ? -0.95 : 0.95), -6.4, 6.4);
+      return { x: screenX, z: screenZ, speed: 9.4, isCutting: true };
     }
-    // Pop out to open 3-point trailer arc if roll isn't hit
-    return {
-      x: clamp(hoopX - attackDir * 7.1, -13.2, 13.2),
-      z: ballOwnerPos.z >= 0 ? -4.8 : 4.8,
-      speed: 9.0,
-      isCutting: false,
-    };
-  }
-
-  // Pick & Pop / Ghost Screen -> pop to open arc
-  if (
-    slotIdx === 4 &&
-    ballOwnerPos &&
-    (activePlayCall === OM.PICK_AND_POP || activePlayCall === OM.GHOST_SCREEN)
-  ) {
-    return {
-      x: clamp(hoopX - attackDir * 7.2, -13.2, 13.2),
-      z: ballOwnerPos.z >= 0 ? -5.2 : 5.2,
-      speed: 9.0,
-      isCutting: false,
-    };
-  }
-
-  // Drive-and-Kick 3-Point Floor Fade: when ball handler drives inside the paint, wing teammates fade to open 3PT spots
-  if (ballOwnerPos && ballDistToHoop < 4.5 && (slotIdx === 1 || slotIdx === 2 || slotIdx === 3)) {
-    const threeSpotsZ = slotIdx === 1 ? -6.25 : slotIdx === 2 ? 6.25 : ballOwnerPos.z >= 0 ? -4.6 : 4.6;
-    const threeDepth = slotIdx === 3 ? 6.95 : 2.35;
-    return {
-      x: clamp(hoopX - attackDir * threeDepth, -13.2, 13.2),
-      z: clamp(threeSpotsZ, -6.65, 6.65),
-      speed: 8.8,
-      isCutting: false,
-    };
-  }
-
-  // Motion 5-Out / Paint Power continuous cutting & spacing cycle so no teammate stands idle
-  const cycle = timeSec * 0.85 + slotIdx * 1.45;
-  const waveX = Math.sin(cycle) * 1.75;
-  const waveZ = Math.cos(cycle * 0.8) * 1.35;
-
-  // Periodic backdoor / flash cut every ~6.5s staggered by slotIdx
-  const cutWindow = (timeSec + slotIdx * 1.9) % 6.5;
-  if (cutWindow < 1.35) {
-    const cutSide = slotIdx % 2 === 0 ? -1.4 : 1.4;
-    return {
-      x: clamp(hoopX - attackDir * 2.1, -13.2, 13.2),
-      z: clamp(cutSide + Math.sin(timeSec * 2) * 0.6, -6.5, 6.5),
-      speed: 10.2,
-      isCutting: true,
-    };
-  }
-
-  // Base spacing coordinates (wings, corners, top-key, dunker spot)
-  const spacingSpots: [number, number][] =
-    offenseTactic === "paint_power"
-      ? [
-          [7.4, 0],
-          [5.4, 5.6],
-          [5.4, -5.6],
-          [2.4, 2.3],
-          [2.1, -2.3],
-        ]
-      : [
-          [7.8, 0],
-          [5.8, 5.7],
-          [5.8, -5.7],
-          [2.8, 5.9],
-          [3.6, -2.2],
-        ];
-
-  const [distFromHoop, baseZ] = spacingSpots[slotIdx % 5];
-  let tx = hoopX - attackDir * distFromHoop + waveX;
-  let tz = baseZ + waveZ;
-
-  // Maintain healthy spacing away from ball owner so teammates don't crowd the ball handler
-  if (ballOwnerPos) {
-    const dx = tx - ballOwnerPos.x;
-    const dz = tz - ballOwnerPos.z;
-    const d = Math.hypot(dx, dz);
-    if (d < 3.1) {
-      const pushZ = dz >= 0 ? 1 : -1;
-      tz = clamp(tz + pushZ * (3.3 - d), -6.6, 6.6);
-      tx = clamp(tx - attackDir * 1.2, -13.2, 13.2);
+    if (pnrCycle < 2.85) {
+      // Roll hard down the paint lane opposite ball handler's lateral side
+      const roll = separateFromMates(hoopX - attackDir * 2.05, ballSideSign > 0 ? -1.35 : 1.35);
+      return { x: roll.x, z: roll.z, speed: 10.6, isCutting: true };
     }
+    // Establish deep dunker-spot seal / short-roll pocket
+    const dunker = separateFromMates(hoopX - attackDir * 2.5, ballSideSign > 0 ? -2.8 : 2.8);
+    return { x: dunker.x, z: dunker.z, speed: 8.6, isCutting: false };
   }
 
-  return {
-    x: clamp(tx, -13.2, 13.2),
-    z: clamp(tz, -6.7, 6.7),
-    speed: 7.9,
-    isCutting: false,
-  };
+  // 4. DRIVE-AND-KICK SPACING -> When handler penetrates inside 4.7m, perimeter flares to open 3PT windows
+  if (ballOwnerPos && ballDistToHoop < 4.7 && (role === "PG" || role === "SG" || role === "SF" || role === "PF")) {
+    const spotMap: Record<string, [number, number]> = {
+      PG: [7.6, 0],
+      SG: [2.4, ballSideSign > 0 ? -6.35 : 6.35],
+      SF: [5.9, ballSideSign > 0 ? -5.1 : 5.1],
+      PF: [6.8, ballSideSign > 0 ? 4.4 : -4.4],
+    };
+    const [depth, zTarget] = spotMap[role] || [6.2, 5.2];
+    const sep = separateFromMates(hoopX - attackDir * depth, zTarget);
+    return { x: sep.x, z: sep.z, speed: 9.0, isCutting: false };
+  }
+
+  // 5. HALF-COURT ROLE-BASED MOTION OFFENSE (Smooth intentional basketball relocations, zero jitter)
+  const relocWave = Math.sin(timeSec * 0.68 + slotIdx * 1.3); // smooth slow perimeter read
+  if (role === "PG") {
+    // Safety outlet & swing reversal above top of arc
+    const zShift = -ballSideSign * 1.45 + relocWave * 0.65;
+    const sep = separateFromMates(hoopX - attackDir * 7.6, zShift);
+    return { x: sep.x, z: sep.z, speed: 8.0, isCutting: false };
+  }
+
+  if (role === "SG") {
+    // Wing / Corner perimeter V-cut & flare relocation along 3-point arc
+    const wingPhase = 0.5 - 0.5 * Math.cos(timeSec * 0.72); // smooth 0 -> 1 -> 0 over ~4.4s
+    const depth = 2.6 + wingPhase * 3.4; // corner (2.6m) <-> wing (6.0m)
+    const side = ballSideSign > 0 ? 1 : -1;
+    const zPos = side * (6.25 - wingPhase * 0.65);
+    const sep = separateFromMates(hoopX - attackDir * depth, zPos);
+    return { x: sep.x, z: sep.z, speed: 8.2, isCutting: false };
+  }
+
+  if (role === "SF") {
+    // Weak-side wing slasher with periodic crisp backdoor cut every ~7.5s
+    const cutWindow = (timeSec + 2.5) % 7.5;
+    if (cutWindow < 1.35) {
+      const cutSpot = separateFromMates(hoopX - attackDir * 2.15, -ballSideSign * 1.35);
+      return { x: cutSpot.x, z: cutSpot.z, speed: 10.4, isCutting: true };
+    }
+    const zSide = -ballSideSign * 5.75;
+    const xDepth = 5.4 + relocWave * 0.85;
+    const sep = separateFromMates(hoopX - attackDir * xDepth, zSide);
+    return { x: sep.x, z: sep.z, speed: 8.2, isCutting: false };
+  }
+
+  if (role === "PF") {
+    // High-post / elbow flash in paint_power or opposite corner/slot spacer
+    if (offenseTactic === "paint_power") {
+      const cutWindow = (timeSec + 4.8) % 8.0;
+      const isSeal = cutWindow < 1.8;
+      const pDepth = isSeal ? 2.6 : 4.6;
+      const pZ = isSeal ? ballSideSign * 2.2 : -ballSideSign * 2.4;
+      const sep = separateFromMates(hoopX - attackDir * pDepth, pZ);
+      return { x: sep.x, z: sep.z, speed: isSeal ? 9.2 : 8.0, isCutting: isSeal };
+    }
+    const sep = separateFromMates(hoopX - attackDir * (2.9 + relocWave * 0.7), -ballSideSign * 6.05);
+    return { x: sep.x, z: sep.z, speed: 8.0, isCutting: false };
+  }
+
+  // C fallback (when ball is already inside 4.4m): opposite dunker-spot seal / lob threat
+  const dunker = separateFromMates(hoopX - attackDir * 2.25, -ballSideSign * 2.35);
+  return { x: dunker.x, z: dunker.z, speed: 8.4, isCutting: false };
 }

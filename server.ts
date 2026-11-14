@@ -37,18 +37,68 @@ interface ClientMeta {
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
-app.prepare().then(() => {
-  const clientsBySocket = new Map<WebSocket, ClientMeta>();
-  const socketsByRoom = new Map<string, Set<WebSocket>>();
+let isListening = false;
 
-  const server = http.createServer((req, res) => {
-    const parsedUrl = parse(req.url || "/", true);
-    handle(req, res, parsedUrl);
-  });
+process.on("unhandledRejection", (reason) => {
+  console.error("[server] Unhandled promise rejection:", reason);
+});
 
-  const wss = new WebSocketServer({ noServer: true });
-  const mirrorWss = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 * 1024 });
-  const nextUpgradeHandler = app.getUpgradeHandler();
+process.on("uncaughtException", (err) => {
+  console.error("[server] Uncaught exception:", err);
+  if (!isListening) {
+    process.exit(1);
+  }
+});
+
+app
+  .prepare()
+  .then(() => {
+    const clientsBySocket = new Map<WebSocket, ClientMeta>();
+    const socketsByRoom = new Map<string, Set<WebSocket>>();
+
+    const server = http.createServer((req, res) => {
+      req.on("error", (err) => {
+        console.error("[server] Request stream error:", err);
+      });
+      res.on("error", (err) => {
+        console.error("[server] Response stream error:", err);
+      });
+      const parsedUrl = parse(req.url || "/", true);
+      Promise.resolve(handle(req, res, parsedUrl)).catch((err) => {
+        console.error("[server] Request handler error:", err);
+        if (!res.headersSent) {
+          res.statusCode = 500;
+          res.end("Internal Server Error");
+        } else if (!res.writableEnded) {
+          res.end();
+        }
+      });
+    });
+
+    server.on("clientError", (err, socket) => {
+      if ((err as NodeJS.ErrnoException)?.code === "ECONNRESET" || !socket.writable) {
+        return;
+      }
+      socket.end("HTTP/1.1 400 Bad Request\r\n\r\n");
+    });
+
+    server.on("error", (err) => {
+      console.error("[server] HTTP server error:", err);
+      if (!isListening) {
+        process.exit(1);
+      }
+    });
+
+    const wss = new WebSocketServer({ noServer: true });
+    const mirrorWss = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 * 1024 });
+    const nextUpgradeHandler = app.getUpgradeHandler();
+
+    wss.on("error", (err) => {
+      console.error("[server] Multiplayer WSS error:", err);
+    });
+    mirrorWss.on("error", (err) => {
+      console.error("[server] Mirror WSS error:", err);
+    });
 
   interface MirrorSocketMeta {
     ws: WebSocket;
@@ -118,6 +168,10 @@ app.prepare().then(() => {
       attachSocketToRoom(ws, initialRoom, initialPlayer);
     }
 
+    ws.on("error", (err) => {
+      console.error("[server] Multiplayer WS client error:", err);
+    });
+
     ws.on("pong", () => {
       const meta = clientsBySocket.get(ws);
       if (meta) meta.isAlive = true;
@@ -132,74 +186,99 @@ app.prepare().then(() => {
         return;
       }
 
-      if (msg.type === "ping") {
-        sendJson(ws, { type: "pong", ts: msg.ts });
+      if (!msg || typeof msg !== "object") {
+        sendJson(ws, { type: "error", message: "Invalid message object" });
         return;
       }
 
-      if (msg.type === "join") {
-        const room = joinRoom(msg.payload);
-        attachSocketToRoom(ws, room.roomCode, msg.payload.playerId);
-        sendJson(ws, {
-          type: "room_snapshot",
-          room,
-          you: msg.payload.playerId,
-          transport: "ws",
-        });
-        broadcastRoom(
-          room.roomCode,
-          {
+      try {
+        if (msg.type === "ping") {
+          sendJson(ws, { type: "pong", ts: msg.ts });
+          return;
+        }
+
+        if (msg.type === "join") {
+          if (!msg.payload || typeof msg.payload !== "object") {
+            sendJson(ws, { type: "error", message: "Missing join payload" });
+            return;
+          }
+          const room = joinRoom(msg.payload);
+          attachSocketToRoom(ws, room.roomCode, msg.payload.playerId);
+          sendJson(ws, {
             type: "room_snapshot",
             room,
-            you: "",
+            you: msg.payload.playerId,
             transport: "ws",
-          },
-          ws
-        );
-        return;
-      }
-
-      if (msg.type === "sync") {
-        const { room, player } = syncPlayerState(msg.payload);
-        attachSocketToRoom(ws, room.roomCode, msg.payload.playerId);
-        if (player) {
+          });
           broadcastRoom(
             room.roomCode,
             {
-              type: "peer_delta",
-              roomCode: room.roomCode,
-              playerId: msg.payload.playerId,
-              player,
-              match: msg.payload.matchPatch ? room.match : undefined,
+              type: "room_snapshot",
+              room,
+              you: "",
+              transport: "ws",
             },
             ws
           );
+          return;
         }
-        return;
-      }
 
-      if (msg.type === "event") {
-        const { room, event } = applyMatchEvent(msg.payload);
-        broadcastRoom(room.roomCode, {
-          type: "match_event",
-          roomCode: room.roomCode,
-          event,
-          match: room.match,
-        });
-        return;
-      }
+        if (msg.type === "sync") {
+          if (!msg.payload || typeof msg.payload !== "object") {
+            sendJson(ws, { type: "error", message: "Missing sync payload" });
+            return;
+          }
+          const { room, player } = syncPlayerState(msg.payload);
+          attachSocketToRoom(ws, room.roomCode, msg.payload.playerId);
+          if (player) {
+            broadcastRoom(
+              room.roomCode,
+              {
+                type: "peer_delta",
+                roomCode: room.roomCode,
+                playerId: msg.payload.playerId,
+                player,
+                match: msg.payload.matchPatch ? room.match : undefined,
+              },
+              ws
+            );
+          }
+          return;
+        }
 
-      if (msg.type === "leave") {
-        const room = leaveRoom(msg.payload.roomCode, msg.payload.playerId);
-        socketsByRoom.get(msg.payload.roomCode)?.delete(ws);
-        if (room) {
+        if (msg.type === "event") {
+          if (!msg.payload || typeof msg.payload !== "object") {
+            sendJson(ws, { type: "error", message: "Missing event payload" });
+            return;
+          }
+          const { room, event } = applyMatchEvent(msg.payload);
           broadcastRoom(room.roomCode, {
-            type: "room_snapshot",
-            room,
-            you: "",
-            transport: "ws",
+            type: "match_event",
+            roomCode: room.roomCode,
+            event,
+            match: room.match,
           });
+          return;
         }
+
+        if (msg.type === "leave") {
+          if (!msg.payload || typeof msg.payload !== "object") {
+            return;
+          }
+          const room = leaveRoom(msg.payload.roomCode, msg.payload.playerId);
+          socketsByRoom.get(msg.payload.roomCode)?.delete(ws);
+          if (room) {
+            broadcastRoom(room.roomCode, {
+              type: "room_snapshot",
+              room,
+              you: "",
+              transport: "ws",
+            });
+          }
+        }
+      } catch (err) {
+        console.error("[server] Multiplayer WS message error:", err);
+        sendJson(ws, { type: "error", message: "Failed to process multiplayer message" });
       }
     });
 
@@ -239,6 +318,10 @@ app.prepare().then(() => {
   mirrorWss.on("connection", (ws: WebSocket) => {
     mirrorSockets.set(ws, { ws, code: "", role: null, viewerId: "", isAlive: true });
 
+    ws.on("error", (err) => {
+      console.error("[server] Mirror WS client error:", err);
+    });
+
     ws.on("pong", () => {
       const meta = mirrorSockets.get(ws);
       if (meta) meta.isAlive = true;
@@ -253,10 +336,16 @@ app.prepare().then(() => {
         return;
       }
 
-      if (msg.type === "ping") {
-        sendMirrorJson(ws, { type: "pong", ts: msg.ts });
+      if (!msg || typeof msg !== "object") {
+        sendMirrorJson(ws, { type: "error", message: "Invalid mirror message" });
         return;
       }
+
+      try {
+        if (msg.type === "ping") {
+          sendMirrorJson(ws, { type: "pong", ts: msg.ts });
+          return;
+        }
 
       if (msg.type === "start_broadcast") {
         const code = normalizeMirrorCode(msg.code);
@@ -403,6 +492,10 @@ app.prepare().then(() => {
             sendMirrorJson(senderSock, msg);
           }
         }
+        }
+      } catch (err) {
+        console.error("[server] Mirror WS message error:", err);
+        sendMirrorJson(ws, { type: "error", message: "Failed to process mirror message" });
       }
     });
 
@@ -462,24 +555,48 @@ app.prepare().then(() => {
 
   server.on("close", () => clearInterval(heartbeat));
 
-  server.on("upgrade", (req, socket, head) => {
-    const parsed = parse(req.url || "/", true);
-    if (parsed.pathname === "/ws/multiplayer") {
-      wss.handleUpgrade(req, socket, head, (ws) => {
-        wss.emit("connection", ws, req);
+    server.on("upgrade", (req, socket, head) => {
+      socket.on("error", () => {
+        try {
+          socket.destroy();
+        } catch {}
       });
-    } else if (parsed.pathname === "/ws/mirror") {
-      mirrorWss.handleUpgrade(req, socket, head, (ws) => {
-        mirrorWss.emit("connection", ws, req);
-      });
-    } else {
-      nextUpgradeHandler(req, socket, head).catch(() => {
-        socket.destroy();
-      });
-    }
-  });
+      const parsed = parse(req.url || "/", true);
+      if (parsed.pathname === "/ws/multiplayer") {
+        try {
+          wss.handleUpgrade(req, socket, head, (ws) => {
+            wss.emit("connection", ws, req);
+          });
+        } catch {
+          try {
+            socket.destroy();
+          } catch {}
+        }
+      } else if (parsed.pathname === "/ws/mirror") {
+        try {
+          mirrorWss.handleUpgrade(req, socket, head, (ws) => {
+            mirrorWss.emit("connection", ws, req);
+          });
+        } catch {
+          try {
+            socket.destroy();
+          } catch {}
+        }
+      } else {
+        Promise.resolve(nextUpgradeHandler(req, socket, head)).catch(() => {
+          try {
+            socket.destroy();
+          } catch {}
+        });
+      }
+    });
 
-  server.listen(port, hostname, () => {
-    console.log(`> Hoops Moves server listening on http://${hostname}:${port} (dev=${dev})`);
+    server.listen(port, hostname, () => {
+      isListening = true;
+      console.log(`> Hoops Moves server listening on http://${hostname}:${port} (dev=${dev})`);
+    });
+  })
+  .catch((err) => {
+    console.error("[server] Failed to prepare Next.js app:", err);
+    process.exit(1);
   });
-});

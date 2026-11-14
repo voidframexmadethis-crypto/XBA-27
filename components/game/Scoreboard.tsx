@@ -39,48 +39,50 @@ export default function Scoreboard({
   const resolvedAwayLabel = awayAbbr || selectedCity.name;
 
   return (
-    <div className="fixed top-[max(0.65rem,env(safe-area-inset-top))] left-[max(0.65rem,env(safe-area-inset-left))] sm:left-1/2 sm:-translate-x-1/2 pointer-events-none z-20 max-w-[calc(100vw-7.75rem)] sm:max-w-[calc(100vw-16rem)] flex flex-col items-start sm:items-center gap-1">
+    <div className="fixed top-[max(0.75rem,env(safe-area-inset-top))] left-[max(0.75rem,env(safe-area-inset-left))] sm:left-1/2 sm:-translate-x-1/2 pointer-events-none z-20 max-w-[calc(100vw-2rem)] flex flex-col items-start sm:items-center gap-1.5">
       {competitionBadge && (
-        <div className="px-2.5 py-0.5 rounded-md bg-[#090b10]/90 border border-[#ff963b]/40 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-[#ff963b] shadow">
+        <div className="px-3 py-0.5 rounded-md bg-neutral-950/90 border border-amber-500/50 text-[10px] font-black uppercase tracking-widest text-amber-400 shadow">
           {competitionBadge}
         </div>
       )}
-      <div className="flex items-center gap-2 sm:gap-4 px-2.5 sm:px-5 py-1.5 sm:py-2 rounded-xl bg-neutral-950/85 backdrop-blur-md border border-white/15 shadow-lg text-white">
+      <div className="flex items-center gap-3 sm:gap-4 px-3.5 sm:px-5 py-2 rounded-2xl bg-neutral-950/90 backdrop-blur-md border border-white/20 shadow-2xl text-white">
         {/* Home */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-red-400">
+        <div className="flex items-center gap-2">
+          <span className="px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 text-[11px] font-black uppercase tracking-wider">
             {homeAbbr}
           </span>
-          <span className="text-base sm:text-2xl font-black tabular-nums leading-none">
+          <span className="text-lg sm:text-2xl font-black tabular-nums leading-none">
             {scoreHome}
           </span>
         </div>
 
-        <div className="w-px h-4 sm:h-5 bg-white/15" />
+        <div className="w-px h-5 bg-white/20" />
 
         {/* Quarter, Game Clock & Shot Clock */}
-        <div className="flex items-center gap-1.5 sm:gap-3 text-[11px] sm:text-sm font-black tabular-nums">
-          <span className="text-amber-400">Q{quarter}</span>
-          <span className="text-white/95">{formatTime(gameClock)}</span>
+        <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm font-black tabular-nums">
+          <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400">
+            Q{quarter}
+          </span>
+          <span className="text-white/95 tracking-tight">{formatTime(gameClock)}</span>
           {!isPracticeMode && (
             <span
-              className={`px-1 sm:px-1.5 py-0.5 rounded text-[11px] sm:text-xs font-black tabular-nums ${
-                isLowShot ? "bg-red-600 text-white" : "bg-white/10 text-amber-300"
+              className={`px-1.5 py-0.5 rounded text-xs font-black tabular-nums ${
+                isLowShot ? "bg-red-600 text-white animate-pulse" : "bg-white/10 text-amber-300"
               }`}
             >
-              :{formatShotClock(shotClock)}
+              {formatShotClock(shotClock)}s
             </span>
           )}
         </div>
 
-        <div className="w-px h-4 sm:h-5 bg-white/15" />
+        <div className="w-px h-5 bg-white/20" />
 
         {/* Away */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          <span className="text-base sm:text-2xl font-black tabular-nums leading-none">
+        <div className="flex items-center gap-2">
+          <span className="text-lg sm:text-2xl font-black tabular-nums leading-none">
             {scoreAway}
           </span>
-          <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-cyan-300 truncate max-w-[54px] sm:max-w-[110px]">
+          <span className="px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 text-[11px] font-black uppercase tracking-wider truncate max-w-[70px] sm:max-w-[130px]">
             {resolvedAwayLabel}
           </span>
         </div>

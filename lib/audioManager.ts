@@ -168,14 +168,9 @@ export class BasketballAudioManager {
   private ambienceSource: AudioBufferSourceNode | null = null;
   private ambienceGain: GainNode | null = null;
 
-  // Main Menu Soundtrack ("Rise From Nothing") singleton playback state
-  private menuMusicRawPromise: Promise<ArrayBuffer | null> | null = null;
-  private menuMusicDecodePromise: Promise<AudioBuffer | null> | null = null;
-  private menuMusicBuffer: AudioBuffer | null = null;
-  private menuMusicSource: AudioBufferSourceNode | null = null;
-  private menuMusicFadeGain: GainNode | null = null;
-  private menuMusicFadeTimer: ReturnType<typeof setTimeout> | null = null;
-  private menuMusicSessionId = 0;
+  // Main Menu Soundtrack ("Rise From Nothing") streaming HTMLAudioElement singleton
+  private menuAudioEl: HTMLAudioElement | null = null;
+  private menuMusicFadeTimer: ReturnType<typeof setInterval> | null = null;
   private isInMenu = true;
   private menuWasStoppedForGameplay = false;
   private menuMusicPendingRestart = false;
@@ -190,14 +185,84 @@ export class BasketballAudioManager {
 
   constructor() {
     this.settings = loadAudioSettings();
-    // Begin downloading "Rise From Nothing" immediately so it starts instantaneously once AudioContext is unlocked
     if (typeof window !== "undefined") {
-      this.prefetchMenuMusicBytes();
+      this.ensureMenuAudioElement();
     }
   }
 
   public getSettings(): AudioVolumeSettings {
     return { ...this.settings };
+  }
+
+  private getTargetMenuMusicVolume(): number {
+    if (this.settings.muted || !this.settings.musicEnabled) return 0;
+    return clamp01(this.settings.music * 0.78);
+  }
+
+  private ensureMenuAudioElement(): HTMLAudioElement | null {
+    if (typeof window === "undefined" || typeof window.Audio !== "function" || this.disposed) return null;
+    if (!this.menuAudioEl) {
+      try {
+        const el = new window.Audio(MENU_MUSIC_PATH);
+        el.loop = true;
+        el.preload = "auto";
+        el.setAttribute("playsinline", "true");
+        el.volume = 0;
+        this.menuAudioEl = el;
+      } catch {
+        return null;
+      }
+    }
+    return this.menuAudioEl;
+  }
+
+  private clearMenuMusicFadeTimer(): void {
+    if (this.menuMusicFadeTimer) {
+      clearInterval(this.menuMusicFadeTimer);
+      this.menuMusicFadeTimer = null;
+    }
+  }
+
+  private rampMenuAudioVolume(targetVol: number, durationSec: number, pauseOnZero: boolean, resetTimeOnStop = false): void {
+    const el = this.menuAudioEl;
+    if (!el) return;
+    this.clearMenuMusicFadeTimer();
+    const safeTarget = clamp01(targetVol);
+    if (durationSec <= 0.02) {
+      el.volume = safeTarget;
+      if (pauseOnZero && safeTarget <= 0.001) {
+        try {
+          el.pause();
+          if (resetTimeOnStop) el.currentTime = 0;
+        } catch {}
+      }
+      return;
+    }
+    const startVol = clamp01(el.volume);
+    const stepMs = 33;
+    const totalSteps = Math.max(1, Math.round((durationSec * 1000) / stepMs));
+    let step = 0;
+    this.menuMusicFadeTimer = setInterval(() => {
+      if (this.disposed || !this.menuAudioEl) {
+        this.clearMenuMusicFadeTimer();
+        return;
+      }
+      step++;
+      const t = Math.min(1, step / totalSteps);
+      const nextVol = clamp01(startVol + (safeTarget - startVol) * t);
+      try {
+        this.menuAudioEl.volume = nextVol;
+      } catch {}
+      if (t >= 1) {
+        this.clearMenuMusicFadeTimer();
+        if (pauseOnZero && safeTarget <= 0.001) {
+          try {
+            this.menuAudioEl.pause();
+            if (resetTimeOnStop) this.menuAudioEl.currentTime = 0;
+          } catch {}
+        }
+      }
+    }, stepMs);
   }
 
   public updateSettings(patch: Partial<AudioVolumeSettings>): AudioVolumeSettings {
@@ -221,49 +286,10 @@ export class BasketballAudioManager {
 
     if (prevEnabled && !this.settings.musicEnabled) {
       this.fadeOutMenuMusic(0.45);
-    } else if (!prevEnabled && this.settings.musicEnabled && this.isInMenu) {
+    } else if ((!prevEnabled && this.settings.musicEnabled && this.isInMenu) || (this.isInMenu && this.settings.musicEnabled)) {
       this.startMenuMusic({ restart: false });
     }
     return this.getSettings();
-  }
-
-  private prefetchMenuMusicBytes(): Promise<ArrayBuffer | null> {
-    if (this.menuMusicRawPromise) return this.menuMusicRawPromise;
-    this.menuMusicRawPromise = fetch(MENU_MUSIC_PATH)
-      .then((res) => {
-        if (!res.ok) {
-          this.menuMusicRawPromise = null;
-          return null;
-        }
-        return res.arrayBuffer();
-      })
-      .catch(() => {
-        this.menuMusicRawPromise = null;
-        return null;
-      });
-    return this.menuMusicRawPromise;
-  }
-
-  private async ensureMenuMusicDecoded(): Promise<AudioBuffer | null> {
-    if (this.menuMusicBuffer) return this.menuMusicBuffer;
-    if (!this.ctx) return null;
-    if (this.menuMusicDecodePromise) return this.menuMusicDecodePromise;
-
-    this.menuMusicDecodePromise = (async () => {
-      try {
-        const bytes = await this.prefetchMenuMusicBytes();
-        if (!bytes || !this.ctx || this.disposed) return null;
-        // Pass a defensive slice so decodeAudioData never leaves a detached shared reference
-        const decoded = await this.decodeAudio(this.ctx, bytes.slice(0));
-        this.menuMusicBuffer = decoded;
-        return decoded;
-      } catch {
-        this.menuMusicDecodePromise = null;
-        return null;
-      }
-    })();
-
-    return this.menuMusicDecodePromise;
   }
 
   public setMenuActive(active: boolean): void {
@@ -284,163 +310,77 @@ export class BasketballAudioManager {
 
   public startMenuMusic(options?: { restart?: boolean }): void {
     if (this.disposed || !this.isInMenu || !this.settings.musicEnabled) return;
+    const el = this.ensureMenuAudioElement();
+    if (!el) return;
 
-    const restart = Boolean(options?.restart);
-    if (restart) {
-      this.menuMusicPendingRestart = true;
-    }
-
-    // Cancel any active fade-out timer
-    if (this.menuMusicFadeTimer) {
-      clearTimeout(this.menuMusicFadeTimer);
-      this.menuMusicFadeTimer = null;
-    }
-
-    // If soundtrack is already loaded and actively playing and no restart was requested,
-    // keep it playing seamlessly and restore full fade gain (prevents duplicates!)
-    if (this.menuMusicSource && !restart && !this.menuMusicPendingRestart) {
-      if (this.ctx && this.menuMusicFadeGain && this.ctx.state === "running") {
-        const now = this.ctx.currentTime;
-        const g = this.menuMusicFadeGain.gain;
-        const heldVal = Math.max(0.0001, g.value);
-        try {
-          (g as unknown as { cancelAndHoldAtTime?: (t: number) => void }).cancelAndHoldAtTime?.(now);
-        } catch {
-          g.cancelScheduledValues(now);
-          g.setValueAtTime(heldVal, now);
-        }
-        g.linearRampToValueAtTime(1.0, now + 0.35);
-      }
-      return;
-    }
-
-    void this.tryStartMenuMusicPlayback();
-  }
-
-  private async tryStartMenuMusicPlayback(): Promise<void> {
-    if (this.disposed || !this.isInMenu || !this.settings.musicEnabled) return;
-    if (!this.ctx || this.ctx.state !== "running" || !this.musicGain) return;
-
-    const mySession = ++this.menuMusicSessionId;
-    const buffer = await this.ensureMenuMusicDecoded();
-    if (
-      this.disposed ||
-      mySession !== this.menuMusicSessionId ||
-      !buffer ||
-      !this.ctx ||
-      this.ctx.state !== "running" ||
-      !this.musicGain ||
-      !this.isInMenu ||
-      !this.settings.musicEnabled
-    ) {
-      return;
-    }
-
-    const shouldRestart = this.menuMusicPendingRestart;
+    const restart = Boolean(options?.restart) || this.menuMusicPendingRestart;
     this.menuMusicPendingRestart = false;
 
-    // Singleton protection: never allow more than one instance to play simultaneously
-    if (this.menuMusicSource && !shouldRestart) {
+    if (restart) {
+      try {
+        el.currentTime = 0;
+      } catch {}
+    }
+
+    const targetVol = this.getTargetMenuMusicVolume();
+    if (!el.paused && !restart) {
+      this.rampMenuAudioVolume(targetVol, 0.35, false);
       return;
     }
-    this.stopMenuMusicImmediate();
 
     try {
-      const now = this.ctx.currentTime;
-      const fadeGain = this.ctx.createGain();
-      fadeGain.gain.setValueAtTime(0.001, now);
-      fadeGain.gain.linearRampToValueAtTime(1.0, now + 0.45);
-      fadeGain.connect(this.musicGain);
-
-      const src = this.ctx.createBufferSource();
-      src.buffer = buffer;
-      src.loop = true;
-      src.connect(fadeGain);
-
-      src.onended = () => {
-        if (this.menuMusicSource === src) {
-          this.menuMusicSource = null;
-          try {
-            fadeGain.disconnect();
-          } catch {}
-          if (this.menuMusicFadeGain === fadeGain) {
-            this.menuMusicFadeGain = null;
-          }
-        }
-      };
-
-      this.menuMusicSource = src;
-      this.menuMusicFadeGain = fadeGain;
-      src.start(now, 0);
+      el.volume = Math.min(0.05, targetVol);
+      const playRes = el.play();
+      if (playRes && typeof playRes.then === "function") {
+        playRes
+          .then(() => {
+            if (!this.disposed && this.isInMenu && this.settings.musicEnabled) {
+              this.rampMenuAudioVolume(this.getTargetMenuMusicVolume(), 0.45, false);
+            } else {
+              this.fadeOutMenuMusic(0.25);
+            }
+          })
+          .catch(() => {
+            // Browser blocked autoplay until first user gesture; unlock() will start it immediately on gesture
+          });
+      } else {
+        this.rampMenuAudioVolume(targetVol, 0.45, false);
+      }
     } catch {
-      this.stopMenuMusicImmediate();
+      // Ignore autoplay blocks prior to user gesture
     }
   }
 
   public fadeOutMenuMusic(durationSec = 3.0): void {
-    // Invalidate any in-flight async start so a slow decode cannot resurrect after gameplay starts
-    this.menuMusicSessionId++;
     this.menuMusicPendingRestart = false;
-
-    if (this.menuMusicFadeTimer) {
-      clearTimeout(this.menuMusicFadeTimer);
-      this.menuMusicFadeTimer = null;
-    }
-
-    if (!this.menuMusicSource || !this.menuMusicFadeGain || !this.ctx || this.ctx.state !== "running") {
-      this.stopMenuMusicImmediate();
+    if (!this.menuAudioEl || this.menuAudioEl.paused) {
+      this.clearMenuMusicFadeTimer();
       return;
     }
-
-    const now = this.ctx.currentTime;
-    const g = this.menuMusicFadeGain.gain;
-    const currentGain = Math.max(0.0001, g.value);
-    try {
-      (g as unknown as { cancelAndHoldAtTime?: (t: number) => void }).cancelAndHoldAtTime?.(now);
-    } catch {
-      g.cancelScheduledValues(now);
-      g.setValueAtTime(currentGain, now);
-    }
-    g.linearRampToValueAtTime(0.0001, now + Math.max(0.1, durationSec));
-
-    const fadingSource = this.menuMusicSource;
-    this.menuMusicFadeTimer = setTimeout(() => {
-      this.menuMusicFadeTimer = null;
-      if (!this.isInMenu || !this.settings.musicEnabled) {
-        if (this.menuMusicSource === fadingSource) {
-          this.stopMenuMusicImmediate();
-        }
-      }
-    }, Math.ceil(durationSec * 1000) + 80);
+    const resetPos = !this.isInMenu;
+    this.rampMenuAudioVolume(0, durationSec, true, resetPos);
   }
 
   private stopMenuMusicImmediate(): void {
-    if (this.menuMusicFadeTimer) {
-      clearTimeout(this.menuMusicFadeTimer);
-      this.menuMusicFadeTimer = null;
-    }
-    if (this.menuMusicSource) {
-      const oldSrc = this.menuMusicSource;
-      this.menuMusicSource = null;
-      oldSrc.onended = null;
+    this.clearMenuMusicFadeTimer();
+    if (this.menuAudioEl) {
       try {
-        oldSrc.stop();
+        this.menuAudioEl.pause();
+        this.menuAudioEl.currentTime = 0;
+        this.menuAudioEl.volume = 0;
       } catch {}
-      try {
-        oldSrc.disconnect();
-      } catch {}
-    }
-    if (this.menuMusicFadeGain) {
-      try {
-        this.menuMusicFadeGain.disconnect();
-      } catch {}
-      this.menuMusicFadeGain = null;
     }
   }
 
   public async unlock(): Promise<void> {
     try {
       if (typeof window === "undefined" || this.disposed) return;
+
+      // Synchronously trigger menu music playback inside user-gesture stack
+      if (this.isInMenu && this.settings.musicEnabled) {
+        this.startMenuMusic({ restart: false });
+      }
+
       const AudioCtx =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -472,6 +412,13 @@ export class BasketballAudioManager {
           return;
         }
 
+        createdCtx.addEventListener("statechange", () => {
+          if (!this.disposed && this.ctx === createdCtx && createdCtx.state === "running") {
+            this.applyGains();
+            this.ensureAmbienceStarted();
+          }
+        });
+
         this.ctx = createdCtx;
         this.masterGain = masterGain;
         this.sfxGain = sfxGain;
@@ -484,16 +431,21 @@ export class BasketballAudioManager {
       if (!ctx || this.disposed) return;
 
       if (ctx.state === "suspended") {
+        // Call resume() synchronously inside gesture and also await briefly without blocking long-tail resume
+        const resumePromise = ctx.resume().then(() => {
+          if (!this.disposed && this.ctx === ctx && ctx.state === "running") {
+            this.applyGains();
+            this.ensureAmbienceStarted();
+          }
+        }).catch(() => {});
         let timerId: ReturnType<typeof setTimeout> | null = null;
         try {
           await Promise.race([
-            ctx.resume().catch(() => {}),
+            resumePromise,
             new Promise<void>((resolve) => {
-              timerId = setTimeout(resolve, 120);
+              timerId = setTimeout(resolve, 160);
             }),
           ]);
-        } catch {
-          // Ignore resume failure before gesture completes
         } finally {
           if (timerId !== null) clearTimeout(timerId);
         }
@@ -513,11 +465,6 @@ export class BasketballAudioManager {
         } catch {
           // Ignore
         }
-      }
-
-      // Start/ensure Main Menu Music if currently in the main menu and music is enabled
-      if (this.isInMenu && this.settings.musicEnabled && !this.menuMusicSource && ctx.state === "running") {
-        void this.tryStartMenuMusicPlayback();
       }
 
       await this.preloadAll();
@@ -584,6 +531,9 @@ export class BasketballAudioManager {
   }
 
   private applyGains(): void {
+    if (this.menuAudioEl && !this.menuAudioEl.paused && !this.menuMusicFadeTimer) {
+      this.menuAudioEl.volume = this.isInMenu ? this.getTargetMenuMusicVolume() : 0;
+    }
     if (!this.ctx || !this.masterGain || !this.sfxGain || !this.crowdGain || !this.musicGain) return;
     const now = this.ctx.currentTime;
     const muteMult = this.settings.muted ? 0 : 1;
@@ -1054,6 +1004,12 @@ export class BasketballAudioManager {
   public dispose(): void {
     this.disposed = true;
     this.stopMenuMusicImmediate();
+    if (this.menuAudioEl) {
+      try {
+        this.menuAudioEl.src = "";
+      } catch {}
+      this.menuAudioEl = null;
+    }
     try {
       this.ambienceSource?.stop();
     } catch {}
