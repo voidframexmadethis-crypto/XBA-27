@@ -20,6 +20,7 @@ import {
   JERSEY_ITEMS,
   SNEAKER_ITEMS,
   HEADBAND_ITEMS,
+  SIGNATURE_DUNKS,
   ProgressionItem,
   calculateLevel,
   saveCareerStats,
@@ -32,7 +33,7 @@ interface LockerRoomModalProps {
   onClose: () => void;
   careerStats: CareerStats;
   onStatsChange: (newStats: CareerStats) => void;
-  onEquipItem: (type: "jersey" | "sneakers" | "headband", id: string) => void;
+  onEquipItem: (type: "jersey" | "sneakers" | "headband" | "dunk", id: string) => void;
 }
 
 export default function LockerRoomModal({
@@ -42,7 +43,7 @@ export default function LockerRoomModal({
   onStatsChange,
   onEquipItem,
 }: LockerRoomModalProps) {
-  const [activeTab, setActiveTab] = useState<"jerseys" | "sneakers" | "headbands" | "milestones">("jerseys");
+  const [activeTab, setActiveTab] = useState<"jerseys" | "sneakers" | "headbands" | "dunks" | "milestones">("jerseys");
   const [notification, setNotification] = useState<string | null>(null);
   const [confirmingReset, setConfirmingReset] = useState(false);
 
@@ -62,6 +63,8 @@ export default function LockerRoomModal({
       updated.equippedSneakers = item.id;
     } else if (item.type === "headband") {
       updated.equippedHeadband = item.id;
+    } else if (item.type === "dunk") {
+      updated.equippedSignatureDunk = item.id;
     }
     saveCareerStats(updated);
     onStatsChange(updated);
@@ -120,7 +123,8 @@ export default function LockerRoomModal({
     const isEquipped =
       (item.type === "jersey" && careerStats.equippedJersey === item.id) ||
       (item.type === "sneakers" && careerStats.equippedSneakers === item.id) ||
-      (item.type === "headband" && careerStats.equippedHeadband === item.id);
+      (item.type === "headband" && careerStats.equippedHeadband === item.id) ||
+      (item.type === "dunk" && (careerStats.equippedSignatureDunk || "dunk_standard") === item.id);
 
     const progress = getItemProgress(item);
 
@@ -365,6 +369,7 @@ export default function LockerRoomModal({
               { id: "jerseys", label: `Jerseys (${JERSEY_ITEMS.filter((j) => careerStats.unlockedIds.includes(j.id)).length}/${JERSEY_ITEMS.length})` },
               { id: "sneakers", label: `Sneakers (${SNEAKER_ITEMS.filter((s) => careerStats.unlockedIds.includes(s.id)).length}/${SNEAKER_ITEMS.length})` },
               { id: "headbands", label: `Accessories (${HEADBAND_ITEMS.filter((h) => careerStats.unlockedIds.includes(h.id)).length}/${HEADBAND_ITEMS.length})` },
+              { id: "dunks", label: `Signature Dunks (${SIGNATURE_DUNKS.filter((d) => careerStats.unlockedIds.includes(d.id)).length}/${SIGNATURE_DUNKS.length})` },
               { id: "milestones", label: "Career Milestones" },
             ].map((tab) => (
               <button
@@ -401,6 +406,19 @@ export default function LockerRoomModal({
               </div>
             )}
 
+            {activeTab === "dunks" && (
+              <div className="space-y-4">
+                <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-950/70 via-neutral-900 to-amber-950/50 border border-emerald-400/35 text-xs text-emerald-100 flex flex-wrap items-center justify-between gap-2">
+                  <span>
+                    <strong className="text-amber-300">Tiki Tiki Signature Slam:</strong> Unlock via 20 Career PTS or winning 2+ US National Tour stops! Once equipped, hit Dunk in the lane or press <kbd className="px-1.5 py-0.5 rounded bg-black/60 border border-white/20">K</kbd> / <kbd className="px-1.5 py-0.5 rounded bg-black/60 border border-white/20">Shift+I</kbd>.
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {SIGNATURE_DUNKS.map(renderItemCard)}
+                </div>
+              </div>
+            )}
+
             {activeTab === "milestones" && (
               <div className="space-y-3">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -433,7 +451,7 @@ export default function LockerRoomModal({
                     Item Unlock Tracker
                   </h3>
                   <div className="space-y-2">
-                    {[...JERSEY_ITEMS, ...SNEAKER_ITEMS, ...HEADBAND_ITEMS]
+                    {[...JERSEY_ITEMS, ...SNEAKER_ITEMS, ...HEADBAND_ITEMS, ...SIGNATURE_DUNKS]
                       .filter((item) => item.reqType !== "none")
                       .map((item) => {
                         const isUnlocked = careerStats.unlockedIds.includes(item.id);

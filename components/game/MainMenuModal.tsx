@@ -36,8 +36,13 @@ import {
   Download,
   Upload,
   HardDrive,
+  Moon,
+  Sun,
+  Clock,
 } from "lucide-react";
-import { WorldCity } from "@/lib/worldTour";
+import { WORLD_CITIES, WorldCity } from "@/lib/worldTour";
+import { ALL_OFFENSE_MOVES, ALL_DEFENSE_MOVES } from "@/lib/basketballMoves";
+import type { NightGameMode } from "@/lib/customization";
 import { AthleteProfile, calculateOverallRating, formatHeight } from "@/lib/athleteProfile";
 import { CareerStats, calculateLevel } from "@/lib/progression";
 import type { DeviceType, InputPreference } from "@/lib/multiplayerTypes";
@@ -98,6 +103,10 @@ interface MainMenuModalProps {
   franchiseSummaryLabel?: string;
   onOpenUniverse?: () => void;
   universeSummaryLabel?: string;
+  onOpenNationalTour?: () => void;
+  nationalTourSummaryLabel?: string;
+  nightGameMode?: NightGameMode;
+  onChangeNightGameMode?: (mode: NightGameMode) => void;
   onSavesImported?: () => void;
 }
 
@@ -148,6 +157,10 @@ export default function MainMenuModal({
   franchiseSummaryLabel,
   onOpenUniverse,
   universeSummaryLabel,
+  onOpenNationalTour,
+  nationalTourSummaryLabel,
+  nightGameMode = "auto",
+  onChangeNightGameMode,
   onSavesImported,
 }: MainMenuModalProps) {
   const [activeTab, setActiveTab] = useState<"home" | "settings">("home");
@@ -385,12 +398,12 @@ export default function MainMenuModal({
                   {/* Hero Bottom Strip */}
                   <div className="absolute bottom-0 left-0 right-0 flex justify-around gap-2 px-3 py-3.5 bg-black/55 border-t border-white/15 text-[#d3d6dc] text-[8px] sm:text-[10px] font-black tracking-wider uppercase text-center">
                     <span>MEN&apos;S &amp; WOMEN&apos;S PRO LEAGUES</span>
-                    <span>16 NATIONS · 31 GLOBAL CITIES</span>
+                    <span>16 NATIONS · {WORLD_CITIES.length} GLOBAL CITIES</span>
                     <span>ONLINE &amp; OFFLINE MULTIPLAYER</span>
                   </div>
                 </section>
 
-                {/* Game Modes 01 - 10 */}
+                {/* Game Modes 01 - 12 */}
                 <section className="px-[5%] py-7 sm:py-9 space-y-6">
                   <div className="flex items-end justify-between gap-4">
                     <div>
@@ -402,7 +415,7 @@ export default function MainMenuModal({
                       </h2>
                     </div>
                     <span className="text-[#78808d] text-xs font-bold tabular-nums">
-                      01 — 10
+                      01 — 12
                     </span>
                   </div>
 
@@ -521,7 +534,7 @@ export default function MainMenuModal({
                           WORLD TOUR · 16 NATIONS
                         </h3>
                         <p className="text-[#9da6b4] text-[11px] m-0">
-                          16 National Teams, 31 Cities &amp; Int&apos;l Cups · {selectedCity.flag} {selectedCity.name}
+                          16 National Teams, {WORLD_CITIES.length} Cities &amp; Int&apos;l Cups · {selectedCity.flag} {selectedCity.name}
                         </p>
                       </div>
                       <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />
@@ -675,6 +688,30 @@ export default function MainMenuModal({
                       </div>
                       <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />
                     </button>
+
+                    {/* 12 USA National Tour */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleCloseMenu();
+                        onOpenNationalTour?.();
+                      }}
+                      className="group relative min-h-[125px] p-5 text-left text-white border border-red-400/45 hover:border-[#ff963b] rounded-[7px] bg-gradient-to-br from-[#2b141a] to-[#101319] hover:from-[#3d1c23] hover:to-[#171a20] hover:-translate-y-0.5 cursor-pointer flex flex-col justify-between transition-all overflow-hidden"
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <Flag className="w-6 h-6 text-red-400" />
+                        <span className="text-[#667080] text-[11px] font-black">12</span>
+                      </div>
+                      <div className="pr-8">
+                        <h3 className="mt-4 mb-1 text-[16px] font-black uppercase">
+                          USA NATIONAL TOUR
+                        </h3>
+                        <p className="text-[#9da6b4] text-[11px] m-0">
+                          {nationalTourSummaryLabel || "13 US Host Cities · Regional Conferences, Challenges & Crown"}
+                        </p>
+                      </div>
+                      <ArrowRight className="w-5 h-5 text-[#ff963b] absolute bottom-4 right-4 group-hover:translate-x-1 transition-transform" />
+                    </button>
                   </div>
 
                   {/* Additional Modes, Career Studio & Live Match Controls */}
@@ -773,7 +810,7 @@ export default function MainMenuModal({
                         className="min-h-[44px] px-4 py-2 rounded-[7px] bg-[#101319] hover:bg-[#1b222d] border border-[#343b46] hover:border-[#ff963b] text-xs font-bold uppercase tracking-wider text-white flex items-center gap-2 cursor-pointer transition-colors"
                       >
                         <BookOpen className="w-4 h-4 text-sky-400" />
-                        <span>Movebook (101)</span>
+                        <span>Movebook ({ALL_OFFENSE_MOVES.length + ALL_DEFENSE_MOVES.length})</span>
                       </button>
 
                       <button
@@ -947,6 +984,47 @@ export default function MainMenuModal({
                     </div>
                   </div>
                 </div>
+
+                {/* Night Games Everywhere Preference */}
+                {onChangeNightGameMode && (
+                  <div className="p-5 rounded-[7px] bg-[#101319] border border-[#343b46] flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-black uppercase tracking-wider text-white/85">
+                        Night Games Everywhere (All Arenas)
+                      </div>
+                      <p className="text-xs text-white/55 m-0 mt-1">
+                        Play daytime broadcast, city local time, or under full stadium floodlights &amp; starry night skies in every arena.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {(
+                        [
+                          { id: "auto", label: "Auto (City Clock)", icon: Clock },
+                          { id: "night", label: "Night Game ON", icon: Moon },
+                          { id: "day", label: "Daytime ON", icon: Sun },
+                        ] as const
+                      ).map((opt) => {
+                        const Icon = opt.icon;
+                        const active = nightGameMode === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => onChangeNightGameMode(opt.id)}
+                            className={`min-h-[40px] px-3.5 py-2 rounded text-xs font-black uppercase border flex items-center gap-1.5 cursor-pointer ${
+                              active
+                                ? "bg-cyan-400 text-black border-cyan-200"
+                                : "bg-[#090b10] text-white/80 border-[#343b46] hover:bg-[#1b222d]"
+                            }`}
+                          >
+                            <Icon className="w-3.5 h-3.5" />
+                            <span>{opt.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* Arena Audio Mixer (Music, Sound Effects, Crowd Ambience) */}
                 <div className="p-5 rounded-[7px] bg-[#101319] border border-[#343b46] space-y-4">

@@ -58,6 +58,7 @@ export enum OffenseMove {
   WINDMILL_DUNK = "WINDMILL_DUNK",
   REVERSE_DUNK = "REVERSE_DUNK",
   BASELINE_CUFF_DUNK = "BASELINE_CUFF_DUNK",
+  TIKI_TIKI_SLAM = "TIKI_TIKI_SLAM",
   ALLEY_OOP = "ALLEY_OOP",
   PUT_BACK = "PUT_BACK",
 
@@ -122,10 +123,13 @@ export enum DefenseMove {
   HAND_CHECK_ARM_BAR = "HAND_CHECK_ARM_BAR",
   STUNT_DIG = "STUNT_DIG",
   POKE_STEAL = "POKE_STEAL",
+  GLOVE_RIP_STRIP = "GLOVE_RIP_STRIP",
   HIP_RIDE = "HIP_RIDE",
   WALL_UP = "WALL_UP",
   SHOT_CONTEST = "SHOT_CONTEST",
   CHASE_DOWN_BLOCK = "CHASE_DOWN_BLOCK",
+  VOLLEY_SWAT_BLOCK = "VOLLEY_SWAT_BLOCK",
+  BASELINE_TRAP_CUTOFF = "BASELINE_TRAP_CUTOFF",
   PULL_CHAIR_PERIMETER = "PULL_CHAIR_PERIMETER",
 
   // 3. Pick-and-Roll (Screen) Defense
@@ -259,6 +263,7 @@ export const OFFENSE_CATEGORIES: Record<OffenseCategoryKey, OffenseMove[]> = {
     OffenseMove.WINDMILL_DUNK,
     OffenseMove.REVERSE_DUNK,
     OffenseMove.BASELINE_CUFF_DUNK,
+    OffenseMove.TIKI_TIKI_SLAM,
     OffenseMove.ALLEY_OOP,
     OffenseMove.PUT_BACK,
   ],
@@ -318,16 +323,19 @@ export const DEFENSE_CATEGORIES: Record<DefenseCategoryKey, DefenseMove[]> = {
     DefenseMove.DROP_STEP_SWING,
     DefenseMove.SPRINT_TO_SLIDE,
     DefenseMove.CLOSEOUT,
+    DefenseMove.BASELINE_TRAP_CUTOFF,
   ],
   on_ball: [
     DefenseMove.SHADING_FORCING,
     DefenseMove.HAND_CHECK_ARM_BAR,
     DefenseMove.STUNT_DIG,
     DefenseMove.POKE_STEAL,
+    DefenseMove.GLOVE_RIP_STRIP,
     DefenseMove.HIP_RIDE,
     DefenseMove.WALL_UP,
     DefenseMove.SHOT_CONTEST,
     DefenseMove.CHASE_DOWN_BLOCK,
+    DefenseMove.VOLLEY_SWAT_BLOCK,
     DefenseMove.PULL_CHAIR_PERIMETER,
   ],
   pnr_coverage: [
@@ -683,6 +691,11 @@ const CUSTOM_DESCRIPTIONS: Partial<
     desc: "Cuff the basketball against your forearm gliding along the baseline for a poster dunk.",
     key: "Move Deck",
   },
+  [OffenseMove.TIKI_TIKI_SLAM]: {
+    name: "Tiki Tiki Signature Slam",
+    desc: "Unlockable coiled 360-degree emerald-and-gold aerial dunk with shockwave ring, custom audio, and slow-mo replay.",
+    key: "Shift+I / K (Lane)",
+  },
   [OffenseMove.ALLEY_OOP]: {
     name: "Alley-Oop Finish",
     desc: "Catch and slam an airborne lob pass right above the cylinder in one fluid motion.",
@@ -943,6 +956,11 @@ const CUSTOM_DESCRIPTIONS: Partial<
     desc: "Time a quick downward swipe at the ball during an exposed crossover, gather, or dribble.",
     key: "E / RB",
   },
+  [DefenseMove.GLOVE_RIP_STRIP]: {
+    name: "Glove Rip Strip",
+    desc: "Timed two-hand downward rake toward the ball-handler's live dribble—devastating in backcourt traps & crossover gathers.",
+    key: "U (Def) / Move Deck",
+  },
   [DefenseMove.HIP_RIDE]: {
     name: "Hip-Ride",
     desc: "Stay glued to the driver's hip, matching speed and angle to steer them into a difficult layup.",
@@ -962,6 +980,16 @@ const CUSTOM_DESCRIPTIONS: Partial<
     name: "Chase-Down Block",
     desc: "Trail a fast-break handler, match their strides, and time a high leap to pin the layup off the glass.",
     key: "G (Trailing)",
+  },
+  [DefenseMove.VOLLEY_SWAT_BLOCK]: {
+    name: "Volley Swat Block",
+    desc: "High-timing explosive rim rejection spiking shots cleanly back into play to ignite an instant fast break.",
+    key: "O (Def) / Move Deck",
+  },
+  [DefenseMove.BASELINE_TRAP_CUTOFF]: {
+    name: "Sideline Cutoff Clamp",
+    desc: "Explosive lateral-diagonal backcourt/wing barrier slide that seals off the sideline corridor and drains handler stamina.",
+    key: "K (Def) / Move Deck",
   },
   [DefenseMove.PULL_CHAIR_PERIMETER]: {
     name: "Pulling the Chair (Perimeter)",

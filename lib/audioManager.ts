@@ -960,6 +960,55 @@ export class BasketballAudioManager {
     );
   }
 
+  // 12. Tiki Tiki Signature Slam (heavy rim slam + green-and-gold tropical/championship harmonic shimmer + amplified crowd roar)
+  public tikiTikiSlam(opts: { pan?: number; vol?: number } = {}): void {
+    this.dunk({ pan: opts.pan ?? 0, vol: opts.vol ?? 1.0 });
+    this.crowdCheer({ pan: opts.pan ?? 0, vol: 1.0 });
+    if (this.disposed || this.settings.muted || this.settings.sfx <= 0.01) return;
+    if (!this.canTrigger("tikiTikiSlam", 380)) return;
+    const ctx = this.ctx;
+    if (!ctx || !this.sfxGain) return;
+    if (ctx.state === "suspended") {
+      ctx.resume().catch(() => {});
+    }
+
+    try {
+      const t = ctx.currentTime;
+      // Sub-bass shockwave boom
+      const subOsc = ctx.createOscillator();
+      const subGain = ctx.createGain();
+      subOsc.type = "triangle";
+      subOsc.frequency.setValueAtTime(145, t);
+      subOsc.frequency.exponentialRampToValueAtTime(38, t + 0.42);
+      subGain.gain.setValueAtTime(0.001, t);
+      subGain.gain.linearRampToValueAtTime(0.45 * (opts.vol ?? 1), t + 0.015);
+      subGain.gain.exponentialRampToValueAtTime(0.001, t + 0.48);
+      subOsc.connect(subGain);
+      subGain.connect(this.sfxGain);
+      subOsc.start(t);
+      subOsc.stop(t + 0.5);
+
+      // Emerald & Gold signature championship arpeggio chime (G5 -> B5 -> D6 -> G6)
+      const notes = [783.99, 987.77, 1174.66, 1567.98];
+      notes.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        const startAt = t + idx * 0.055;
+        osc.type = idx % 2 === 0 ? "triangle" : "sine";
+        osc.frequency.setValueAtTime(freq, startAt);
+        g.gain.setValueAtTime(0.001, startAt);
+        g.gain.linearRampToValueAtTime(0.16 * (opts.vol ?? 1), startAt + 0.018);
+        g.gain.exponentialRampToValueAtTime(0.001, startAt + 0.36);
+        osc.connect(g);
+        g.connect(this.sfxGain!);
+        osc.start(startAt);
+        osc.stop(startAt + 0.38);
+      });
+    } catch {
+      // Ignore synth failure
+    }
+  }
+
   public shotClockBeep(high = false): void {
     if (!this.canTrigger("shotClockBeep", 220)) return;
     this.playSlice(

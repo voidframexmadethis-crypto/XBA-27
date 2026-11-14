@@ -5,6 +5,7 @@ export type TeamEmblemId = "crown" | "shield" | "flame" | "bolt" | "phoenix" | "
 export type BallDesignId = "classic_leather" | "championship_gold" | "street_charcoal" | "neon_volt" | "frost_arctic";
 export type ArenaLightingMood = "broadcast" | "spotlight" | "sunset" | "cyber";
 export type CourtWoodTone = "classic_maple" | "dark_walnut" | "bleached_ash" | "royal_oak";
+export type NightGameMode = "auto" | "night" | "day";
 
 export interface StudioCustomization {
   teamName: string;
@@ -18,6 +19,7 @@ export interface StudioCustomization {
   shoePrimaryColor: string;
   shoeAccentColor: string;
   lightingMood: ArenaLightingMood;
+  nightGameMode: NightGameMode;
   woodTone: CourtWoodTone;
   apronColor: string;
   keyPaintColor: string;
@@ -158,6 +160,7 @@ export function getDefaultCustomization(): StudioCustomization {
     shoePrimaryColor: "#f8fafc",
     shoeAccentColor: "#c8102e",
     lightingMood: "broadcast",
+    nightGameMode: "auto",
     woodTone: "classic_maple",
     apronColor: "#141820",
     keyPaintColor: "#991b1b",
@@ -166,12 +169,17 @@ export function getDefaultCustomization(): StudioCustomization {
 }
 
 export function loadStudioCustomization(): StudioCustomization {
-  return loadVersionedState<StudioCustomization>(
+  const loaded = loadVersionedState<StudioCustomization>(
     SAVE_KEYS.CUSTOMIZATION,
     getDefaultCustomization,
     (d): d is StudioCustomization =>
       Boolean(d && typeof d === "object" && typeof (d as StudioCustomization).primaryColor === "string")
   ).data;
+  return {
+    ...getDefaultCustomization(),
+    ...loaded,
+    nightGameMode: loaded.nightGameMode || "auto",
+  };
 }
 
 export function saveStudioCustomization(custom: StudioCustomization): void {

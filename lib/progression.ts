@@ -1,7 +1,7 @@
 export interface ProgressionItem {
   id: string;
   name: string;
-  type: "jersey" | "sneakers" | "headband";
+  type: "jersey" | "sneakers" | "headband" | "dunk";
   description: string;
   colorHex: string;
   secondaryHex?: string;
@@ -23,6 +23,7 @@ export interface CareerStats {
   equippedJersey: string;
   equippedSneakers: string;
   equippedHeadband: string;
+  equippedSignatureDunk: string;
   unlockedIds: string[];
 }
 
@@ -205,10 +206,37 @@ export const HEADBAND_ITEMS: ProgressionItem[] = [
   },
 ];
 
+export const SIGNATURE_DUNKS: ProgressionItem[] = [
+  {
+    id: "dunk_standard",
+    name: "Pro Arsenal Package",
+    type: "dunk",
+    description: "Classic tomahawk, two-hand flush, windmill, and reverse slams.",
+    colorHex: "#f97316",
+    secondaryHex: "#ffffff",
+    accentHex: "#18181b",
+    unlockedByDefault: true,
+    reqType: "none",
+    reqValue: 0,
+  },
+  {
+    id: "dunk_tiki_tiki",
+    name: "Tiki Tiki Signature Slam",
+    type: "dunk",
+    description: "Exclusive 360-coiled green & gold shockwave dunk with championship audio & replay.",
+    colorHex: "#10b981",
+    secondaryHex: "#facc15",
+    accentHex: "#064e3b",
+    reqType: "pts",
+    reqValue: 20,
+  },
+];
+
 export const ALL_CUSTOMIZATION_ITEMS: ProgressionItem[] = [
   ...JERSEY_ITEMS,
   ...SNEAKER_ITEMS,
   ...HEADBAND_ITEMS,
+  ...SIGNATURE_DUNKS,
 ];
 
 const STORAGE_KEY = "hoops_career_progression_v1";
@@ -226,7 +254,8 @@ export function getDefaultCareerStats(): CareerStats {
     equippedJersey: "jersey_red_hawks",
     equippedSneakers: "kicks_classic_white",
     equippedHeadband: "acc_none",
-    unlockedIds: ["jersey_red_hawks", "kicks_classic_white", "acc_none"],
+    equippedSignatureDunk: "dunk_standard",
+    unlockedIds: ["jersey_red_hawks", "kicks_classic_white", "acc_none", "dunk_standard"],
   };
 }
 
@@ -269,6 +298,7 @@ export function loadCareerStats(): CareerStats {
     return {
       ...defaults,
       ...parsed,
+      equippedSignatureDunk: parsed.equippedSignatureDunk || defaults.equippedSignatureDunk,
       unlockedIds: Array.from(new Set([...defaults.unlockedIds, ...(parsed.unlockedIds || [])])),
     };
   } catch {
@@ -369,6 +399,21 @@ export function addDebugCareerStats(pts: number, reb: number, ast: number): Reco
     fouls: 0,
     won: true,
   });
+}
+
+export function unlockProgressionItem(itemId: string, autoEquip = false): { stats: CareerStats; newlyUnlocked: boolean } {
+  const current = loadCareerStats();
+  const already = current.unlockedIds.includes(itemId);
+  const item = ALL_CUSTOMIZATION_ITEMS.find((i) => i.id === itemId);
+  const unlockedIds = already ? current.unlockedIds : [...current.unlockedIds, itemId];
+  const updated: CareerStats = {
+    ...current,
+    unlockedIds,
+    equippedSignatureDunk:
+      autoEquip && item?.type === "dunk" ? itemId : current.equippedSignatureDunk || "dunk_standard",
+  };
+  saveCareerStats(updated);
+  return { stats: updated, newlyUnlocked: !already };
 }
 
 export function resetCareerStats(): CareerStats {

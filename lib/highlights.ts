@@ -34,6 +34,8 @@ export interface HighlightClip {
   scoreHomeAfter: number;
   scoreAwayAfter: number;
   frames: HighlightFrame[];
+  signatureTag?: "tiki_tiki_slam";
+  accentColors?: [string, string];
 }
 
 export function formatClockLabel(seconds: number): string {

@@ -109,8 +109,14 @@ app.prepare().then(() => {
     clientsBySocket.set(ws, { ws, roomCode, playerId, isAlive: true });
   }
 
-  wss.on("connection", (ws: WebSocket) => {
-    clientsBySocket.set(ws, { ws, roomCode: "", playerId: "", isAlive: true });
+  wss.on("connection", (ws: WebSocket, req) => {
+    const parsedReq = parse(req?.url || "/", true);
+    const initialRoom = typeof parsedReq.query.room === "string" ? parsedReq.query.room.toUpperCase() : "";
+    const initialPlayer = typeof parsedReq.query.playerId === "string" ? parsedReq.query.playerId : "";
+    clientsBySocket.set(ws, { ws, roomCode: initialRoom, playerId: initialPlayer, isAlive: true });
+    if (initialRoom && initialPlayer) {
+      attachSocketToRoom(ws, initialRoom, initialPlayer);
+    }
 
     ws.on("pong", () => {
       const meta = clientsBySocket.get(ws);

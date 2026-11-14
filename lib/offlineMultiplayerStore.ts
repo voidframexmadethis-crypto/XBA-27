@@ -111,7 +111,7 @@ function readAllRooms(): Record<string, MultiplayerRoomState> {
     }
   }
   if (!map[PUBLIC_ROOM_CODE]) {
-    map[PUBLIC_ROOM_CODE] = createEmptyRoom(PUBLIC_ROOM_CODE, "los_angeles", "match");
+    map[PUBLIC_ROOM_CODE] = createEmptyRoom(PUBLIC_ROOM_CODE, "us_nyc", "match");
   }
   memoryRoomMap = map;
   return map;

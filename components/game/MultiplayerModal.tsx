@@ -51,6 +51,7 @@ interface MultiplayerModalProps {
     competitionType?: "pro" | "international" | "allstar" | "streetball";
   }) => Promise<void>;
   onLeaveRoom: () => Promise<void>;
+  onReconnectRoom?: () => Promise<void>;
   onStartCourtMatch: () => void;
   activeDivision?: "mens" | "womens";
 }
@@ -93,6 +94,7 @@ export default function MultiplayerModal({
   onJoinRoom,
   onCreateRoom,
   onLeaveRoom,
+  onReconnectRoom,
   onStartCourtMatch,
   activeDivision = "mens",
 }: MultiplayerModalProps) {
@@ -234,6 +236,23 @@ export default function MultiplayerModal({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2.5">
+                  {onReconnectRoom && transport !== "ws" && (
+                    <button
+                      onClick={async () => {
+                        setBusy(true);
+                        try {
+                          await onReconnectRoom();
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                      disabled={busy}
+                      className="min-h-[44px] px-4 py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/40 text-cyan-200 text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${busy ? "animate-spin" : ""}`} />
+                      <span>Reconnect</span>
+                    </button>
+                  )}
                   <button
                     onClick={copyInviteLink}
                     className="min-h-[44px] px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer"
@@ -315,8 +334,12 @@ export default function MultiplayerModal({
                             </div>
                           </div>
                         </div>
-                        <span className="text-xs font-black uppercase text-emerald-400">
-                          Ready
+                        <span
+                          className={`text-xs font-black uppercase ${
+                            p.connected ? "text-emerald-400" : "text-amber-400"
+                          }`}
+                        >
+                          {p.connected ? "Ready" : "Reconnecting"}
                         </span>
                       </div>
                     );

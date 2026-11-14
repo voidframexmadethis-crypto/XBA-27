@@ -27,6 +27,8 @@ export default function HighlightsOverlay({
 }: HighlightsOverlayProps) {
   const clip = clips[activeClipIndex] || clips[0];
 
+  const isTikiSlam = clip?.signatureTag === "tiki_tiki_slam";
+
   return (
     <AnimatePresence>
       {isOpen && clips.length > 0 && clip && (
@@ -36,16 +38,34 @@ export default function HighlightsOverlay({
           exit={{ opacity: 0, y: 20 }}
           className="fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-[max(0.75rem,env(safe-area-inset-left))] right-[max(0.75rem,env(safe-area-inset-right))] sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:w-full sm:max-w-3xl z-[160] pointer-events-auto"
         >
-        <div className="bg-neutral-950/92 backdrop-blur-xl border border-amber-500/40 rounded-2xl p-4 sm:p-5 shadow-2xl text-white">
+        <div
+          className={`backdrop-blur-xl rounded-2xl p-4 sm:p-5 shadow-2xl text-white border ${
+            isTikiSlam
+              ? "bg-gradient-to-r from-emerald-950/95 via-neutral-950/95 to-amber-950/95 border-emerald-400 shadow-[0_0_45px_rgba(16,185,129,0.45)]"
+              : "bg-neutral-950/92 border-amber-500/40"
+          }`}
+        >
           {/* Top Highlight Header & Play Info */}
           <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/10">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-500 text-black flex items-center justify-center shrink-0">
+              <div
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                  isTikiSlam
+                    ? "bg-gradient-to-tr from-emerald-400 to-yellow-400 text-black"
+                    : "bg-amber-500 text-black"
+                }`}
+              >
                 <Film className="w-5 h-5" />
               </div>
               <div>
-                <div className="text-[11px] font-black uppercase tracking-widest text-amber-400">
-                  Game Highlights · Q{quarterCompleted} Last {clips.length} Scoring {clips.length === 1 ? "Play" : "Plays"}
+                <div
+                  className={`text-[11px] font-black uppercase tracking-widest ${
+                    isTikiSlam ? "text-emerald-300" : "text-amber-400"
+                  }`}
+                >
+                  {isTikiSlam
+                    ? "★ TIKI TIKI SIGNATURE SLAM REPLAY · EMERALD & GOLD EDITION ★"
+                    : `Game Highlights · Q${quarterCompleted} Last ${clips.length} Scoring ${clips.length === 1 ? "Play" : "Plays"}`}
                 </div>
                 <div className="text-base sm:text-lg font-black uppercase tracking-tight text-white">
                   {clip.scorerName} · {clip.playType} (+{clip.points})

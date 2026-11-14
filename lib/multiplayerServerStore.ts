@@ -26,7 +26,7 @@ function getRoomMap(): Map<string, MultiplayerRoomState> {
   }
   const map = g.__hoopsMultiplayerStore;
   if (!map.has(PUBLIC_ROOM_CODE)) {
-    map.set(PUBLIC_ROOM_CODE, createEmptyRoom(PUBLIC_ROOM_CODE, "los_angeles", "match"));
+    map.set(PUBLIC_ROOM_CODE, createEmptyRoom(PUBLIC_ROOM_CODE, "us_nyc", "match"));
   }
   return map;
 }
@@ -366,6 +366,14 @@ export function markPlayerDisconnected(roomCodeRaw: string, playerId: string): M
   const player = room.players[playerId];
   if (player) {
     player.connected = false;
+    player.lastSeen = Date.now();
+    if (room.hostId === playerId) {
+      const nextConnected = Object.values(room.players).find((p) => p.connected && p.playerId !== playerId);
+      if (nextConnected) {
+        room.hostId = nextConnected.playerId;
+        room.match.hostId = nextConnected.playerId;
+      }
+    }
     room.updatedAt = Date.now();
   }
   return room;

@@ -1,4 +1,5 @@
 import type { ProLeagueDivision } from "./leagueData.ts";
+import type { NightGameMode } from "./customization.ts";
 import { loadVersionedState, SAVE_KEYS, saveVersionedState } from "./saveSystem.ts";
 
 export interface WorldCity {
@@ -207,6 +208,195 @@ export const WORLD_CITIES: WorldCity[] = [
     ballBaseHex: "#e8681c",
     ballSeamHex: "#004d20",
     ballStamp: "USA BOSTON",
+  },
+  {
+    id: "us_sf",
+    name: "San Francisco",
+    country: "United States",
+    flag: "🇺🇸",
+    region: "usa",
+    regionName: "United States",
+    teamName: "Bay Area Vanguard",
+    jerseyPrimary: "#1d428a",
+    jerseySecondary: "#ffc72c",
+    shortsColor: "#1d428a",
+    courtBorderColor: "#0f285c",
+    courtKeyColor: "#ffc72c",
+    arenaName: "Golden Gate Chase Pavilion",
+    lat: 37.7749,
+    lng: -122.4194,
+    crowdChant: "BAY AREA! VANGUARD!",
+    ballBaseHex: "#e8681c",
+    ballSeamHex: "#1d428a",
+    ballStamp: "USA BAY",
+  },
+  {
+    id: "us_seattle",
+    name: "Seattle",
+    country: "United States",
+    flag: "🇺🇸",
+    region: "usa",
+    regionName: "United States",
+    teamName: "Emerald Cascade",
+    jerseyPrimary: "#00653a",
+    jerseySecondary: "#ffc200",
+    shortsColor: "#004d2c",
+    courtBorderColor: "#003d22",
+    courtKeyColor: "#ffc200",
+    arenaName: "Rain City Climate Center",
+    lat: 47.6062,
+    lng: -122.3321,
+    crowdChant: "SONIC BOOM! SEATTLE!",
+    ballBaseHex: "#e8681c",
+    ballSeamHex: "#00653a",
+    ballStamp: "USA PNW",
+  },
+  {
+    id: "us_dallas",
+    name: "Dallas",
+    country: "United States",
+    flag: "🇺🇸",
+    region: "usa",
+    regionName: "United States",
+    teamName: "Lone Star Mustangs",
+    jerseyPrimary: "#00538c",
+    jerseySecondary: "#b8c4ca",
+    shortsColor: "#002b5e",
+    courtBorderColor: "#002b5e",
+    courtKeyColor: "#00538c",
+    arenaName: "Victory Plaza Arena (Dallas)",
+    lat: 32.7767,
+    lng: -96.797,
+    crowdChant: "LONE STAR! DEFENSE!",
+    ballBaseHex: "#e8681c",
+    ballSeamHex: "#002b5e",
+    ballStamp: "USA TEXAS",
+  },
+  {
+    id: "us_houston",
+    name: "Houston",
+    country: "United States",
+    flag: "🇺🇸",
+    region: "usa",
+    regionName: "United States",
+    teamName: "Space City Orbiters",
+    jerseyPrimary: "#ce1141",
+    jerseySecondary: "#c4ced4",
+    shortsColor: "#061922",
+    courtBorderColor: "#061922",
+    courtKeyColor: "#ce1141",
+    arenaName: "Ignition Launchpad Center",
+    lat: 29.7604,
+    lng: -95.3698,
+    crowdChant: "LIFT OFF! H-TOWN!",
+    ballBaseHex: "#e8681c",
+    ballSeamHex: "#ce1141",
+    ballStamp: "USA ORBIT",
+  },
+  {
+    id: "us_atlanta",
+    name: "Atlanta",
+    country: "United States",
+    flag: "🇺🇸",
+    region: "usa",
+    regionName: "United States",
+    teamName: "Peachtree Firebirds",
+    jerseyPrimary: "#e03a3e",
+    jerseySecondary: "#c1d32f",
+    shortsColor: "#26282a",
+    courtBorderColor: "#26282a",
+    courtKeyColor: "#e03a3e",
+    arenaName: "Peachtree Sky Dome (ATL)",
+    lat: 33.749,
+    lng: -84.388,
+    crowdChant: "ATL HOOPS! RISE UP!",
+    ballBaseHex: "#e8681c",
+    ballSeamHex: "#26282a",
+    ballStamp: "USA ATL",
+  },
+  {
+    id: "us_phoenix",
+    name: "Phoenix",
+    country: "United States",
+    flag: "🇺🇸",
+    region: "usa",
+    regionName: "United States",
+    teamName: "Sonoran Sunburst",
+    jerseyPrimary: "#1d1160",
+    jerseySecondary: "#e56020",
+    shortsColor: "#1d1160",
+    courtBorderColor: "#1d1160",
+    courtKeyColor: "#e56020",
+    arenaName: "Valley Solar Arena (Phoenix)",
+    lat: 33.4484,
+    lng: -112.074,
+    crowdChant: "VALLEY SUNS! HEAT WAVE!",
+    ballBaseHex: "#f97316",
+    ballSeamHex: "#1d1160",
+    ballStamp: "USA VALLEY",
+  },
+  {
+    id: "us_denver",
+    name: "Denver",
+    country: "United States",
+    flag: "🇺🇸",
+    region: "usa",
+    regionName: "United States",
+    teamName: "Mile HighSummit",
+    jerseyPrimary: "#0e2240",
+    jerseySecondary: "#fec524",
+    shortsColor: "#0e2240",
+    courtBorderColor: "#0e2240",
+    courtKeyColor: "#8b2131",
+    arenaName: "Altitude Peak Arena (Denver)",
+    lat: 39.7392,
+    lng: -104.9903,
+    crowdChant: "MILE HIGH! ALTITUDE!",
+    ballBaseHex: "#e8681c",
+    ballSeamHex: "#0e2240",
+    ballStamp: "USA PEAK",
+  },
+  {
+    id: "us_philly",
+    name: "Philadelphia",
+    country: "United States",
+    flag: "🇺🇸",
+    region: "usa",
+    regionName: "United States",
+    teamName: "Liberty Bell Founders",
+    jerseyPrimary: "#006bb6",
+    jerseySecondary: "#ed174c",
+    shortsColor: "#002b5c",
+    courtBorderColor: "#002b5c",
+    courtKeyColor: "#006bb6",
+    arenaName: "Broad Street Heritage Center",
+    lat: 39.9526,
+    lng: -75.1652,
+    crowdChant: "PHILLY! TRUST THE COURT!",
+    ballBaseHex: "#e8681c",
+    ballSeamHex: "#002b5c",
+    ballStamp: "USA PHL",
+  },
+  {
+    id: "us_neworleans",
+    name: "New Orleans",
+    country: "United States",
+    flag: "🇺🇸",
+    region: "usa",
+    regionName: "United States",
+    teamName: "Crescent Jazz Kings",
+    jerseyPrimary: "#0c2340",
+    jerseySecondary: "#c8102e",
+    shortsColor: "#85714d",
+    courtBorderColor: "#0c2340",
+    courtKeyColor: "#85714d",
+    arenaName: "French Quarter Smoothie Dome",
+    lat: 29.9511,
+    lng: -90.0715,
+    crowdChant: "NOLA! BAYOU BOUNCE!",
+    ballBaseHex: "#e8681c",
+    ballSeamHex: "#85714d",
+    ballStamp: "USA NOLA",
   },
 
   // --- CANADA ---
@@ -810,6 +1000,308 @@ export function getCityById(id: string): WorldCity {
   return WORLD_CITIES.find((c) => c.id === id) || WORLD_CITIES[0];
 }
 
+export type DayNightPhase = "dawn" | "morning" | "afternoon" | "golden_hour" | "dusk" | "night";
+
+export interface CityAtmosphere {
+  cityId: string;
+  timeZone: string;
+  localTimeText: string;
+  local24Hour: number;
+  phase: DayNightPhase;
+  phaseLabel: string;
+  isDaytime: boolean;
+  sunElevationDeg: number;
+  celestialProgress: number;
+  skyGradientCss: string;
+  horizonGlowCss: string;
+  ambientHex: string;
+  ambientIntensity: number;
+  spotHex: string;
+  spotIntensity: number;
+  sceneSkyHex: string;
+  starOpacity: number;
+}
+
+export const CITY_TIMEZONE_BY_ID: Record<string, string> = {
+  us_nyc: "America/New_York",
+  us_la: "America/Los_Angeles",
+  us_chicago: "America/Chicago",
+  us_miami: "America/New_York",
+  us_boston: "America/New_York",
+  us_sf: "America/Los_Angeles",
+  us_seattle: "America/Los_Angeles",
+  us_dallas: "America/Chicago",
+  us_houston: "America/Chicago",
+  us_atlanta: "America/New_York",
+  us_phoenix: "America/Phoenix",
+  us_denver: "America/Denver",
+  us_philly: "America/New_York",
+  us_neworleans: "America/Chicago",
+  ca_toronto: "America/Toronto",
+  ca_vancouver: "America/Vancouver",
+  br_rio: "America/Sao_Paulo",
+  br_saopaulo: "America/Sao_Paulo",
+  mx_mexico: "America/Mexico_City",
+  mx_guadalajara: "America/Mexico_City",
+  fr_paris: "Europe/Paris",
+  fr_lyon: "Europe/Paris",
+  es_madrid: "Europe/Madrid",
+  es_barcelona: "Europe/Madrid",
+  de_berlin: "Europe/Berlin",
+  de_munich: "Europe/Berlin",
+  it_milan: "Europe/Rome",
+  it_rome: "Europe/Rome",
+  uk_london: "Europe/London",
+  uk_manchester: "Europe/London",
+  rs_belgrade: "Europe/Belgrade",
+  gr_athens: "Europe/Athens",
+  au_sydney: "Australia/Sydney",
+  au_melbourne: "Australia/Melbourne",
+  cn_shanghai: "Asia/Shanghai",
+  cn_beijing: "Asia/Shanghai",
+  jp_tokyo: "Asia/Tokyo",
+  jp_osaka: "Asia/Tokyo",
+  kr_seoul: "Asia/Seoul",
+  ph_manila: "Asia/Manila",
+};
+
+function formatHourFloat(hourFloat: number): string {
+  const normalized = ((hourFloat % 24) + 24) % 24;
+  const h24 = Math.floor(normalized);
+  const mins = Math.floor((normalized - h24) * 60);
+  const period = h24 >= 12 ? "PM" : "AM";
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${String(h12).padStart(2, "0")}:${String(mins).padStart(2, "0")} ${period}`;
+}
+
+export function getCityLocalClock(
+  city: WorldCity,
+  nowMs = Date.now(),
+  hourOverride?: number | null
+): { timeZone: string; hourFloat: number; localTimeText: string } {
+  const timeZone = CITY_TIMEZONE_BY_ID[city.id] || "UTC";
+  if (typeof hourOverride === "number" && Number.isFinite(hourOverride)) {
+    const wrapped = ((hourOverride % 24) + 24) % 24;
+    return {
+      timeZone,
+      hourFloat: wrapped,
+      localTimeText: formatHourFloat(wrapped),
+    };
+  }
+
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+    }).formatToParts(new Date(nowMs));
+    const rawHour = Number(parts.find((p) => p.type === "hour")?.value ?? "12");
+    const rawMinute = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+    const safeHour = rawHour === 24 ? 0 : rawHour;
+    const hourFloat = safeHour + rawMinute / 60;
+    return {
+      timeZone,
+      hourFloat,
+      localTimeText: formatHourFloat(hourFloat),
+    };
+  } catch {
+    // Deterministic solar longitude offset fallback if timezone lookup is unavailable
+    const utcDate = new Date(nowMs);
+    const utcHours = utcDate.getUTCHours() + utcDate.getUTCMinutes() / 60;
+    const offsetHours = Math.round(city.lng / 15);
+    const hourFloat = (((utcHours + offsetHours) % 24) + 24) % 24;
+    return {
+      timeZone: `UTC${offsetHours >= 0 ? "+" : ""}${offsetHours}`,
+      hourFloat,
+      localTimeText: formatHourFloat(hourFloat),
+    };
+  }
+}
+
+export function getCityAtmosphere(
+  city: WorldCity,
+  nowMs = Date.now(),
+  hourOverride?: number | null
+): CityAtmosphere {
+  const { timeZone, hourFloat, localTimeText } = getCityLocalClock(city, nowMs, hourOverride);
+  // Solar curve: sunrise ~6:00, solar noon ~12:30, sunset ~19:00
+  const sunRad = ((hourFloat - 6.5) / 24) * Math.PI * 2;
+  const sunElevationDeg = Math.round(Math.sin(sunRad) * 75);
+  const isDaytime = hourFloat >= 6 && hourFloat < 19.5;
+  const celestialProgress = isDaytime
+    ? Math.max(0, Math.min(1, (hourFloat - 6) / 13.5))
+    : Math.max(0, Math.min(1, ((hourFloat >= 19.5 ? hourFloat - 19.5 : hourFloat + 4.5) / 10.5)));
+
+  if (hourFloat >= 5 && hourFloat < 7) {
+    return {
+      cityId: city.id,
+      timeZone,
+      localTimeText,
+      local24Hour: hourFloat,
+      phase: "dawn",
+      phaseLabel: "Sunrise Dawn",
+      isDaytime: true,
+      sunElevationDeg,
+      celestialProgress,
+      skyGradientCss: "linear-gradient(155deg, #0f172a 0%, #312e81 36%, #9d174d 68%, #f59e0b 100%)",
+      horizonGlowCss: "radial-gradient(circle at 75% 88%, rgba(251, 146, 60, 0.38), transparent 60%)",
+      ambientHex: "#fcd34d",
+      ambientIntensity: 0.78,
+      spotHex: "#ffedd5",
+      spotIntensity: 2.35,
+      sceneSkyHex: "#241934",
+      starOpacity: 0.35,
+    };
+  }
+
+  if (hourFloat >= 7 && hourFloat < 11.5) {
+    return {
+      cityId: city.id,
+      timeZone,
+      localTimeText,
+      local24Hour: hourFloat,
+      phase: "morning",
+      phaseLabel: "Morning Sun",
+      isDaytime: true,
+      sunElevationDeg,
+      celestialProgress,
+      skyGradientCss: "linear-gradient(160deg, #0369a1 0%, #0284c7 45%, #38bdf8 82%, #bae6fd 100%)",
+      horizonGlowCss: "radial-gradient(circle at 30% 20%, rgba(253, 224, 71, 0.28), transparent 55%)",
+      ambientHex: "#e0f2fe",
+      ambientIntensity: 1.02,
+      spotHex: "#fffbeb",
+      spotIntensity: 2.55,
+      sceneSkyHex: "#153657",
+      starOpacity: 0,
+    };
+  }
+
+  if (hourFloat >= 11.5 && hourFloat < 16.5) {
+    return {
+      cityId: city.id,
+      timeZone,
+      localTimeText,
+      local24Hour: hourFloat,
+      phase: "afternoon",
+      phaseLabel: "High Daylight",
+      isDaytime: true,
+      sunElevationDeg,
+      celestialProgress,
+      skyGradientCss: "linear-gradient(165deg, #0c4a6e 0%, #0369a1 38%, #0ea5e9 78%, #7dd3fc 100%)",
+      horizonGlowCss: "radial-gradient(circle at 50% 15%, rgba(255, 255, 255, 0.25), transparent 55%)",
+      ambientHex: "#e8f3ff",
+      ambientIntensity: 1.05,
+      spotHex: "#ffffff",
+      spotIntensity: 2.65,
+      sceneSkyHex: "#173c61",
+      starOpacity: 0,
+    };
+  }
+
+  if (hourFloat >= 16.5 && hourFloat < 18.75) {
+    return {
+      cityId: city.id,
+      timeZone,
+      localTimeText,
+      local24Hour: hourFloat,
+      phase: "golden_hour",
+      phaseLabel: "Golden Hour",
+      isDaytime: true,
+      sunElevationDeg,
+      celestialProgress,
+      skyGradientCss: "linear-gradient(155deg, #1e1b4b 0%, #7c2d12 45%, #ea580c 78%, #fbbf24 100%)",
+      horizonGlowCss: "radial-gradient(circle at 80% 75%, rgba(251, 191, 36, 0.42), transparent 58%)",
+      ambientHex: "#fde68a",
+      ambientIntensity: 0.88,
+      spotHex: "#fed7aa",
+      spotIntensity: 2.5,
+      sceneSkyHex: "#261624",
+      starOpacity: 0.15,
+    };
+  }
+
+  if (hourFloat >= 18.75 && hourFloat < 20.25) {
+    return {
+      cityId: city.id,
+      timeZone,
+      localTimeText,
+      local24Hour: hourFloat,
+      phase: "dusk",
+      phaseLabel: "Twilight Dusk",
+      isDaytime: false,
+      sunElevationDeg,
+      celestialProgress,
+      skyGradientCss: "linear-gradient(160deg, #090d1e 0%, #1e1b4b 44%, #581c87 76%, #be185d 100%)",
+      horizonGlowCss: "radial-gradient(circle at 75% 85%, rgba(236, 72, 153, 0.28), transparent 60%)",
+      ambientHex: "#a5b4fc",
+      ambientIntensity: 0.72,
+      spotHex: "#f5f3ff",
+      spotIntensity: 2.6,
+      sceneSkyHex: "#131026",
+      starOpacity: 0.6,
+    };
+  }
+
+  return {
+    cityId: city.id,
+    timeZone,
+    localTimeText,
+    local24Hour: hourFloat,
+    phase: "night",
+    phaseLabel: "Night Lights",
+    isDaytime: false,
+    sunElevationDeg,
+    celestialProgress,
+    skyGradientCss: "linear-gradient(165deg, #02040a 0%, #070d1f 48%, #0f172a 85%, #162447 100%)",
+    horizonGlowCss: `radial-gradient(circle at 50% 85%, ${city.jerseyPrimary}33, transparent 62%)`,
+    ambientHex: "#93c5fd",
+    ambientIntensity: 0.68,
+    spotHex: "#fff8ee",
+    spotIntensity: 2.8,
+    sceneSkyHex: "#060914",
+    starOpacity: 0.9,
+  };
+}
+
+export function resolveArenaAtmosphere(
+  city: WorldCity,
+  nightMode: NightGameMode = "auto",
+  nowMs = Date.now(),
+  hourOverride?: number | null
+): CityAtmosphere {
+  const effectiveOverride =
+    nightMode === "night"
+      ? 21.5
+      : nightMode === "day"
+        ? 13.5
+        : hourOverride;
+  const base = getCityAtmosphere(city, nowMs, effectiveOverride);
+  if (nightMode === "night") {
+    return {
+      ...base,
+      phase: "night",
+      phaseLabel: "Night Game Spotlight",
+      isDaytime: false,
+      ambientIntensity: 0.62,
+      spotIntensity: 3.15,
+      sceneSkyHex: "#030612",
+      starOpacity: 1,
+    };
+  }
+  if (nightMode === "day") {
+    return {
+      ...base,
+      phase: "afternoon",
+      phaseLabel: "Daytime Broadcast",
+      isDaytime: true,
+      starOpacity: 0,
+    };
+  }
+  return base;
+}
+
+
 // Tournament & Leaderboard support
 export interface InternationalTournamentDef {
   id: string;
@@ -881,6 +1373,24 @@ export const GLOBAL_TOURNAMENTS: InternationalTournamentDef[] = [
     description: "Full 16-nation Women's International Championship tournament with gold medal ceremony & stats.",
     cityIds: ALL_16_NATIONAL_CAPITALS,
     prizeXp: 1200,
+  },
+  {
+    id: "cup_usa_pro_classic",
+    name: "USA Coast-to-Coast Pro Cup",
+    trophyName: "Continental Stars & Stripes Cup",
+    division: "mens",
+    description: "8 elite US host cities battle from New York and Philly to San Francisco and Seattle.",
+    cityIds: ["us_nyc", "us_la", "us_chicago", "us_miami", "us_sf", "us_dallas", "us_boston", "us_seattle"],
+    prizeXp: 900,
+  },
+  {
+    id: "cup_womens_usa_classic",
+    name: "Women's USA Pro City Classic",
+    trophyName: "American Crown Showcase Cup",
+    division: "womens",
+    description: "8 top US arenas host an explosive coast-to-coast women's city championship.",
+    cityIds: ["us_nyc", "us_la", "us_seattle", "us_chicago", "us_atlanta", "us_phoenix", "us_sf", "us_miami"],
+    prizeXp: 900,
   },
 ];
 

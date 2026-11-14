@@ -10,10 +10,13 @@ const DM = {
   HAND_CHECK_ARM_BAR: "HAND_CHECK_ARM_BAR" as DefenseMove,
   STUNT_DIG: "STUNT_DIG" as DefenseMove,
   POKE_STEAL: "POKE_STEAL" as DefenseMove,
+  GLOVE_RIP_STRIP: "GLOVE_RIP_STRIP" as DefenseMove,
   HIP_RIDE: "HIP_RIDE" as DefenseMove,
   WALL_UP: "WALL_UP" as DefenseMove,
   SHOT_CONTEST: "SHOT_CONTEST" as DefenseMove,
   CHASE_DOWN_BLOCK: "CHASE_DOWN_BLOCK" as DefenseMove,
+  VOLLEY_SWAT_BLOCK: "VOLLEY_SWAT_BLOCK" as DefenseMove,
+  BASELINE_TRAP_CUTOFF: "BASELINE_TRAP_CUTOFF" as DefenseMove,
   DROP_COVERAGE: "DROP_COVERAGE" as DefenseMove,
   BLITZ_TRAP: "BLITZ_TRAP" as DefenseMove,
   ICE_BLUE: "ICE_BLUE" as DefenseMove,
@@ -103,6 +106,12 @@ export interface DefenseAiDecision {
   isLaneCutOff?: boolean;
   isBeatenTeammateHelp?: boolean;
   helpTargetRole?: "primary_cutoff" | "help_rotate" | "rim_wall" | "recover" | "matchup";
+  isBackcourtPress?: boolean;
+  backcourtPressure?: number;
+  backcourtRecoveryBurst?: boolean;
+  activateCutoffClamp?: boolean;
+  triggerGloveRip?: boolean;
+  triggerVolleySwat?: boolean;
 }
 
 export interface DrivingLaneAnalysis {
@@ -391,6 +400,12 @@ export function computeDefenseAiDecision(input: DefenseAiInput): DefenseAiDecisi
   let isLaneCutOff = false;
   let isBeatenTeammateHelp = false;
   let helpTargetRole: DefenseAiDecision["helpTargetRole"] = "matchup";
+  let isBackcourtPress = false;
+  let backcourtPressure = 0;
+  let backcourtRecoveryBurst = false;
+  let activateCutoffClamp = false;
+  let triggerGloveRip = false;
+  let triggerVolleySwat = false;
   // Shade toward the direction the driver is attacking laterally (or toward middle/sideline force)
   const shadingSide =
     Math.abs(lane.driveLateralSpeed) > 0.65
@@ -399,7 +414,7 @@ export function computeDefenseAiDecision(input: DefenseAiInput): DefenseAiDecisi
         ? 1
         : -1;
 
-  // 1. SHOT IN FLIGHT -> SHOT CONTEST / WALL-UP / CHASE-DOWN / BOX OUT & WEDGE CRASH
+  // 1. SHOT IN FLIGHT -> SHOT CONTEST / VOLLEY SWAT / WALL-UP / CHASE-DOWN / BOX OUT & WEDGE CRASH
   if (shotInFlight) {
     if (isOnBall || isNearestToBallHandler || distToHandler < 3.2) {
       const shooterBehindDef =
@@ -407,10 +422,15 @@ export function computeDefenseAiDecision(input: DefenseAiInput): DefenseAiDecisi
       if (shooterBehindDef && distToHandler < 3.4) {
         move = DM.CHASE_DOWN_BLOCK;
         speed = 11.4;
-      } else if (defenderToHoopDist < 4.1) {
+      } else if (defenderToHoopDist < 3.4) {
         move = DM.WALL_UP;
         activateWallUp = true;
         speed = 9.2;
+      } else if (cooldownReady && defenderToHoopDist < 7.8 && distToHandler < 2.8) {
+        move = DM.VOLLEY_SWAT_BLOCK;
+        triggerVolleySwat = true;
+        activateWallUp = true;
+        speed = 10.2;
       } else {
         move = DM.SHOT_CONTEST;
         speed = 9.8;
@@ -421,7 +441,7 @@ export function computeDefenseAiDecision(input: DefenseAiInput): DefenseAiDecisi
       contestLevel = 2;
       if (cooldownReady && defenderHeight <= 0.05 && distToHandler < 2.8) {
         triggerJump = true;
-        jumpVel = move === DM.CHASE_DOWN_BLOCK ? 4.3 : 3.6;
+        jumpVel = move === DM.VOLLEY_SWAT_BLOCK ? 5.0 : move === DM.CHASE_DOWN_BLOCK ? 4.3 : 3.6;
       }
     } else {
       // Off-ball defenders immediately box out their man toward the defensive glass
@@ -454,6 +474,7 @@ export function computeDefenseAiDecision(input: DefenseAiInput): DefenseAiDecisi
       triggerJump,
       jumpVel,
       shadingSide,
+      triggerVolleySwat,
     };
   }
 
@@ -518,6 +539,85 @@ export function computeDefenseAiDecision(input: DefenseAiInput): DefenseAiDecisi
     };
   }
 
+  // 3B. DEFENSIVE BACKCOURT MECHANICS (94ft Press, Sideline Funneling, Cutoff Clamp & Recovery)
+  const isHandlerInBackcourt = handlerPos.x * defendHalfDir > 0.45;
+  if (
+    isHandlerInBackcourt &&
+    (isOnBall || isNearestToBallHandler) &&
+    (scheme === DM.FULL_COURT_PRESS || defenseTactic === "press" || distToHandler < 6.5)
+  ) {
+    isBackcourtPress = true;
+    const ownerSpeed = lane.ownerSpeed;
+    const sidelineSign = Math.abs(handlerPos.z) > 1.2 ? Math.sign(handlerPos.z) : shadingSide;
+    const defBetween =
+      (defenderPos.x - hoop.x) * defendHalfDir <= (handlerPos.x - hoop.x) * defendHalfDir + 0.25;
+    const aimX = ownerSpeed > 1.0 ? lane.projectedHandlerX : handlerPos.x;
+    const aimZ = ownerSpeed > 1.0 ? lane.projectedHandlerZ : handlerPos.z;
+
+    if (!defBetween && ownerSpeed > 2.2) {
+      // Beaten in the backcourt -> explosive recovery sprint to cut off midline
+      move = DM.SPRINT_TO_SLIDE;
+      backcourtRecoveryBurst = true;
+      targetX = aimX - defendHalfDir * 1.45;
+      targetZ = aimZ * 0.82;
+      speed = clamp(12.2 + ownerSpeed * 0.18, 12.2, 13.4);
+      stanceActive = false;
+    } else if (distToHandler < 1.55 && cooldownReady && (ownerSpeed < 4.2 || Math.abs(handlerPos.z) > 3.6)) {
+      // Active Glove Rip Strip in backcourt press
+      move = DM.GLOVE_RIP_STRIP;
+      triggerGloveRip = true;
+      triggerPoke = true;
+      activateCutoffClamp = true;
+      targetX = aimX - defendHalfDir * 0.95;
+      targetZ = aimZ - sidelineSign * 0.25;
+      speed = 10.6;
+      stanceActive = true;
+      backcourtPressure = 0.95;
+    } else {
+      // Sideline Cutoff Clamp: force handler toward sideline, seal middle escape lane
+      move = DM.BASELINE_TRAP_CUTOFF;
+      activateCutoffClamp = true;
+      activateHandCheck = true;
+      targetX = aimX - defendHalfDir * 1.15;
+      targetZ = aimZ - sidelineSign * 0.48;
+      speed = clamp(10.0 + ownerSpeed * 0.22, 10.0, 12.4);
+      stanceActive = true;
+      isLaneCutOff = true;
+      helpTargetRole = "primary_cutoff";
+      backcourtPressure = clamp(1 - (distToHandler - 1.0) / 3.0, 0.25, 0.92);
+    }
+
+    return {
+      move,
+      targetX: clamp(targetX, -13.4, 13.4),
+      targetZ: clamp(targetZ, -6.9, 6.9),
+      speed,
+      stanceActive,
+      activateContest,
+      contestLevel,
+      activateWallUp,
+      activateBoxOut,
+      activateHipRide,
+      activateHandCheck,
+      activatePassLane,
+      passLaneMode,
+      triggerPoke,
+      triggerStunt,
+      triggerJump,
+      jumpVel,
+      shadingSide,
+      isLaneCutOff,
+      isBeatenTeammateHelp,
+      helpTargetRole,
+      isBackcourtPress,
+      backcourtPressure,
+      backcourtRecoveryBurst,
+      activateCutoffClamp,
+      triggerGloveRip,
+      triggerVolleySwat,
+    };
+  }
+
   // 4. ON-BALL INTELLIGENT DEFENSIVE STANCE & DRIVING LANE CUTOFF
   if (isOnBall || isNearestToBallHandler) {
     const ownerSpeed = lane.ownerSpeed;
@@ -573,15 +673,16 @@ export function computeDefenseAiDecision(input: DefenseAiInput): DefenseAiDecisi
         jumpVel = 3.2;
       }
     } else if (ownerSpeed > 3.2 && distToHandler < 2.35) {
-      // Driving-lane cutoff: ride hip & slide directly into projected lateral driving path
+      // Driving-lane cutoff: ride hip & cutoff clamp directly into projected lateral driving path
       const lateralLead = clamp(lane.driveLateralSpeed * 0.16, -0.55, 0.55);
-      move = cooldownReady ? DM.HIP_RIDE : DM.DEFENSIVE_SLIDE;
+      move = Math.abs(handlerPos.z) > 4.2 ? DM.BASELINE_TRAP_CUTOFF : cooldownReady ? DM.HIP_RIDE : DM.DEFENSIVE_SLIDE;
       targetX = aimHandlerX + dirX * 1.15 + latX * (shadingSide * 0.24 + lateralLead);
       targetZ = aimHandlerZ + dirZ * 1.15 + latZ * (shadingSide * 0.24 + lateralLead);
       speed = clamp(9.4 + ownerSpeed * 0.18, 9.4, 11.4);
       stanceActive = true;
       activateHipRide = true;
       activateHandCheck = true;
+      activateCutoffClamp = move === DM.BASELINE_TRAP_CUTOFF;
       isLaneCutOff = true;
       helpTargetRole = "primary_cutoff";
     } else {
@@ -596,8 +697,9 @@ export function computeDefenseAiDecision(input: DefenseAiInput): DefenseAiDecisi
       isLaneCutOff = ownerSpeed > 1.2;
       helpTargetRole = "primary_cutoff";
       if (cooldownReady && distToHandler < 1.65 && ownerSpeed < 4.5) {
-        move = DM.POKE_STEAL;
+        move = defenseTactic === "press" ? DM.GLOVE_RIP_STRIP : DM.POKE_STEAL;
         triggerPoke = true;
+        triggerGloveRip = move === DM.GLOVE_RIP_STRIP;
       } else if (ownerSpeed > 1.2) {
         move = DM.DEFENSIVE_SLIDE;
       } else {
@@ -755,6 +857,12 @@ export function computeDefenseAiDecision(input: DefenseAiInput): DefenseAiDecisi
     isLaneCutOff,
     isBeatenTeammateHelp,
     helpTargetRole,
+    isBackcourtPress,
+    backcourtPressure,
+    backcourtRecoveryBurst,
+    activateCutoffClamp,
+    triggerGloveRip,
+    triggerVolleySwat,
   };
 }
 

@@ -2,22 +2,26 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Palette, X, Check, RotateCcw, Sparkles, Shield, Crown, Flame, Zap, Mountain, Anchor, Star } from "lucide-react";
+import { Palette, X, Check, RotateCcw, Sparkles, Shield, Crown, Flame, Zap, Mountain, Anchor, Star, Moon, Sun, Clock } from "lucide-react";
 import {
   BALL_DESIGNS,
   getDefaultCustomization,
   LIGHTING_MOOD_PRESETS,
+  NightGameMode,
   StudioCustomization,
   TEAM_EMBLEMS,
   TeamEmblemId,
   WOOD_TONE_PRESETS,
 } from "@/lib/customization";
+import { CareerStats, SIGNATURE_DUNKS } from "@/lib/progression";
 
 interface CustomizationStudioModalProps {
   isOpen: boolean;
   onClose: () => void;
   customization: StudioCustomization;
   onApplyCustomization: (next: StudioCustomization) => void;
+  careerStats?: CareerStats;
+  onEquipSignatureDunk?: (dunkId: string) => void;
 }
 
 const COLOR_SWATCHES = [
@@ -42,6 +46,8 @@ export default function CustomizationStudioModal({
   onClose,
   customization,
   onApplyCustomization,
+  careerStats,
+  onEquipSignatureDunk,
 }: CustomizationStudioModalProps) {
   const [draft, setDraft] = useState<StudioCustomization>(customization);
   const [appliedBanner, setAppliedBanner] = useState(false);
@@ -281,6 +287,81 @@ export default function CustomizationStudioModal({
                       ))}
                     </div>
                   </div>
+                </div>
+
+                {/* Night Games Everywhere & Signature Dunks */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-black uppercase text-white/60 mb-2">
+                      Night Games Everywhere (All Arenas)
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(
+                        [
+                          { id: "auto", label: "Auto", icon: Clock },
+                          { id: "night", label: "Night", icon: Moon },
+                          { id: "day", label: "Day", icon: Sun },
+                        ] as { id: NightGameMode; label: string; icon: typeof Moon }[]
+                      ).map((opt) => {
+                        const Icon = opt.icon;
+                        const active = (draft.nightGameMode || "auto") === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => setDraft({ ...draft, nightGameMode: opt.id })}
+                            className={`p-2.5 rounded-xl border text-xs font-black uppercase flex items-center justify-center gap-1.5 cursor-pointer ${
+                              active
+                                ? "bg-cyan-400/20 border-cyan-400 text-cyan-200"
+                                : "bg-white/5 border-white/10 text-white/75"
+                            }`}
+                          >
+                            <Icon className="w-3.5 h-3.5" />
+                            <span>{opt.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {careerStats && onEquipSignatureDunk && (
+                    <div>
+                      <label className="block text-xs font-black uppercase text-white/60 mb-2">
+                        Signature Dunk Package
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {SIGNATURE_DUNKS.map((dunk) => {
+                          const unlocked = careerStats.unlockedIds.includes(dunk.id);
+                          const equipped =
+                            (careerStats.equippedSignatureDunk || "dunk_standard") === dunk.id;
+                          return (
+                            <button
+                              key={dunk.id}
+                              type="button"
+                              disabled={!unlocked}
+                              onClick={() => onEquipSignatureDunk(dunk.id)}
+                              className={`p-2.5 rounded-xl border text-left text-xs font-bold transition-all ${
+                                equipped
+                                  ? "bg-emerald-500/20 border-emerald-400 text-emerald-200 cursor-pointer"
+                                  : unlocked
+                                    ? "bg-white/5 border-white/15 hover:bg-white/10 cursor-pointer"
+                                    : "bg-black/40 border-white/5 text-white/40 cursor-not-allowed"
+                              }`}
+                            >
+                              <div className="truncate font-black">{dunk.name}</div>
+                              <div className="text-[10px] opacity-75">
+                                {equipped
+                                  ? "Equipped"
+                                  : unlocked
+                                    ? "Click to Equip"
+                                    : `Unlock: ${dunk.reqValue} Career PTS / 2 Tour Stops`}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

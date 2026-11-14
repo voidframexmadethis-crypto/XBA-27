@@ -91,6 +91,9 @@ export class CrossPlayMultiplayerClient {
   private offlineSyncTimer: ReturnType<typeof setInterval> | null = null;
   private wsRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private wsConnectTimeout: ReturnType<typeof setTimeout> | null = null;
+  private wsPingTimer: ReturnType<typeof setInterval> | null = null;
+  private wsRetryAttempt = 0;
+  private lastWsActivityAt = 0;
   private bus: BroadcastChannel | null = null;
   private storageListener: ((ev: StorageEvent) => void) | null = null;
   private onlineListener: (() => void) | null = null;
@@ -254,9 +257,21 @@ export class CrossPlayMultiplayerClient {
       // WebSocket attempt below or offline fallback will handle it
     }
 
-    // Step 3: Attempt low-latency WebSocket upgrade (with query ?room= for Cloudflare Durable Objects)
+    // Step 3: Attempt low-latency WebSocket upgrade (with query ?room= and &playerId= for Cloudflare Durable Objects)
+    this.wsRetryAttempt = 0;
     this.openWebSocket(payload, onlineRegistered);
     return this.currentRoom;
+  }
+
+  public async reconnect(): Promise<MultiplayerRoomState | null> {
+    if (!this.joinPayload) return null;
+    this.disposed = false;
+    this.wsRetryAttempt = 0;
+    this.httpFailureStreak = 0;
+    return this.joinRoom({
+      ...this.joinPayload,
+      roomCode: this.roomCode || this.joinPayload.roomCode,
+    });
   }
 
   private openWebSocket(payload: JoinRoomInput, onlineRegistered = false) {
@@ -279,7 +294,9 @@ export class CrossPlayMultiplayerClient {
 
     const roomCode = payload.roomCode || this.roomCode || "PUBLIC-COURT";
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${proto}//${window.location.host}/ws/multiplayer?room=${encodeURIComponent(roomCode)}`;
+    const wsUrl = `${proto}//${window.location.host}/ws/multiplayer?room=${encodeURIComponent(
+      roomCode
+    )}&playerId=${encodeURIComponent(this.playerId)}`;
 
     let opened = false;
     try {
@@ -295,6 +312,7 @@ export class CrossPlayMultiplayerClient {
           }
           if (onlineRegistered) {
             this.activateHttpFallback();
+            this.scheduleWsReconnect();
           } else {
             this.activateOfflineFallback();
           }
@@ -303,23 +321,48 @@ export class CrossPlayMultiplayerClient {
 
       ws.onopen = () => {
         opened = true;
+        this.wsRetryAttempt = 0;
         this.httpFailureStreak = 0;
+        this.lastWsActivityAt = Date.now();
         if (this.wsConnectTimeout) clearTimeout(this.wsConnectTimeout);
         this.stopOfflineFallback();
         this.stopHttpFallback();
         this.setTransport("ws");
         this.sendWs({ type: "join", payload });
         this.flushPendingEvents();
+
+        // Keep WebSocket alive across mobile/NAT timeouts and detect silent drops
+        this.wsPingTimer = setInterval(() => {
+          if (this.disposed || this.ws !== ws) return;
+          if (ws.readyState !== WebSocket.OPEN) return;
+          if (Date.now() - this.lastWsActivityAt > 22_000) {
+            try {
+              ws.close();
+            } catch {
+              // ignore
+            }
+            return;
+          }
+          this.sendWs({ type: "ping", ts: Date.now() });
+        }, 8_000);
       };
 
       ws.onmessage = (evt) => {
+        this.lastWsActivityAt = Date.now();
         try {
           const msg = JSON.parse(String(evt.data)) as ServerWsMessage;
+          if (msg.type === "pong") {
+            return;
+          }
           if (msg.type === "room_snapshot") {
             this.currentRoom = msg.room;
             this.roomCode = msg.room.roomCode;
             saveOfflineRoomSnapshot(msg.room);
             this.callbacks.onRoomSnapshot?.(msg.room);
+            if (msg.room.match.lastEvent && msg.room.match.lastEvent.seq > this.lastSeenEventSeq) {
+              this.lastSeenEventSeq = msg.room.match.lastEvent.seq;
+              this.callbacks.onMatchEvent?.(msg.room.match.lastEvent, msg.room.match);
+            }
           } else if (msg.type === "peer_delta") {
             if (this.currentRoom && msg.roomCode === this.currentRoom.roomCode) {
               this.currentRoom.players[msg.playerId] = msg.player;
@@ -345,30 +388,51 @@ export class CrossPlayMultiplayerClient {
 
       ws.onerror = () => {
         if (!opened && !this.disposed) {
-          if (onlineRegistered) this.activateHttpFallback();
-          else this.activateOfflineFallback();
+          if (onlineRegistered) {
+            this.activateHttpFallback();
+            this.scheduleWsReconnect();
+          } else {
+            this.activateOfflineFallback();
+          }
         }
       };
 
       ws.onclose = () => {
         if (this.wsConnectTimeout) clearTimeout(this.wsConnectTimeout);
+        if (this.wsPingTimer) {
+          clearInterval(this.wsPingTimer);
+          this.wsPingTimer = null;
+        }
+        if (this.ws === ws) this.ws = null;
         if (!this.disposed && this.joinPayload) {
           if (isBrowserOffline()) {
             this.activateOfflineFallback();
           } else {
             this.activateHttpFallback();
-            this.wsRetryTimer = setTimeout(() => {
-              if (!this.disposed && this.joinPayload && this.transport === "http") {
-                this.openWebSocket(this.joinPayload, true);
-              }
-            }, 12_000);
+            this.scheduleWsReconnect();
           }
         }
       };
     } catch {
-      if (onlineRegistered) this.activateHttpFallback();
-      else this.activateOfflineFallback();
+      if (onlineRegistered) {
+        this.activateHttpFallback();
+        this.scheduleWsReconnect();
+      } else {
+        this.activateOfflineFallback();
+      }
     }
+  }
+
+  private scheduleWsReconnect() {
+    if (this.disposed || !this.joinPayload || this.wsRetryTimer) return;
+    const delayMs = Math.min(12_000, 3000 * Math.pow(2, Math.min(this.wsRetryAttempt, 2)));
+    this.wsRetryAttempt += 1;
+    this.wsRetryTimer = setTimeout(() => {
+      this.wsRetryTimer = null;
+      if (!this.disposed && this.joinPayload && this.transport === "http" && !isBrowserOffline()) {
+        this.openWebSocket(this.joinPayload, true);
+      }
+    }, delayMs);
   }
 
   private activateHttpFallback() {
@@ -635,6 +699,10 @@ export class CrossPlayMultiplayerClient {
     if (this.wsRetryTimer) {
       clearTimeout(this.wsRetryTimer);
       this.wsRetryTimer = null;
+    }
+    if (this.wsPingTimer) {
+      clearInterval(this.wsPingTimer);
+      this.wsPingTimer = null;
     }
     this.stopHttpFallback();
   }

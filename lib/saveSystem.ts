@@ -16,6 +16,7 @@ export const SAVE_KEYS = {
   TRAINING: "apba_training_academy_v1",
   SETTINGS: "apba_game_settings_v1",
   UNIVERSE_V1: "adventureforge_universe_v1",
+  NATIONAL_TOUR_V1: "apba_national_tour_v1",
   // Legacy keys preserved for full backward compatibility
   LEGACY_ATHLETE: "hoops_created_athlete_v1",
   LEGACY_PROGRESSION: "hoops_career_progression_v1",
@@ -232,6 +233,7 @@ export function getStorageInventory(): {
     [SAVE_KEYS.FRANCHISE_WOMENS]: "Women's Franchise Front Office",
     [SAVE_KEYS.WORLD_TOUR_V2]: "World Tour & International Cups (Men)",
     [SAVE_KEYS.WORLD_TOUR_WOMENS]: "World Tour & International Cups (Women)",
+    [SAVE_KEYS.NATIONAL_TOUR_V1]: "US National Tour Progression",
     [SAVE_KEYS.ALLSTAR_MENS]: "Men's All-Star Weekend Records",
     [SAVE_KEYS.ALLSTAR_WOMENS]: "Women's All-Star Weekend Records",
     [SAVE_KEYS.CUSTOMIZATION]: "Customization Studio",

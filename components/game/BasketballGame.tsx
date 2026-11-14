@@ -4,10 +4,11 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { motion, AnimatePresence } from "motion/react";
-import { Clock, Keyboard, Gamepad2, Info, Trophy, Sparkles, Shirt, Flag, Globe, Timer, MapPin, Menu, Tv, Play, Flame, Shield, X, ChevronRight, ChevronUp, ChevronDown, Target, BookOpen, Cast, Layers } from "lucide-react";
+import { Clock, Keyboard, Gamepad2, Info, Trophy, Sparkles, Shirt, Flag, Globe, Timer, MapPin, Menu, Tv, Play, Flame, Shield, X, ChevronRight, ChevronUp, ChevronDown, Target, BookOpen, Cast, Layers, Moon, Sun } from "lucide-react";
 import LockerRoomModal from "./LockerRoomModal";
 import TimeoutModal, { TacticalSettings } from "./TimeoutModal";
 import WorldTourMenu from "./WorldTourMenu";
+import NationalTourModal from "./NationalTourModal";
 import NBAFeaturesModal from "./NBAFeaturesModal";
 import Scoreboard from "./Scoreboard";
 import ShotClockDisplay from "./ShotClockDisplay";
@@ -42,7 +43,9 @@ import {
 import {
   WORLD_CITIES,
   WorldCity,
+  getCityAtmosphere,
   getCityById,
+  resolveArenaAtmosphere,
   WorldTourTournamentState,
   createTournamentBracket,
   loadWorldTourTournamentState,
@@ -50,10 +53,20 @@ import {
   resolveTournamentMatch,
 } from "@/lib/worldTour";
 import {
+  NATIONAL_TOUR_STOPS,
+  NationalTourState,
+  NationalTourStop,
+  loadNationalTourState,
+  saveNationalTourState,
+  resolveNationalTourStopMatch,
+} from "@/lib/nationalTour";
+import {
   loadCareerStats,
+  saveCareerStats,
   getDefaultCareerStats,
   recordMatchToCareer,
   addDebugCareerStats,
+  unlockProgressionItem,
   CareerStats,
   calculateLevel,
   JERSEY_ITEMS,
@@ -117,7 +130,7 @@ import {
   saveLeagueState,
   recordUserPlayedMatch,
 } from "@/lib/leagueEngine";
-import { APBA_TEAMS, CHAMPIONSHIP_TROPHY_NAME } from "@/lib/leagueData";
+import { APBA_TEAMS, CHAMPIONSHIP_TROPHY_NAME, ProLeagueDivision } from "@/lib/leagueData";
 import {
   MyCareerState,
   createInitialCareerState,
@@ -133,6 +146,7 @@ import {
 } from "@/lib/franchiseEngine";
 import {
   StudioCustomization,
+  NightGameMode,
   getDefaultCustomization,
   loadStudioCustomization,
   saveStudioCustomization,
@@ -286,6 +300,10 @@ export default function BasketballGame() {
 
   // Player Career Progression & Customization States
   const [careerStats, setCareerStats] = useState<CareerStats>(getDefaultCareerStats);
+  const careerStatsRef = useRef<CareerStats>(careerStats);
+  useEffect(() => {
+    careerStatsRef.current = careerStats;
+  }, [careerStats]);
   const [showLockerRoom, setShowLockerRoom] = useState(false);
   const [lastMatchEarnings, setLastMatchEarnings] = useState<{
     pts: number;
@@ -296,9 +314,11 @@ export default function BasketballGame() {
     unlocked: ProgressionItem[];
   } | null>(null);
 
-  // World Tour & Tactical Timeout States
+  // World Tour, National Tour & Tactical Timeout States
   const [selectedCity, setSelectedCity] = useState<WorldCity>(WORLD_CITIES[0]);
   const [showWorldTour, setShowWorldTour] = useState(false);
+  const [showNationalTour, setShowNationalTour] = useState(false);
+  const [activeDivision, setActiveDivision] = useState<ProLeagueDivision>("mens");
   const [showTimeout, setShowTimeout] = useState(false);
   const [timeoutsLeft, setTimeoutsLeft] = useState(3);
   const [tactics, setTactics] = useState<TacticalSettings>({
@@ -333,13 +353,17 @@ export default function BasketballGame() {
     createTournamentBracket("cup_global_nations", WORLD_CITIES[0].id)
   );
   const worldTournamentRef = useRef<WorldTourTournamentState>(worldTournament);
+  const [nationalTour, setNationalTour] = useState<NationalTourState>(() => loadNationalTourState("mens"));
+  const nationalTourRef = useRef<NationalTourState>(nationalTour);
+  const matchExtraStatsRef = useRef({ steals: 0, threes: 0, dunks: 0, blocks: 0 });
 
   type MatchContext =
     | { kind: "exhibition" }
     | { kind: "league"; homeTeamId: string; awayTeamId: string; isPlayoff?: boolean }
     | { kind: "career"; teamId: string }
     | { kind: "franchise"; teamId: string }
-    | { kind: "world_cup"; matchId: string; homeCityId: string; awayCityId: string };
+    | { kind: "world_cup"; matchId: string; homeCityId: string; awayCityId: string }
+    | { kind: "national_tour"; stopId: string; cityId: string };
   const activeMatchContextRef = useRef<MatchContext>({ kind: "exhibition" });
 
   const [activeAcademyDrill, setActiveAcademyDrill] = useState<{
@@ -755,19 +779,68 @@ export default function BasketballGame() {
     setShowTipOff(true);
   }, []);
 
+  const handleChangeDivision = useCallback((division: ProLeagueDivision) => {
+    setActiveDivision(division);
+    const nextTour = loadNationalTourState(division);
+    nationalTourRef.current = nextTour;
+    setNationalTour(nextTour);
+    const nextLeague = loadLeagueState(division);
+    leagueStateRef.current = nextLeague;
+    setLeagueState(nextLeague);
+  }, []);
+
+  const handleChangeNightGameMode = useCallback((mode: NightGameMode) => {
+    const next = { ...studioCustomRef.current, nightGameMode: mode };
+    studioCustomRef.current = next;
+    setStudioCustom(next);
+    saveStudioCustomization(next);
+    if (gameRef.current?.applyStudioCustomToScene) {
+      gameRef.current.applyStudioCustomToScene(next);
+    }
+    if (gameRef.current?.triggerLabel) {
+      const lbl =
+        mode === "night"
+          ? "NIGHT GAMES EVERYWHERE: ON"
+          : mode === "day"
+          ? "ARENA LIGHTING: DAYTIME"
+          : "ARENA LIGHTING: CITY AUTO TIME";
+      gameRef.current.triggerLabel(lbl);
+    }
+  }, []);
+
+  const handleStartNationalTourStop = useCallback(
+    (stop: NationalTourStop, city: WorldCity) => {
+      activeMatchContextRef.current = {
+        kind: "national_tour",
+        stopId: stop.id,
+        cityId: city.id,
+      };
+      setShowNationalTour(false);
+      setShowMainMenu(false);
+      handleStartMatchCity(city);
+      const oppName = activeDivision === "womens" ? stop.opponentNameWomens : stop.opponentNameMens;
+      if (gameRef.current?.triggerMsg) {
+        gameRef.current.triggerMsg(`STOP #${stop.stopNumber}: VS ${oppName.toUpperCase()}`, "#38bdf8");
+      }
+    },
+    [activeDivision, handleStartMatchCity]
+  );
+
   const reloadAllSavedStates = useCallback(() => {
     const savedProfile = loadAthleteProfile();
     const savedCareer = loadCareerStats();
-    const savedLeague = loadLeagueState();
+    const savedLeague = loadLeagueState(activeDivision);
     const savedMyCareer = loadCareerState();
     const savedFranchise = loadFranchiseState();
     const savedCustom = loadStudioCustomization();
     const savedTraining = loadTrainingState();
     const savedCup = loadWorldTourTournamentState();
     const savedUniverse = loadUniverseState();
+    const savedNatTour = loadNationalTourState(activeDivision);
 
     athleteProfileRef.current = savedProfile;
     setAthleteProfile(savedProfile);
+    careerStatsRef.current = savedCareer;
     setCareerStats(savedCareer);
     leagueStateRef.current = savedLeague;
     setLeagueState(savedLeague);
@@ -782,11 +855,13 @@ export default function BasketballGame() {
     worldTournamentRef.current = savedCup;
     setWorldTournament(savedCup);
     setUniverseState(savedUniverse);
+    nationalTourRef.current = savedNatTour;
+    setNationalTour(savedNatTour);
 
     if (gameRef.current?.applyCustomization) gameRef.current.applyCustomization(savedCareer);
     if (gameRef.current?.applyAthleteProfile) gameRef.current.applyAthleteProfile(savedProfile);
     if (gameRef.current?.applyStudioCustomToScene) gameRef.current.applyStudioCustomToScene(savedCustom);
-  }, []);
+  }, [activeDivision]);
 
   const handleStartAcademyDrill = useCallback((drill: TrainingDrillDefinition) => {
     setShowTrainingAcademy(false);
@@ -893,6 +968,7 @@ export default function BasketballGame() {
   const isMenuNavigationOpen =
     showMainMenu ||
     showWorldTour ||
+    showNationalTour ||
     showCreateAthlete ||
     showDraftModal ||
     showMovebook ||
@@ -915,6 +991,7 @@ export default function BasketballGame() {
       showDraftModal ||
       showMovebook ||
       showWorldTour ||
+      showNationalTour ||
       showLockerRoom ||
       showTimeout ||
       showHelp ||
@@ -942,6 +1019,7 @@ export default function BasketballGame() {
     showDraftModal,
     showMovebook,
     showWorldTour,
+    showNationalTour,
     showLockerRoom,
     showTimeout,
     showHelp,
@@ -1009,8 +1087,10 @@ export default function BasketballGame() {
       const savedCustom = loadStudioCustomization();
       const savedTraining = loadTrainingState();
       const savedCup = loadWorldTourTournamentState();
+      const savedNatTour = loadNationalTourState("mens");
       athleteProfileRef.current = savedProfile;
       setAthleteProfile(savedProfile);
+      careerStatsRef.current = savedCareer;
       setCareerStats(savedCareer);
       setAudioSettings(savedAudio);
       leagueStateRef.current = savedLeague;
@@ -1025,6 +1105,8 @@ export default function BasketballGame() {
       setTrainingAcademy(savedTraining);
       worldTournamentRef.current = savedCup;
       setWorldTournament(savedCup);
+      nationalTourRef.current = savedNatTour;
+      setNationalTour(savedNatTour);
       if (gameRef.current?.applyCustomization) {
         gameRef.current.applyCustomization(savedCareer);
       }
@@ -1193,6 +1275,121 @@ export default function BasketballGame() {
       arenaVolumetricGroup.add(beam);
     });
     scene.add(arenaVolumetricGroup);
+
+    // --- NIGHT GAMES EVERYWHERE: STADIUM FLOODLIGHT TOWERS + STARFIELD + MOON ---
+    const nightFloodGroup = new THREE.Group();
+    const towerPoleMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.4, metalness: 0.7 });
+    const towerLedMat = new THREE.MeshBasicMaterial({ color: 0xf8fafc });
+    const towerPositions: [number, number][] = [
+      [-14.8, -9.6],
+      [14.8, -9.6],
+      [-14.8, 9.6],
+      [14.8, 9.6],
+    ];
+    towerPositions.forEach(([tx, tz]) => {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.22, 13.5, 8), towerPoleMat);
+      pole.position.set(tx, 6.75, tz);
+      nightFloodGroup.add(pole);
+
+      const head = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.72, 0.35), towerPoleMat);
+      head.position.set(tx, 13.5, tz);
+      head.lookAt(0, 0, 0);
+      nightFloodGroup.add(head);
+
+      const led = new THREE.Mesh(new THREE.PlaneGeometry(1.55, 0.56), towerLedMat);
+      led.position.set(tx * 0.96, 13.45, tz * 0.94);
+      led.lookAt(0, 0, 0);
+      nightFloodGroup.add(led);
+    });
+    const floodSpotL = new THREE.PointLight(0xe0f2fe, 1.85, 36, 1.3);
+    floodSpotL.position.set(-10.5, 11.5, 0);
+    const floodSpotR = new THREE.PointLight(0xe0f2fe, 1.85, 36, 1.3);
+    floodSpotR.position.set(10.5, 11.5, 0);
+    nightFloodGroup.add(floodSpotL, floodSpotR);
+    scene.add(nightFloodGroup);
+
+    const nightSkyGroup = new THREE.Group();
+    const starCount = 720;
+    const starPositions = new Float32Array(starCount * 3);
+    for (let sIdx = 0; sIdx < starCount; sIdx++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(0.18 + Math.random() * 0.82);
+      const rad = 74 + Math.random() * 20;
+      starPositions[sIdx * 3] = rad * Math.sin(phi) * Math.cos(theta);
+      starPositions[sIdx * 3 + 1] = rad * Math.cos(phi);
+      starPositions[sIdx * 3 + 2] = rad * Math.sin(phi) * Math.sin(theta);
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute("position", new THREE.BufferAttribute(starPositions, 3));
+    const starMat = new THREE.PointsMaterial({
+      color: 0xe2e8f0,
+      size: 0.48,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+    });
+    const starPoints = new THREE.Points(starGeo, starMat);
+    nightSkyGroup.add(starPoints);
+
+    const moonMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(2.6, 20, 20),
+      new THREE.MeshBasicMaterial({ color: 0xfef9c3 })
+    );
+    moonMesh.position.set(-34, 42, -52);
+    nightSkyGroup.add(moonMesh);
+    scene.add(nightSkyGroup);
+
+    // --- TIKI TIKI SIGNATURE SLAM VFX POOL (PRE-ALLOCATED GREEN & GOLD PARTICLES + SHOCKWAVE) ---
+    const tikiFlashLight = new THREE.PointLight(0x10b981, 0, 16, 1.4);
+    tikiFlashLight.position.set(HOOP_X, RIM_Y + 0.6, 0);
+    scene.add(tikiFlashLight);
+
+    const tikiShockMat = new THREE.MeshBasicMaterial({
+      color: 0xfacc15,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    });
+    const tikiShockRing = new THREE.Mesh(new THREE.RingGeometry(0.32, 0.56, 36), tikiShockMat);
+    tikiShockRing.rotation.x = -Math.PI / 2;
+    tikiShockRing.position.set(HOOP_X, 0.04, 0);
+    tikiShockRing.visible = false;
+    scene.add(tikiShockRing);
+
+    const tikiGreenMat = new THREE.MeshBasicMaterial({ color: 0x10b981, transparent: true, opacity: 0.95 });
+    const tikiGoldMat = new THREE.MeshBasicMaterial({ color: 0xfacc15, transparent: true, opacity: 0.95 });
+    const tikiPartGeo = new THREE.OctahedronGeometry(0.11, 0);
+    const tikiParticles = Array.from({ length: 64 }, (_, idx) => {
+      const m = new THREE.Mesh(tikiPartGeo, idx % 2 === 0 ? tikiGreenMat : tikiGoldMat);
+      m.visible = false;
+      scene.add(m);
+      return { mesh: m, vx: 0, vy: 0, vz: 0, life: 0, maxLife: 1.1 };
+    });
+    const tikiVfxState = { flashT: 0, ringT: 0, hoopX: HOOP_X, lastReplayClipId: "" };
+    const triggerTikiSlamVfx = (hoopX: number) => {
+      tikiVfxState.flashT = 1.05;
+      tikiVfxState.ringT = 0.85;
+      tikiVfxState.hoopX = hoopX;
+      tikiFlashLight.position.set(hoopX, RIM_Y + 0.5, 0);
+      tikiShockRing.position.set(hoopX, 0.045, 0);
+      tikiShockRing.scale.setScalar(1);
+      tikiShockRing.visible = true;
+      tikiShockMat.opacity = 0.95;
+      for (let i = 0; i < tikiParticles.length; i++) {
+        const pt = tikiParticles[i];
+        const ang = (i / tikiParticles.length) * Math.PI * 2 + Math.random() * 0.4;
+        const horiz = 2.4 + Math.random() * 4.8;
+        pt.mesh.position.set(hoopX + rnd(0.22), RIM_Y + rnd(0.18), rnd(0.22));
+        pt.mesh.scale.setScalar(0.85 + Math.random() * 0.75);
+        pt.mesh.visible = true;
+        pt.vx = Math.cos(ang) * horiz;
+        pt.vy = 2.5 + Math.random() * 5.2;
+        pt.vz = Math.sin(ang) * horiz;
+        pt.maxLife = 0.85 + Math.random() * 0.5;
+        pt.life = pt.maxLife;
+      }
+    };
 
     // --- PROCEDURAL REALISTIC WOODGRAIN & WEAR TEXTURE ---
     const createWoodgrainTexture = (lightHex = "#c99256", darkHex = "#b9803f") => {
@@ -2199,6 +2396,9 @@ export default function BasketballGame() {
       recoverTarget: { x: number; z: number } | null;
       aiMoveCoolT?: number;
       activeAiDefMove?: DefenseMove;
+      gloveRipT?: number;
+      volleySwatT?: number;
+      cutoffClampT?: number;
     }
 
     interface EntityOffenseState {
@@ -2356,6 +2556,9 @@ export default function BasketballGame() {
           matchupIdx: idxSeed % 5,
           recoverTarget: null,
           aiMoveCoolT: 0,
+          gloveRipT: 0,
+          volleySwatT: 0,
+          cutoffClampT: 0,
         },
         offState: {
           tripleThreatActive: false,
@@ -2587,21 +2790,17 @@ export default function BasketballGame() {
       }
       ballMat.needsUpdate = true;
 
-      // Arena Lighting Mood
+      // Arena Lighting Mood & Night Games Everywhere
       const mood = LIGHTING_MOOD_PRESETS.find((m) => m.id === custom.lightingMood) || LIGHTING_MOOD_PRESETS[0];
       ambientLight.color.setStyle(mood.ambientHex);
       ambientLight.intensity = mood.ambientIntensity;
       arenaSpot.intensity = mood.keyIntensity;
-      if (gameModeRef.current !== "streetball") {
-        scene.background = new THREE.Color(mood.skyHex);
-        scene.fog = new THREE.FogExp2(mood.skyHex, 0.015);
-      }
+      applyArenaLighting(currentCity, custom);
     };
 
     // Apply initially equipped items & athlete build on startup
     applyCustomization(loadCareerStats());
     applyAthleteProfile(athleteProfileRef.current);
-    applyStudioCustomToScene(studioCustomRef.current);
 
     // --- STATE ---
     const state = {
@@ -2620,6 +2819,7 @@ export default function BasketballGame() {
       prevPossessionTeam: null as "Home" | "Away" | null,
       looseT: 0, lbUsed: false, rbUsed: false, stealGraceT: 0, ballVel: V(),
       ballStallT: 0, ballStallX: 0, ballStallZ: 0, tripleBreakT: 0,
+      backcourtClock: 0, closelyGuardedClock: 0, backcourtTeam: null as "Home" | "Away" | null,
       keys: {} as any, prevKeys: {} as any, joystick: { x: 0, y: 0, active: false, autoSprint: false }, 
       touchButtons: {} as any, touchPulses: {} as Record<string, boolean>, rightStickCoolT: 0,
       isDefending: false, uiDefenseToggle: false, lastTime: performance.now(), camLook: V(0, 1.4, 0)
@@ -2969,6 +3169,7 @@ export default function BasketballGame() {
         rimHit: (opts?: { pan?: number; vol?: number }) => audioMgr.rimHit(opts),
         backboardHit: (opts?: { pan?: number; vol?: number }) => audioMgr.backboardHit(opts),
         dunk: (opts?: { pan?: number; vol?: number }) => audioMgr.dunk(opts),
+        tikiTikiSlam: (opts?: { pan?: number; vol?: number }) => audioMgr.tikiTikiSlam(opts),
         crowdScream: (opts?: { pan?: number; vol?: number }) => audioMgr.crowdCheer(opts),
         crowdReaction: (opts?: { pan?: number; vol?: number }) => audioMgr.crowdReaction(opts),
         crowdBoo: (opts?: { pan?: number; vol?: number }) => audioMgr.crowdBoo(opts),
@@ -3005,7 +3206,7 @@ export default function BasketballGame() {
               aim.z + ex.passTo.vel.z * FT * 0.42
             )
           : aim;
-      state.flight = { kind: type, shooter: P, passTo: ex.passTo || null, pts: ex.pts || 0, perfect: !!ex.perfect, dunk: !!ex.dunk, layup: !!ex.layup, t: 0, T: FT, rim: 0 };
+      state.flight = { kind: type, shooter: P, passTo: ex.passTo || null, pts: ex.pts || 0, perfect: !!ex.perfect, dunk: !!ex.dunk, dunkStyle: ex.dunkStyle || null, layup: !!ex.layup, t: 0, T: FT, rim: 0 };
       ball.position.copy(from); state.ballVel.set((targetPos.x - from.x) / FT, (targetPos.y - from.y) / FT + 0.5 * G * FT, (targetPos.z - from.z) / FT);
       state.owner = null; state.ballMode = "flight";
       const pan = clamp(from.z / 7.5, -1, 1);
@@ -3132,7 +3333,7 @@ export default function BasketballGame() {
       setShotClockResetPulse(k => k + 1);
       setLastShotResetReason("shot_attempt");
 
-      fire(P, from, aim, FT, "shot", { perfect: e <= 0.075, dunk: a.dunk, layup: a.layup, pts });
+      fire(P, from, aim, FT, "shot", { perfect: e <= 0.075, dunk: a.dunk, dunkStyle: a.dunkStyle, layup: a.layup, pts });
     }
     function startShot(P: any, o: any = {}) {
       if (P.act && (!Number.isFinite(P.act.t) || P.act.t >= P.act.dur)) P.act = null;
@@ -3155,7 +3356,7 @@ export default function BasketballGame() {
         kind: "shot",
         name: shotName,
         t: 0,
-        dur: o.dur || (useDunk || useLayup ? 0.95 : 0.92),
+        dur: o.dur || (o.dunkStyle === "tiki_tiki" && useDunk ? 1.14 : useDunk || useLayup ? 0.95 : 0.92),
         lock: !o.move,
         released: false,
         layup: useLayup,
@@ -3190,7 +3391,35 @@ export default function BasketballGame() {
           T.ankL = 0.42 * lift;
         }
         if (a.dunk) {
-          if (a.dunkStyle === "windmill") {
+          if (a.dunkStyle === "tiki_tiki") {
+            if (u < 0.24) {
+              // Deep rhythmic gather & emerald-gold launch coil
+              const p = u / 0.24;
+              T.crouch = 0.32 * Math.sin(p * Math.PI);
+              T.lean = 0.28 * p;
+              T.shR = -1.2 - p * 1.4;
+              T.shL = -1.2 - p * 1.4;
+              T.elR = -0.9;
+              T.elL = -0.9;
+            } else if (u < 0.68) {
+              // Full 360-degree coiled tornado flight + cocked double overhead tomahawk
+              const spinFrac = (u - 0.24) / 0.44;
+              T.pelvYaw = spinFrac * Math.PI * 2;
+              T.twist = Math.sin(spinFrac * Math.PI) * 0.45;
+              T.lean = -0.22;
+              T.shR = -3.15;
+              T.shL = -2.95;
+              T.elR = -0.35;
+              T.elL = -0.45;
+            } else {
+              // Explosive green-and-gold two-handed rim flush
+              T.lean = 0.32;
+              T.shR = -2.75;
+              T.shL = -2.75;
+              T.elR = -0.08;
+              T.elL = -0.08;
+            }
+          } else if (a.dunkStyle === "windmill") {
             T.shR = -0.6 - u * Math.PI * 2;
             T.elR = -0.2;
             T.shL = -1.3;
@@ -3248,7 +3477,14 @@ export default function BasketballGame() {
           T["el" + k] = -0.2;
         }
       };
-      a.update = () => { if (a.released) return; if ((a.layup && a.t >= 0.35) || (a.dunk && a.t >= 0.3) || (a.auto && a.t >= (o.releaseAt || 0.38))) return releaseShot(P, a, false); if (P.isUser && !a.auto && !a.layup && !a.dunk) a.c = (((a.t / 0.68) % 2 + 2) % 2) < 1 ? ((a.t / 0.68) % 2) : 2 - ((a.t / 0.68) % 2); };
+      a.update = () => {
+        if (a.released) return;
+        const dunkReleaseAt = a.dunkStyle === "tiki_tiki" ? 0.68 : 0.3;
+        if ((a.layup && a.t >= 0.35) || (a.dunk && a.t >= dunkReleaseAt) || (a.auto && a.t >= (o.releaseAt || 0.38))) {
+          return releaseShot(P, a, false);
+        }
+        if (P.isUser && !a.auto && !a.layup && !a.dunk) a.c = (((a.t / 0.68) % 2 + 2) % 2) < 1 ? ((a.t / 0.68) % 2) : 2 - ((a.t / 0.68) % 2);
+      };
       a.end = () => {
         if (!a.released) releaseShot(P, a, true);
         if (P.isUser && !a.dunk && !a.layup && a.pendingFeedback) {
@@ -3271,7 +3507,8 @@ export default function BasketballGame() {
         }
       };
       const finishBoost = P.isUser ? 1 + (athleteProfileRef.current.attributes.finishing - 75) / 260 : 1;
-      P.act = a; P.shield = false; state.ballMode = "held"; P.vy = (a.dunk ? 6.0 : a.stepback ? 4.4 : a.layup ? 4.8 : 5.2) * finishBoost; if (P.isUser) triggerLabel(a.name); return a;
+      const baseJumpVy = a.dunkStyle === "tiki_tiki" && a.dunk ? 6.85 : a.dunk ? 6.0 : a.stepback ? 4.4 : a.layup ? 4.8 : 5.2;
+      P.act = a; P.shield = false; state.ballMode = "held"; P.vy = baseJumpVy * finishBoost; if (P.isUser) triggerLabel(a.name); return a;
     }
     function performFoul(defender: GameEntity, attacker: GameEntity) {
       if (state.deadT > 0) return;
@@ -3363,6 +3600,9 @@ export default function BasketballGame() {
       triggerMsg(reason, "#10b981");
     }
     function triggerShotBlock(blocker: GameEntity, labelText = "REJECTED!") {
+      if (blocker.isUser) {
+        matchExtraStatsRef.current.blocks++;
+      }
       const dirX = teamA.includes(blocker) ? 1 : -1;
       blocker.hypeT = 1.4;
       state.ballVel.x = dirX * (4.5 + Math.random() * 2.5);
@@ -3463,6 +3703,27 @@ export default function BasketballGame() {
 
     let currentCity = initialCity;
 
+    const applyArenaLighting = (city: WorldCity, custom: StudioCustomization) => {
+      const atm = resolveArenaAtmosphere(city, custom.nightGameMode);
+      const isNightScene = !atm.isDaytime;
+      ambientLight.color.setStyle(atm.ambientHex);
+      ambientLight.intensity = atm.ambientIntensity;
+      arenaSpot.color.setStyle(atm.spotHex);
+      arenaSpot.intensity = atm.spotIntensity;
+      sun.intensity = isNightScene ? 0.42 : 0.95;
+      rimLight.intensity = isNightScene ? 0.96 : 0.55;
+      scene.background = new THREE.Color(atm.sceneSkyHex);
+      scene.fog = new THREE.FogExp2(atm.sceneSkyHex, gameModeRef.current === "streetball" ? (isNightScene ? 0.012 : 0.008) : 0.015);
+      nightSkyGroup.visible = isNightScene;
+      starMat.opacity = atm.starOpacity;
+      nightFloodGroup.visible = isNightScene;
+      renderer.toneMappingExposure = isNightScene ? 1.18 : 1.06;
+      floorMat.envMapIntensity = isNightScene ? 1.55 : 1.25;
+      floorMat.needsUpdate = true;
+      arenaVolumetricGroup.visible = gameModeRef.current !== "streetball" || isNightScene;
+      return atm;
+    };
+
     // --- APPLY WORLD TOUR CITY ARENA & TEAMS ---
     const applyCity = (city: WorldCity, silent = false) => {
       currentCity = city;
@@ -3511,9 +3772,12 @@ export default function BasketballGame() {
         }
       }
 
+      // Dynamic Day-Night / Night Games Everywhere Atmosphere
+      const cityAtm = applyArenaLighting(city, studioCustomRef.current);
+
       if (!silent) {
         Audio.whistle();
-        triggerMsg(`${city.name.toUpperCase()} ARENA`, city.jerseyPrimary);
+        triggerMsg(`${city.name.toUpperCase()} · ${cityAtm.phaseLabel.toUpperCase()}`, city.jerseyPrimary);
         Audio.speak(`Welcome to ${city.arenaName} in ${city.country}!`);
         setTimeout(() => {
           Audio.speak(city.crowdChant);
@@ -3521,7 +3785,8 @@ export default function BasketballGame() {
       }
     };
 
-    // Apply the initial chosen city silently on boot so it does not talk over Main Menu music
+    // Apply initial studio customization & chosen city silently on boot
+    applyStudioCustomToScene(studioCustomRef.current);
     applyCity(initialCity, true);
 
     // --- APPLY GAME MODE (MATCH, STREETBALL, TRAINING, FREESTYLE) ---
@@ -3631,10 +3896,14 @@ export default function BasketballGame() {
       state.looseT = 0;
       state.ballStallT = 0;
       state.tripleBreakT = 0;
+      state.backcourtClock = 0;
+      state.closelyGuardedClock = 0;
+      state.backcourtTeam = null;
       state.hadRimContact = false;
       state.lastPasser = null;
       state.ballVel.set(0, 0, 0);
       state.shotFeedbackTimer = 0;
+      matchExtraStatsRef.current = { steals: 0, threes: 0, dunks: 0, blocks: 0 };
       setShotFeedback((prev) => (prev.visible ? { ...prev, visible: false } : prev));
       setShowMeter(false);
       isBallLooseRef.current = false;
@@ -3659,6 +3928,9 @@ export default function BasketballGame() {
         p.defState.handCheckT = 0;
         p.defState.passLaneHunterT = 0;
         p.defState.aiMoveCoolT = 0;
+        p.defState.gloveRipT = 0;
+        p.defState.volleySwatT = 0;
+        p.defState.cutoffClampT = 0;
         p.offState.tripleThreatActive = false;
         p.offState.tripleThreatT = 0;
         p.offState.cutActionT = 0;
@@ -3672,13 +3944,10 @@ export default function BasketballGame() {
         floorMat.clearcoat = 0;
         floorMat.clearcoatRoughness = 0.8;
         floorMat.needsUpdate = true;
-        scene.background = new THREE.Color(0x1b2b3a);
-        scene.fog = new THREE.Fog(0x1b2b3a, 35, 110);
         apronMat.color.setHex(0x1d262b);
         apronMat.needsUpdate = true;
         marginGroup.visible = true;
         arenaOverheadGroup.visible = false;
-        arenaVolumetricGroup.visible = false;
         ledBoardGroup.visible = false;
       } else {
         floorMat.color.setHex(floorTex ? 0xffffff : 0xd4a373);
@@ -3689,15 +3958,13 @@ export default function BasketballGame() {
         floorMat.clearcoatRoughness = 0.14;
         floorMat.envMapIntensity = 1.35;
         floorMat.needsUpdate = true;
-        scene.background = new THREE.Color(0x0b0f19);
-        scene.fog = new THREE.FogExp2(0x0b0f19, 0.015);
         apronMat.color.setStyle(currentCity.courtBorderColor);
         apronMat.needsUpdate = true;
         marginGroup.visible = true;
         arenaOverheadGroup.visible = true;
-        arenaVolumetricGroup.visible = true;
         ledBoardGroup.visible = true;
       }
+      applyArenaLighting(currentCity, studioCustomRef.current);
 
       if (mode === "freestyle") {
         entities.forEach((p) => {
@@ -3787,12 +4054,15 @@ export default function BasketballGame() {
 
       // Sync Online Multiplayer Final Result
       if (mpClientRef.current?.roomCode) {
+        const isMirror = mpRoomRef.current?.players[mpClientRef.current.playerId]?.team === "Away";
+        const syncedHome = isMirror ? state.scoreAway : state.scoreHome;
+        const syncedAway = isMirror ? state.scoreHome : state.scoreAway;
         const winner: TeamSide | "Tie" =
-          state.scoreHome > state.scoreAway ? "Home" : state.scoreAway > state.scoreHome ? "Away" : "Tie";
+          syncedHome > syncedAway ? "Home" : syncedAway > syncedHome ? "Away" : "Tie";
         mpClientRef.current.sendEvent("match_finished", {
           winner,
-          scoreHome: state.scoreHome,
-          scoreAway: state.scoreAway,
+          scoreHome: syncedHome,
+          scoreAway: syncedAway,
         });
       }
 
@@ -3806,6 +4076,7 @@ export default function BasketballGame() {
         won,
       };
       const recordResult = recordMatchToCareer(earnings);
+      careerStatsRef.current = recordResult.updatedStats;
       setCareerStats(recordResult.updatedStats);
       setLastMatchEarnings({
         pts: earnings.pts,
@@ -3821,15 +4092,15 @@ export default function BasketballGame() {
         pts: earnings.pts,
         reb: earnings.reb,
         ast: earnings.ast,
-        stl: 0,
-        blk: 0,
+        stl: matchExtraStatsRef.current.steals,
+        blk: matchExtraStatsRef.current.blocks,
         won,
       });
       myCareerRef.current = nextMyCareer;
       setMyCareer(nextMyCareer);
       saveCareerState(nextMyCareer);
 
-      // Record APBA League / World Tour Cup match result if launched from those modes
+      // Record APBA League / World Tour Cup / National Tour result
       let crownedChampion = false;
       const ctx = activeMatchContextRef.current;
       if (ctx.kind === "league" || ctx.kind === "franchise") {
@@ -3855,13 +4126,13 @@ export default function BasketballGame() {
             pts: earnings.pts,
             reb: earnings.reb,
             ast: earnings.ast,
-            stl: 0,
-            blk: 0,
+            stl: matchExtraStatsRef.current.steals,
+            blk: matchExtraStatsRef.current.blocks,
             tov: 0,
             fgm: approxFgm,
             fga: Math.max(approxFgm, Math.round(approxFgm * 1.9)),
-            tpm: Math.floor(approxFgm / 4),
-            tpa: Math.max(Math.floor(approxFgm / 4), Math.floor(approxFgm / 1.8)),
+            tpm: matchExtraStatsRef.current.threes,
+            tpa: Math.max(matchExtraStatsRef.current.threes, Math.floor(approxFgm / 1.8)),
             ftm: 0,
             fta: 0,
           },
@@ -3883,6 +4154,33 @@ export default function BasketballGame() {
         setWorldTournament(nextCup);
         saveWorldTourTournamentState(nextCup);
         if (nextCup.championCityId === nextCup.userCityId) {
+          crownedChampion = true;
+        }
+      } else if (ctx.kind === "national_tour") {
+        const tourRes = resolveNationalTourStopMatch(
+          nationalTourRef.current,
+          ctx.stopId,
+          state.scoreHome,
+          state.scoreAway,
+          {
+            steals: matchExtraStatsRef.current.steals,
+            threes: matchExtraStatsRef.current.threes,
+            dunks: matchExtraStatsRef.current.dunks,
+          }
+        );
+        nationalTourRef.current = tourRes.nextState;
+        setNationalTour(tourRes.nextState);
+        saveNationalTourState(tourRes.nextState);
+        if (tourRes.unlockTikiTiki) {
+          const unlockedRes = unlockProgressionItem("dunk_tiki_tiki", false);
+          careerStatsRef.current = unlockedRes.stats;
+          setCareerStats(unlockedRes.stats);
+          if (unlockedRes.newlyUnlocked) {
+            Audio.commentary("unlock");
+            triggerMsg("UNLOCKED: TIKI TIKI SIGNATURE SLAM!", "#10b981");
+          }
+        }
+        if (tourRes.wonChampionship) {
           crownedChampion = true;
         }
       }
@@ -4486,7 +4784,9 @@ export default function BasketballGame() {
 
         // 4. FINISHING AT THE RIM & PAINT MOVES
         if (OFFENSE_CATEGORIES.finishing.includes(offMove)) {
-          const dunksMap: Partial<Record<OffenseMove, "tomahawk" | "two_hand" | "windmill" | "reverse" | "cuff" | "alley_oop" | "putback">> = {
+          const dunksMap: Partial<
+            Record<OffenseMove, "tomahawk" | "two_hand" | "windmill" | "reverse" | "cuff" | "alley_oop" | "putback" | "tiki_tiki">
+          > = {
             [OffenseMove.TOMAHAWK_DUNK]: "tomahawk",
             [OffenseMove.TWO_HAND_DUNK]: "two_hand",
             [OffenseMove.WINDMILL_DUNK]: "windmill",
@@ -4494,10 +4794,15 @@ export default function BasketballGame() {
             [OffenseMove.BASELINE_CUFF_DUNK]: "cuff",
             [OffenseMove.ALLEY_OOP]: "alley_oop",
             [OffenseMove.PUT_BACK]: "putback",
+            [OffenseMove.TIKI_TIKI_SLAM]: "tiki_tiki",
           };
           const dunkStyle = dunksMap[offMove];
           if (dunkStyle) {
-            ME.vel.addScaledVector(f, 6.4);
+            if (dunkStyle === "tiki_tiki" && !careerStatsRef.current.unlockedIds.includes("dunk_tiki_tiki")) {
+              triggerMsg("LOCKED: 20 CAREER PTS OR 2 TOUR STOPS", "#f59e0b");
+              return;
+            }
+            ME.vel.addScaledVector(f, dunkStyle === "tiki_tiki" ? 7.6 : 6.4);
             if (dunkStyle === "reverse") ME.vel.addScaledVector(r, 2.2);
             startShot(ME, { dunk: true, dunkStyle, name: disp, auto: true });
           } else if (offMove === OffenseMove.EURO_STEP || offMove === OffenseMove.PINOY_STEP) {
@@ -5348,6 +5653,7 @@ export default function BasketballGame() {
                 state.deadReason = null;
                 state.fastTransitionT = 3.6;
                 state.prevPossessionTeam = "Home";
+                matchExtraStatsRef.current.steals++;
                 Audio.squeak({ pan: clamp(ME.root.position.z / 7.5, -1, 1), vol: 0.9, entityKey: "me" });
                 Audio.crowdReaction({ vol: 0.92 });
                 Audio.commentary("steal");
@@ -5369,6 +5675,123 @@ export default function BasketballGame() {
             },
           };
           triggerLabel(disp);
+          return;
+        }
+
+        if (defMove === DefenseMove.GLOVE_RIP_STRIP) {
+          if (
+            !state.owner &&
+            (state.ballMode === "loose" ||
+              (state.ballMode === "dead" && state.deadReason === "score") ||
+              (state.ballMode === "flight" && isNearHoop(ball.position) && ball.position.y < 3.45)) &&
+            ME.root.position.distanceTo(ball.position) < 4.0
+          ) {
+            scoopBall();
+            return;
+          }
+          ME.defState.gloveRipT = 0.45;
+          if (ballOwner && ballOwner.root.visible) {
+            const toOwner = dirTo(ME.root.position, ballOwner.root.position);
+            ME.vel.addScaledVector(toOwner, 7.8);
+            const dist = ME.root.position.distanceTo(ballOwner.root.position);
+            if (dist < 2.85 && state.owner === ballOwner && (dist < 2.2 || !ballOwner.shield || Math.random() < 0.88)) {
+              state.owner = ME;
+              state.ballMode = "dribble";
+              state.flight = null;
+              state.deadT = 0;
+              state.deadReason = null;
+              state.fastTransitionT = 3.6;
+              state.prevPossessionTeam = "Home";
+              matchExtraStatsRef.current.steals++;
+              Audio.squeak({ pan: clamp(ME.root.position.z / 7.5, -1, 1), vol: 0.92, entityKey: "me" });
+              Audio.crowdReaction({ vol: 0.94 });
+              Audio.commentary("steal");
+              triggerMsg("GLOVE RIP STEAL!", "#10b981");
+              return;
+            }
+          }
+          ME.act = {
+            kind: "def_reach",
+            name: disp,
+            t: 0,
+            dur: 0.42,
+            pose: (u: number, T: any) => {
+              const snap = Math.sin(u * Math.PI);
+              T.crouch = 0.28;
+              T.lean = 0.38 * snap;
+              T.shR = -1.75 - snap * 0.45;
+              T.shL = -1.45 - snap * 0.35;
+              T.elR = -0.25;
+              T.elL = -0.4;
+            },
+          };
+          Audio.squeak({ pan: 0, vol: 0.86 });
+          triggerLabel("GLOVE RIP!");
+          return;
+        }
+
+        if (defMove === DefenseMove.VOLLEY_SWAT_BLOCK) {
+          ME.defState.volleySwatT = 0.65;
+          ME.defState.contestT = 1.0;
+          ME.defState.contestLevel = 1.0;
+          if (ME.h <= 0.06) ME.vy = 5.55;
+          const swatTarget = state.ballMode === "flight" ? ball.position : ballOwner.root.position;
+          ME.vel.copy(dirTo(ME.root.position, swatTarget)).multiplyScalar(8.6);
+          ME.act = {
+            kind: "def_contest",
+            name: disp,
+            t: 0,
+            dur: 0.62,
+            pose: (_u: number, T: any) => {
+              T.lean = 0.14;
+              T.shR = -3.12;
+              T.shL = -3.12;
+              T.elR = -0.05;
+              T.elL = -0.05;
+            },
+          };
+          if (state.ballMode === "flight" && state.flight?.kind === "shot" && ME.root.position.distanceTo(ball.position) < 3.25) {
+            triggerShotBlock(ME, "VOLLEY SWAT REJECTION!");
+            state.ballVel.x = 7.5;
+            return;
+          }
+          Audio.squeak({ pan: 0, vol: 0.9 });
+          triggerLabel("VOLLEY SWAT!");
+          return;
+        }
+
+        if (defMove === DefenseMove.BASELINE_TRAP_CUTOFF) {
+          ME.defState.cutoffClampT = 1.35;
+          ME.defState.stanceActive = true;
+          ME.defState.stanceT = 1.5;
+          const sideSign = ballOwner.root.position.z >= 0 ? 1 : -1;
+          const trapSpot = V(
+            clamp(ballOwner.root.position.x - 1.05, -13.2, 13.2),
+            0,
+            clamp(ballOwner.root.position.z + sideSign * 0.72, -6.9, 6.9)
+          );
+          ME.vel.copy(dirTo(ME.root.position, trapSpot)).multiplyScalar(9.6);
+          if (ME.root.position.distanceTo(ballOwner.root.position) < 2.4) {
+            ballOwner.vel.multiplyScalar(0.32);
+            ballOwner.currentStamina = Math.max(0, (ballOwner.currentStamina ?? STAMINA_SETTINGS.maxStamina) - 10);
+            ballOwner.stamina = getStaminaNormalized(ballOwner);
+          }
+          ME.act = {
+            kind: "def_stance",
+            name: disp,
+            t: 0,
+            dur: 0.58,
+            pose: (_u: number, T: any) => {
+              T.crouch = 0.3;
+              T.pelvYaw = sideSign * 0.5;
+              T.shR = -1.65;
+              T.shL = -1.65;
+              T.shRollR = -0.68;
+              T.shRollL = 0.68;
+            },
+          };
+          Audio.squeak({ pan: 0, vol: 0.88 });
+          triggerLabel("BASELINE CUTOFF TRAP!");
           return;
         }
 
@@ -5495,6 +5918,7 @@ export default function BasketballGame() {
                 state.flight = null;
                 state.fastTransitionT = 3.6;
                 state.prevPossessionTeam = "Home";
+                matchExtraStatsRef.current.steals++;
                 Audio.catchBall({ pan: 0, vol: 0.9 });
                 Audio.commentary("steal");
                 triggerMsg("LANE INTERCEPTED!", "#10b981");
@@ -5892,6 +6316,7 @@ export default function BasketballGame() {
       pos: V(0, 1.2, 0),
       vel: V(0, 0, 0),
       mode: "dribble",
+      ownerPlayerId: null as string | null,
       ownerKey: null as string | null,
       updatedAt: 0,
     };
@@ -5973,6 +6398,9 @@ export default function BasketballGame() {
         if (match.ballMode) {
           remoteBallSync.mode = match.ballMode;
         }
+        if (match.ownerPlayerId !== undefined) {
+          remoteBallSync.ownerPlayerId = match.ownerPlayerId;
+        }
         if (match.ownerEntityKey !== undefined) {
           remoteBallSync.ownerKey = match.ownerEntityKey;
         }
@@ -6041,6 +6469,18 @@ export default function BasketballGame() {
       } else if (event.type === "reset_match") {
         applyGameMode(gameModeRef.current);
       } else if (event.type === "match_finished") {
+        if (match) {
+          const nextHome = mirror ? match.scoreAway : match.scoreHome;
+          const nextAway = mirror ? match.scoreHome : match.scoreAway;
+          if (typeof nextHome === "number") {
+            state.scoreHome = nextHome;
+            setScoreHome(nextHome);
+          }
+          if (typeof nextAway === "number") {
+            state.scoreAway = nextAway;
+            setScoreAway(nextAway);
+          }
+        }
         if (!state.isGameOver) {
           endGameAndRecordStats();
         }
@@ -6097,6 +6537,7 @@ export default function BasketballGame() {
       applyCustomization,
       applyAthleteProfile,
       applyStudioCustomToScene,
+      applyArenaLighting,
       applyGameMode,
       applyCity,
       executeMove,
@@ -6198,7 +6639,16 @@ export default function BasketballGame() {
         onDunkButton: () => {
           Audio.unlock();
           if (state.owner === ME) {
-            executeMove(state.touchButtons.RT || state.keys["ShiftLeft"] ? OffenseMove.TWO_HAND_DUNK : OffenseMove.TOMAHAWK_DUNK);
+            const canTiki =
+              careerStatsRef.current.equippedSignatureDunk === "dunk_tiki_tiki" &&
+              careerStatsRef.current.unlockedIds.includes("dunk_tiki_tiki");
+            executeMove(
+              canTiki
+                ? OffenseMove.TIKI_TIKI_SLAM
+                : state.touchButtons.RT || state.keys["ShiftLeft"]
+                ? OffenseMove.TWO_HAND_DUNK
+                : OffenseMove.TOMAHAWK_DUNK
+            );
           } else {
             const distBall = ME.root.position.distanceTo(ball.position);
             if (distBall < 4.2 && (state.ballMode === "loose" || state.flight?.reboundable)) {
@@ -6393,22 +6843,71 @@ export default function BasketballGame() {
       }
     };
 
+    const stepTikiVfx = (dt: number) => {
+      if (tikiVfxState.flashT > 0) {
+        tikiVfxState.flashT = Math.max(0, tikiVfxState.flashT - dt);
+        tikiFlashLight.intensity = tikiVfxState.flashT > 0 ? Math.sin(Math.min(1, tikiVfxState.flashT) * Math.PI) * 16 : 0;
+      } else {
+        tikiFlashLight.intensity = 0;
+      }
+      if (tikiVfxState.ringT > 0) {
+        tikiVfxState.ringT = Math.max(0, tikiVfxState.ringT - dt);
+        const p = 1 - tikiVfxState.ringT / 0.85;
+        tikiShockRing.scale.setScalar(1 + p * 8.5);
+        tikiShockMat.opacity = Math.max(0, (1 - p) * 0.9);
+        if (tikiVfxState.ringT <= 0) tikiShockRing.visible = false;
+      }
+      for (let i = 0; i < tikiParticles.length; i++) {
+        const pt = tikiParticles[i];
+        if (pt.life <= 0) continue;
+        pt.life -= dt;
+        if (pt.life <= 0) {
+          pt.mesh.visible = false;
+          continue;
+        }
+        pt.vy -= 9.5 * dt;
+        pt.mesh.position.x += pt.vx * dt;
+        pt.mesh.position.y = Math.max(0.08, pt.mesh.position.y + pt.vy * dt);
+        pt.mesh.position.z += pt.vz * dt;
+        pt.mesh.rotation.x += dt * 7;
+        pt.mesh.rotation.y += dt * 9;
+        const fade = pt.life / pt.maxLife;
+        pt.mesh.scale.setScalar(Math.max(0.15, fade * 1.35));
+      }
+    };
+
     const loop = (now: number) => {
       const dt = Math.min((now - state.lastTime) / 1000, 0.05); state.lastTime = now;
       Audio.updateCheer(state.crowdCheer);
+      stepTikiVfx(dt);
 
       // Game Highlights 3D Slow-Motion Playback
       if (isHighlightReplayRef.current && replayClipsRef.current.length > 0) {
-        replayProgressRef.current += dt * 0.42;
+        const preClip = replayClipsRef.current[replayClipIndexRef.current];
+        const isTikiReplay = preClip?.signatureTag === "tiki_tiki_slam";
+        const rate = isTikiReplay && replayProgressRef.current > 0.55 && replayProgressRef.current < 0.9 ? 0.2 : 0.42;
+        replayProgressRef.current += dt * rate;
+        if (replayProgressRef.current < 0.2) {
+          tikiVfxState.lastReplayClipId = "";
+        }
         if (replayProgressRef.current >= 1) {
           replayProgressRef.current = 0;
+          tikiVfxState.lastReplayClipId = "";
           replayClipIndexRef.current = (replayClipIndexRef.current + 1) % replayClipsRef.current.length;
           setActiveHighlightIndex(replayClipIndexRef.current);
         }
         const activeClip = replayClipsRef.current[replayClipIndexRef.current];
+        const activeIsTiki = activeClip?.signatureTag === "tiki_tiki_slam";
         const frame = activeClip ? interpolateHighlightFrame(activeClip.frames, replayProgressRef.current) : null;
         if (frame) {
           ball.position.set(frame.ballPos[0], frame.ballPos[1], frame.ballPos[2]);
+          if (activeIsTiki && replayProgressRef.current >= 0.72) {
+            const clipKey = `${activeClip.id}_${replayClipIndexRef.current}`;
+            if (tikiVfxState.lastReplayClipId !== clipKey) {
+              tikiVfxState.lastReplayClipId = clipKey;
+              triggerTikiSlamVfx(ball.position.x >= 0 ? HOOP_X : -HOOP_X);
+            }
+          }
           for (const actor of frame.actors) {
             const ent = entities[actor.idx];
             if (!ent) continue;
@@ -6426,7 +6925,9 @@ export default function BasketballGame() {
             ent.arms.L.el.rotation.x = actor.elL;
             ent.torso.rotation.x = actor.lean;
           }
-          const camTarget = V(ball.position.x * 0.55 + 7.5, 5.8, ball.position.z * 0.5 + 6.5);
+          const camTarget = activeIsTiki
+            ? V(ball.position.x * 0.7 + 4.2, 4.3, ball.position.z * 0.65 + 4.6)
+            : V(ball.position.x * 0.55 + 7.5, 5.8, ball.position.z * 0.5 + 6.5);
           camera.position.lerp(camTarget, 1 - Math.exp(-4 * dt));
           state.camLook.lerp(ball.position, 1 - Math.exp(-5 * dt));
           camera.lookAt(state.camLook);
@@ -6482,6 +6983,52 @@ export default function BasketballGame() {
             state.ballMode = "dribble";
           }
         }
+      }
+
+      // 8-Second Backcourt Violation & 5-Second Backcourt Trap Pressure Clock
+      if (!isPracticeMode && !mpGuestMode && state.owner && (state.ballMode === "dribble" || state.ballMode === "held") && state.deadT <= 0) {
+        const ownerHome = teamA.includes(state.owner);
+        const inOwnBackcourt = ownerHome ? state.owner.root.position.x < -0.35 : state.owner.root.position.x > 0.35;
+        if (inOwnBackcourt) {
+          state.backcourtClock += dt;
+          const oppDefTeam = ownerHome ? teamB : teamA;
+          const closePressingDef = oppDefTeam.find(
+            (d) =>
+              !d.isBench &&
+              d.root.visible &&
+              d.root.position.distanceTo(state.owner!.root.position) < 2.15 &&
+              (d.defState.stanceActive || (d.defState.cutoffClampT ?? 0) > 0 || (d === ME && state.isDefending))
+          );
+          if (closePressingDef) {
+            state.closelyGuardedClock += dt;
+            state.owner.currentStamina = Math.max(0, (state.owner.currentStamina ?? STAMINA_SETTINGS.maxStamina) - dt * 14);
+            state.owner.stamina = getStaminaNormalized(state.owner);
+          } else {
+            state.closelyGuardedClock = Math.max(0, state.closelyGuardedClock - dt * 0.8);
+          }
+          if (state.backcourtClock >= 8.0 || state.closelyGuardedClock >= 5.0) {
+            const isTrapTo = state.closelyGuardedClock >= 5.0;
+            state.backcourtClock = 0;
+            state.closelyGuardedClock = 0;
+            state.shotClock = resetShotClock("turnover");
+            setShotClockResetPulse((k) => k + 1);
+            setLastShotResetReason("turnover");
+            Audio.whistle("violation");
+            Audio.crowdReaction({ vol: 0.88 });
+            triggerMsg(isTrapTo ? "5-SECOND BACKCOURT TRAP TURNOVER!" : "8-SECOND BACKCOURT VIOLATION!", "#f59e0b");
+            if (!ownerHome) matchExtraStatsRef.current.steals++;
+            state.owner = ownerHome ? teamB[0] : ME;
+            state.ballMode = "dribble";
+            state.stealGraceT = 1.25;
+            state.fastTransitionT = 3.6;
+          }
+        } else {
+          state.backcourtClock = 0;
+          state.closelyGuardedClock = 0;
+        }
+      } else {
+        state.backcourtClock = 0;
+        state.closelyGuardedClock = 0;
       }
 
       // Update 3D arena shot clock displays
@@ -6561,7 +7108,7 @@ export default function BasketballGame() {
       const input = {
         A: b(0) || k("Space") || k("Enter") || k("NumpadEnter") || tb("A"),
         B: b(1) || k("KeyK") || k("KeyP") || tb("B"),
-        X: b(2) || k("KeyU") || k("KeyX") || tb("X"),
+        X: b(2) || k("KeyX") || tb("X"),
         Y: b(3) || k("KeyI") || (k("KeyF") && state.owner === ME) || tb("Y"),
         LB: b(4) || k("Tab") || tb("LB"),
         RB: b(5) || k("KeyE") || tb("RB"),
@@ -6622,8 +7169,27 @@ export default function BasketballGame() {
       const isSprinting = consumeStamina(ME, wantsToSprint, dt);
       handleStaminaRecovery(ME, isSprinting, dt);
       const exhaustionPenalty = ME.isExhausted ? STAMINA_SETTINGS.exhaustedSpeedMultiplier : 1;
-      const baseSpeed = stanceLocked && !isSprinting ? MOVEMENT_SETTINGS.defenseMoveSpeed : MOVEMENT_SETTINGS.moveSpeed;
-      const sp = baseSpeed * handleBoost * chargeAnchor * exhaustionPenalty * (isSprinting ? MOVEMENT_SETTINGS.sprintMultiplier : 1);
+      const inBackcourtPress =
+        state.owner &&
+        state.owner !== ME &&
+        ((teamB.includes(state.owner) && state.owner.root.position.x > 0.35) ||
+          (teamA.includes(state.owner) && state.owner.root.position.x < -0.35));
+      const beatenInBackcourt = Boolean(
+        inBackcourtPress &&
+          state.owner &&
+          teamB.includes(state.owner) &&
+          ME.root.position.x > state.owner.root.position.x + 0.55
+      );
+      const defenseBaseSpeed = inBackcourtPress ? 4.55 : MOVEMENT_SETTINGS.defenseMoveSpeed;
+      const backcourtRecoveryBoost = beatenInBackcourt && isSprinting ? 1.16 : 1.0;
+      const baseSpeed = stanceLocked && !isSprinting ? defenseBaseSpeed : MOVEMENT_SETTINGS.moveSpeed;
+      const sp =
+        baseSpeed *
+        handleBoost *
+        chargeAnchor *
+        exhaustionPenalty *
+        backcourtRecoveryBoost *
+        (isSprinting ? MOVEMENT_SETTINGS.sprintMultiplier : 1);
       const wantVel = V()
         .addScaledVector(camDir, moveForward * normScale * sp)
         .addScaledVector(camRight, moveRight * normScale * sp);
@@ -6658,7 +7224,11 @@ export default function BasketballGame() {
       }
       if (!input.A && prevInput.A && ME.act?.kind === "shot" && !ME.act.released && !ME.act.auto) releaseShot(ME, ME.act, false);
       if (edge("Y") && state.owner === ME) {
-        executeMove(input.RT ? OffenseMove.TWO_HAND_DUNK : OffenseMove.TOMAHAWK_DUNK);
+        const tikiUnlocked = careerStatsRef.current.unlockedIds.includes("dunk_tiki_tiki");
+        const useTiki =
+          tikiUnlocked &&
+          (careerStatsRef.current.equippedSignatureDunk === "dunk_tiki_tiki" || (k("KeyI") && input.RT));
+        executeMove(useTiki ? OffenseMove.TIKI_TIKI_SLAM : input.RT ? OffenseMove.TWO_HAND_DUNK : OffenseMove.TOMAHAWK_DUNK);
       } else if (edge("Y") && canTakeOrStealFromHoop) {
         scoopBall();
       } else if (edge("Y") && state.owner !== ME) {
@@ -6846,6 +7416,15 @@ export default function BasketballGame() {
           executeMove(input.RT ? DefenseMove.JUMP_PASSING_LANE : DefenseMove.POKE_STEAL);
         }
       }
+      if (edgeKey("KeyF") && state.owner !== ME && !canTakeOrStealFromHoop) {
+        executeMove(DefenseMove.GLOVE_RIP_STRIP);
+      }
+      if (edgeKey("KeyO") && state.owner !== ME) {
+        executeMove(DefenseMove.VOLLEY_SWAT_BLOCK);
+      }
+      if (edgeKey("KeyU") && state.owner !== ME) {
+        executeMove(DefenseMove.BASELINE_TRAP_CUTOFF);
+      }
       if (edgeKey("Digit1")) executeMove(userTeamOffense ? OffenseMove.PICK_AND_ROLL : DefenseMove.OVER_SCREEN);
       if (edgeKey("Digit2")) executeMove(userTeamOffense ? OffenseMove.PICK_AND_POP : DefenseMove.SWITCH);
       if (edgeKey("Digit3")) executeMove(userTeamOffense ? OffenseMove.PIN_DOWN : DefenseMove.DROP_COVERAGE);
@@ -6977,6 +7556,14 @@ export default function BasketballGame() {
           if (ds.contestT === 0) ds.contestLevel = 0;
         }
         if (ds.verticalWallT > 0) ds.verticalWallT = Math.max(0, ds.verticalWallT - dt);
+        if ((ds.gloveRipT ?? 0) > 0) ds.gloveRipT = Math.max(0, (ds.gloveRipT ?? 0) - dt);
+        if ((ds.volleySwatT ?? 0) > 0) ds.volleySwatT = Math.max(0, (ds.volleySwatT ?? 0) - dt);
+        if ((ds.cutoffClampT ?? 0) > 0) {
+          ds.cutoffClampT = Math.max(0, (ds.cutoffClampT ?? 0) - dt);
+          if (state.owner && teamA.includes(P) !== teamA.includes(state.owner) && P.root.position.distanceTo(state.owner.root.position) < 2.15) {
+            state.owner.vel.multiplyScalar(Math.pow(0.58, dt * 10));
+          }
+        }
         if (ds.chargePlantedT > 0) {
           ds.chargePlantedT = Math.max(0, ds.chargePlantedT - dt);
           const attacker = state.owner && teamA.includes(P) !== teamA.includes(state.owner) ? state.owner : null;
@@ -7236,11 +7823,15 @@ export default function BasketballGame() {
             ds.passLaneHunterT = Math.max(ds.passLaneHunterT, 0.55);
             ds.passLaneMode = decision.passLaneMode;
           }
+          if (decision.activateCutoffClamp) {
+            ds.cutoffClampT = Math.max(ds.cutoffClampT ?? 0, 0.55);
+          }
 
-          // Animate physical jumps / poke steals / stunts / box-outs cleanly without locking movement
-          if (decision.triggerJump && P.h <= 0.04 && !P.act) {
+          // Animate physical jumps / volley swats / poke steals / glove rips / stunts cleanly without locking movement
+          if ((decision.triggerJump || decision.triggerVolleySwat) && P.h <= 0.04 && !P.act) {
             ds.aiMoveCoolT = 1.35;
-            P.vy = Math.max(4.6, decision.jumpVel + 1.1);
+            P.vy = Math.max(decision.triggerVolleySwat ? 5.3 : 4.6, decision.jumpVel + 1.1);
+            if (decision.triggerVolleySwat) ds.volleySwatT = 0.55;
             P.act = {
               kind: "def_jump",
               name: decision.move,
@@ -7248,14 +7839,15 @@ export default function BasketballGame() {
               dur: 0.55,
               lock: false,
               pose: (_u: number, T: any) => {
-                T.shR = -2.65;
-                T.shL = decision.activateWallUp ? -2.65 : -1.2;
-                T.elR = -0.2;
-                T.elL = decision.activateWallUp ? -0.2 : -0.8;
+                T.shR = decision.triggerVolleySwat ? -3.1 : -2.65;
+                T.shL = decision.triggerVolleySwat || decision.activateWallUp ? -2.95 : -1.2;
+                T.elR = -0.15;
+                T.elL = decision.triggerVolleySwat || decision.activateWallUp ? -0.15 : -0.8;
               },
             };
-          } else if ((decision.triggerPoke || decision.triggerStunt) && !P.act && oppBallHandler) {
+          } else if ((decision.triggerPoke || decision.triggerStunt || decision.triggerGloveRip) && !P.act && oppBallHandler) {
             ds.aiMoveCoolT = 1.65;
+            if (decision.triggerGloveRip) ds.gloveRipT = 0.35;
             const kHand = P.hand || "R";
             P.act = {
               kind: "def_swipe",
@@ -7265,26 +7857,26 @@ export default function BasketballGame() {
               lock: false,
               pose: (u: number, T: any) => {
                 const reach = Math.sin(u * Math.PI);
-                T["sh" + kHand] = -0.8 - reach * 1.1;
+                T["sh" + kHand] = -0.8 - reach * (decision.triggerGloveRip ? 1.3 : 1.1);
                 T["el" + kHand] = -0.3;
                 T.lean = 0.24;
               },
             };
-            // Real timed Poke-Steal / Stunt-Dig attempt if very close and ball is not shielded
+            // Real timed Poke-Steal / Glove-Rip / Stunt-Dig attempt if very close and ball is not shielded
             if (
               oppBallHandler === state.owner &&
               state.ballMode === "dribble" &&
               state.stealGraceT <= 0 &&
               !oppBallHandler.shield &&
-              P.root.position.distanceTo(oppBallHandler.root.position) < 1.35 &&
-              Math.random() < 0.2
+              P.root.position.distanceTo(oppBallHandler.root.position) < (decision.triggerGloveRip ? 1.55 : 1.35) &&
+              Math.random() < (decision.triggerGloveRip ? 0.28 : 0.2)
             ) {
               state.owner = null;
               state.ballMode = "loose";
               state.flight = null;
               state.ballVel.set(rnd(3.8), 1.9, rnd(3.8));
               Audio.squeak({ pan: clamp(P.root.position.z / 7.5, -1, 1), vol: 0.85, entityKey: P.name });
-              triggerMsg("POKE STEAL!", "#38bdf8");
+              triggerMsg(decision.triggerGloveRip ? "GLOVE RIP!" : "POKE STEAL!", "#38bdf8");
             }
           }
 
@@ -7509,6 +8101,7 @@ export default function BasketballGame() {
                   state.owner = opp;
                   state.stealGraceT = 1.2;
                   state.fastTransitionT = 3.6;
+                  if (opp.isUser) matchExtraStatsRef.current.steals++;
                   Audio.squeak({ pan: clamp(opp.root.position.z / 7.5, -1, 1), vol: 0.8, entityKey: opp.name });
                   Audio.crowdReaction({ vol: 0.85 });
                   triggerMsg(ownerNearHoop ? "STOLE FROM HOOP!" : "STEAL!", "#337733");
@@ -7925,11 +8518,24 @@ export default function BasketballGame() {
             state.lastPasser = null;
 
             const isHome = teamA.includes(shooter);
-            shooter.hypeT = 1.85;
+            const isTikiDunk = Boolean(state.flight.dunk && state.flight.dunkStyle === "tiki_tiki");
+            if (shooter.isUser) {
+              if (state.flight.dunk) matchExtraStatsRef.current.dunks++;
+              if (state.flight.pts === 3) matchExtraStatsRef.current.threes++;
+            }
+            shooter.hypeT = isTikiDunk ? 2.4 : 1.85;
             triggerNetSwish(isHome ? rightNet : leftNet, state.flight.dunk ? 1.25 : 0.95);
             if(isHome) { state.scoreHome+=state.flight.pts; setScoreHome(state.scoreHome); } else { state.scoreAway+=state.flight.pts; setScoreAway(state.scoreAway); }
-            const playTypeLabel = state.flight.dunk ? "SLAM DUNK" : state.flight.layup ? "LAYUP" : state.flight.pts === 3 ? "THREE-POINTER" : "SWISH";
-            triggerMsg(playTypeLabel, isHome ? "#ef476f" : "#1d428a");
+            const playTypeLabel = isTikiDunk
+              ? "TIKI TIKI SIGNATURE SLAM"
+              : state.flight.dunk
+              ? "SLAM DUNK"
+              : state.flight.layup
+              ? "LAYUP"
+              : state.flight.pts === 3
+              ? "THREE-POINTER"
+              : "SWISH";
+            triggerMsg(isTikiDunk ? "TIKI TIKI SIGNATURE SLAM!" : playTypeLabel, isTikiDunk ? "#10b981" : isHome ? "#ef476f" : "#1d428a");
 
             // Capture this scoring play into Game Highlights (keeps last 3 scoring plays)
             const snapFrame = captureCurrentFrame(now);
@@ -7945,6 +8551,9 @@ export default function BasketballGame() {
               scoreHomeAfter: state.scoreHome,
               scoreAwayAfter: state.scoreAway,
               frames: clipFrames,
+              ...(isTikiDunk
+                ? { signatureTag: "tiki_tiki_slam" as const, accentColors: ["#10b981", "#facc15"] as [string, string] }
+                : {}),
             };
             quarterHighlightsRef.current = [...quarterHighlightsRef.current, clip].slice(-3);
             allHighlightsRef.current = [...allHighlightsRef.current, clip].slice(-3);
@@ -7990,7 +8599,12 @@ export default function BasketballGame() {
               Audio.crowdBoo({ pan: scorePan, vol: 0.65 });
             }
             if (state.flight.dunk) {
-              Audio.dunk({ pan: scorePan, vol: 1.0 });
+              if (isTikiDunk) {
+                triggerTikiSlamVfx(hoopX);
+                Audio.tikiTikiSlam({ pan: scorePan, vol: 1.0 });
+              } else {
+                Audio.dunk({ pan: scorePan, vol: 1.0 });
+              }
               Audio.netSwish({ pan: scorePan, vol: 0.7 });
               Audio.crowdScream({ vol: isHome ? 1.0 : 0.45 });
               Audio.commentary("dunk");
@@ -8065,7 +8679,17 @@ export default function BasketballGame() {
       };
       if (mpGuestMode && now - remoteBallSync.updatedAt < 1200) {
         // Non-host follows host-authoritative ball & possession state smoothly
-        const syncedOwner = resolveEntityByKey(remoteBallSync.ownerKey);
+        let syncedOwner: GameEntity | null = null;
+        if (remoteBallSync.ownerPlayerId && activeMpClient && activeMpRoom) {
+          if (remoteBallSync.ownerPlayerId === activeMpClient.playerId) {
+            syncedOwner = ME;
+          } else {
+            syncedOwner = resolvePeerEntityMap(activeMpRoom, activeMpClient.playerId).get(remoteBallSync.ownerPlayerId) || null;
+          }
+        }
+        if (!syncedOwner) {
+          syncedOwner = resolveEntityByKey(remoteBallSync.ownerKey);
+        }
         state.owner = syncedOwner;
         state.ballMode = remoteBallSync.mode as any;
         state.flight = null;
@@ -8163,6 +8787,7 @@ export default function BasketballGame() {
                   state.flight = null;
                   state.stealGraceT = 1.2;
                   state.fastTransitionT = 3.6;
+                  if (def.isUser) matchExtraStatsRef.current.steals++;
                   state.shotClock = resetShotClock("turnover");
                   setShotClockResetPulse((k) => k + 1);
                   setLastShotResetReason("turnover");
@@ -8192,18 +8817,32 @@ export default function BasketballGame() {
             state.ballMode = "loose";
           }
         } else if (state.flight.kind === "shot") {
-          // Live Shot Block Check (Wall-Up Verticality, Chase-Down, & Timed Shot Contests)
-          if (!state.flight.reboundable && state.flight.t < 0.52) {
+          // Live Shot Block Check (Wall-Up Verticality, Volley Swat, Chase-Down, & Timed Shot Contests)
+          if (!state.flight.reboundable && state.flight.t < 0.58) {
             const shooterIsHome = teamA.includes(state.flight.shooter);
             const blkDefenders = shooterIsHome ? teamB : teamA;
             for (const def of blkDefenders) {
               if (def.isBench || !def.root.visible) continue;
-              const canBlock = def.h > 0.14 || def.defState.verticalWallT > 0 || (def.defState.contestT > 0 && def.h > 0.04);
+              const hasVolley = (def.defState.volleySwatT ?? 0) > 0;
+              const canBlock =
+                def.h > 0.14 ||
+                def.defState.verticalWallT > 0 ||
+                hasVolley ||
+                (def.defState.contestT > 0 && def.h > 0.04);
               if (!canBlock) continue;
               const horizDist = Math.hypot(def.root.position.x - ball.position.x, def.root.position.z - ball.position.z);
-              const maxVert = 2.45 + def.h * 1.15 + (def.defState.verticalWallT > 0 ? 0.35 : 0);
-              if (horizDist < 1.85 && ball.position.y <= maxVert && ball.position.y >= 1.2) {
-                triggerShotBlock(def, def.defState.verticalWallT > 0 ? "VERTICAL WALL BLOCK!" : "BLOCKED!");
+              const maxHoriz = hasVolley ? 2.6 : 1.85;
+              const maxVert =
+                2.45 + def.h * 1.15 + (def.defState.verticalWallT > 0 ? 0.35 : 0) + (hasVolley ? 0.8 : 0);
+              if (horizDist < maxHoriz && ball.position.y <= maxVert && ball.position.y >= 1.2) {
+                triggerShotBlock(
+                  def,
+                  hasVolley
+                    ? "VOLLEY SWAT REJECTION!"
+                    : def.defState.verticalWallT > 0
+                    ? "VERTICAL WALL BLOCK!"
+                    : "BLOCKED!"
+                );
                 break;
               }
             }
@@ -8335,6 +8974,18 @@ export default function BasketballGame() {
         lastMpSyncAt = now;
         const isHost = !activeMpRoom.hostId || activeMpRoom.hostId === activeMpClient.playerId;
         const sign = mirror ? -1 : 1;
+        let ownerPlayerId: string | null = null;
+        if (state.owner === ME) {
+          ownerPlayerId = activeMpClient.playerId;
+        } else if (state.owner) {
+          const peerEntries = resolvePeerEntityMap(activeMpRoom, activeMpClient.playerId).entries();
+          for (const [pid, ent] of peerEntries) {
+            if (ent === state.owner) {
+              ownerPlayerId = pid;
+              break;
+            }
+          }
+        }
         activeMpClient.sendSync({
           transform: {
             x: ME.root.position.x * sign,
@@ -8364,15 +9015,15 @@ export default function BasketballGame() {
           },
           matchPatch: isHost
             ? {
-                scoreHome: state.scoreHome,
-                scoreAway: state.scoreAway,
+                scoreHome: mirror ? state.scoreAway : state.scoreHome,
+                scoreAway: mirror ? state.scoreHome : state.scoreAway,
                 quarter: state.quarter,
                 gameClock: Math.ceil(state.gameClock),
                 shotClock: state.shotClock,
-                ballPos: [ball.position.x, ball.position.y, ball.position.z],
-                ballVel: [state.ballVel.x, state.ballVel.y, state.ballVel.z],
+                ballPos: [ball.position.x * sign, ball.position.y, ball.position.z * sign],
+                ballVel: [state.ballVel.x * sign, state.ballVel.y, state.ballVel.z * sign],
                 ballMode: state.ballMode,
-                ownerPlayerId: state.owner === ME ? activeMpClient.playerId : null,
+                ownerPlayerId,
                 ownerEntityKey: getOwnerEntityKey(state.owner),
                 cityId: currentCity.id,
                 mode: gameModeRef.current,
@@ -8838,8 +9489,44 @@ export default function BasketballGame() {
         </>
       )}
 
-      {/* Top-Right Court Controls: Pad Toggle, Move Deck, Moves, Screen Mirror & Main Menu */}
+      {/* Top-Right Court Controls: Night Mode, Pad Toggle, Move Deck, Moves, Screen Mirror & Main Menu */}
       <div className="fixed top-[max(0.65rem,env(safe-area-inset-top))] right-[max(0.75rem,env(safe-area-inset-right))] z-30 pointer-events-auto flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            const nextMode: NightGameMode =
+              studioCustom.nightGameMode === "auto"
+                ? "night"
+                : studioCustom.nightGameMode === "night"
+                ? "day"
+                : "auto";
+            handleChangeNightGameMode(nextMode);
+          }}
+          aria-label="Toggle Night Games Lighting"
+          className={`min-h-[40px] sm:min-h-[44px] px-3 py-1.5 sm:py-2 backdrop-blur-md font-black uppercase text-xs tracking-wider rounded-xl border shadow-lg transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+            studioCustom.nightGameMode === "night"
+              ? "bg-indigo-500 text-white border-indigo-300 hover:bg-indigo-400"
+              : studioCustom.nightGameMode === "day"
+              ? "bg-amber-400 text-black border-amber-200 hover:bg-amber-300"
+              : "bg-neutral-950/85 text-indigo-300 border-indigo-400/40 hover:bg-indigo-500 hover:text-white"
+          }`}
+        >
+          {studioCustom.nightGameMode === "night" ? (
+            <Moon className="w-4 h-4" />
+          ) : studioCustom.nightGameMode === "day" ? (
+            <Sun className="w-4 h-4" />
+          ) : (
+            <Clock className="w-4 h-4" />
+          )}
+          <span className="hidden md:inline">
+            {studioCustom.nightGameMode === "night"
+              ? "Night"
+              : studioCustom.nightGameMode === "day"
+              ? "Day"
+              : "Auto Time"}
+          </span>
+        </button>
+
         <button
           type="button"
           onClick={() => {
@@ -8953,7 +9640,7 @@ export default function BasketballGame() {
         transport={mpTransport}
         currentRoom={mpRoom}
         onFetchRooms={handleFetchRooms}
-        onJoinRoom={async (code, preferredTeam, format) => {
+        onJoinRoom={async (code, preferredTeam, format, leagueDivision, competitionType) => {
           if (!mpClientRef.current) return;
           await mpClientRef.current.joinRoom({
             roomCode: code,
@@ -8965,6 +9652,8 @@ export default function BasketballGame() {
             cityId: selectedCity.id,
             mode: gameMode,
             format,
+            leagueDivision,
+            competitionType,
           });
         }}
         onCreateRoom={async (options) => {
@@ -8978,6 +9667,8 @@ export default function BasketballGame() {
             mode: gameMode,
             format: options?.format || "5v5",
             isPrivate: options?.isPrivate ?? true,
+            leagueDivision: options?.leagueDivision,
+            competitionType: options?.competitionType,
           });
         }}
         onLeaveRoom={async () => {
@@ -8985,6 +9676,10 @@ export default function BasketballGame() {
           await mpClientRef.current.leaveRoom();
           mpRoomRef.current = null;
           setMpRoom(null);
+        }}
+        onReconnectRoom={async () => {
+          if (!mpClientRef.current) return;
+          await mpClientRef.current.reconnect();
         }}
         onStartCourtMatch={() => {
           handleSelectGameMode("match", true);
@@ -9041,6 +9736,12 @@ export default function BasketballGame() {
         franchiseSummaryLabel={`${APBA_TEAMS.find((t) => t.id === franchiseState.teamId)?.abbr || "NYM"} Front Office · Cap & Draft`}
         onOpenUniverse={() => setShowUniverseHub(true)}
         universeSummaryLabel={`Day ${universeState.currentDay} · ${universeState.properties.filter((p) => p.owned).length} Properties · ${universeState.vehicles.filter((v) => v.owned).length} Cars`}
+        activeDivision={activeDivision}
+        onChangeDivision={handleChangeDivision}
+        onOpenNationalTour={() => setShowNationalTour(true)}
+        nationalTourSummaryLabel={`${Object.values(nationalTour.stopsCompleted).filter((s) => s.completed).length}/${NATIONAL_TOUR_STOPS.length} US Stops · ${nationalTour.totalTourWins}W · ${nationalTour.championshipsWon} Titles`}
+        nightGameMode={studioCustom.nightGameMode}
+        onChangeNightGameMode={handleChangeNightGameMode}
         onSavesImported={reloadAllSavedStates}
       />
 
@@ -9159,6 +9860,8 @@ export default function BasketballGame() {
                   <div>Movebook (93 Off &amp; 55 Def)</div><div>B / Top-Right Moves</div>
                   <div>Shot / Contest / Rebound</div><div>Space / A (Cross) Button</div>
                   <div>Dunk / Block / Wall Up</div><div>F / I / Y (Triangle) Button</div>
+                  <div>Tiki Tiki Signature Dunk</div><div>F / I / Shift+I / Y (Unlocked &amp; Equipped)</div>
+                  <div>Glove Rip / Volley Swat / Cutoff</div><div>F / O / U (On Defense)</div>
                   <div>Cross / Shade / Pro-Stick</div><div>X (Square) / Right Stick</div>
                   <div>Pass / Call Pass / Switch Def</div><div>P / K / B (Circle) · 1 - 6 · D-Pad</div>
                   <div>Steal / Poke / Pass Lane</div><div>E / RB (R1) Button</div>
@@ -9230,6 +9933,19 @@ export default function BasketballGame() {
           }
         }}
         onEquipItem={(type, id) => {
+          if (type === "dunk") {
+            const currentCareer = loadCareerStats();
+            currentCareer.equippedSignatureDunk = id;
+            saveCareerStats(currentCareer);
+            careerStatsRef.current = currentCareer;
+            setCareerStats(currentCareer);
+            if (gameRef.current?.triggerLabel) {
+              gameRef.current.triggerLabel(
+                id === "dunk_tiki_tiki" ? "EQUIPPED: TIKI TIKI SLAM!" : "EQUIPPED: CLASSIC DUNK"
+              );
+            }
+            return;
+          }
           const nextProfile = { ...athleteProfileRef.current };
           if (type === "jersey") {
             const jItem = JERSEY_ITEMS.find((j) => j.id === id);
@@ -9290,6 +10006,23 @@ export default function BasketballGame() {
           saveWorldTourTournamentState(next);
         }}
         onStartCupMatch={handleStartCupMatch}
+        activeDivision={activeDivision}
+        onChangeDivision={handleChangeDivision}
+        nightGameMode={studioCustom.nightGameMode}
+        onChangeNightGameMode={handleChangeNightGameMode}
+      />
+
+      {/* National Tour USA Progression Modal */}
+      <NationalTourModal
+        isOpen={showNationalTour}
+        onClose={() => setShowNationalTour(false)}
+        tourState={nationalTour}
+        activeDivision={activeDivision}
+        onChangeDivision={handleChangeDivision}
+        nightGameMode={studioCustom.nightGameMode}
+        onChangeNightGameMode={handleChangeNightGameMode}
+        tikiTikiUnlocked={careerStats.unlockedIds.includes("dunk_tiki_tiki")}
+        onStartStopMatch={handleStartNationalTourStop}
       />
 
       {/* APBA Pro League Central Modal (Phases 1-3) */}
@@ -9373,6 +10106,19 @@ export default function BasketballGame() {
           saveStudioCustomization(next);
           if (gameRef.current?.applyStudioCustomToScene) {
             gameRef.current.applyStudioCustomToScene(next);
+          }
+        }}
+        careerStats={careerStats}
+        onEquipSignatureDunk={(dunkId) => {
+          const currentCareer = loadCareerStats();
+          currentCareer.equippedSignatureDunk = dunkId;
+          saveCareerStats(currentCareer);
+          careerStatsRef.current = currentCareer;
+          setCareerStats(currentCareer);
+          if (gameRef.current?.triggerLabel) {
+            gameRef.current.triggerLabel(
+              dunkId === "dunk_tiki_tiki" ? "EQUIPPED: TIKI TIKI SLAM!" : "EQUIPPED: CLASSIC DUNK"
+            );
           }
         }}
       />

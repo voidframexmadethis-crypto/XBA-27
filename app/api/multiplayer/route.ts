@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  handleCloudflareMultiplayerRequest,
+  type CloudflareMultiplayerEnv,
+} from "@/lib/cloudflareMultiplayerRouter";
+import {
   applyMatchEvent,
   generateRoomCode,
   getRoom,
@@ -11,12 +15,30 @@ import {
 
 export const dynamic = "force-dynamic";
 
+const CLOUDFLARE_CONTEXT_SYMBOL = Symbol.for("__cloudflare-context__");
+
+function getActiveCloudflareEnv(): CloudflareMultiplayerEnv | null {
+  const ctx = (globalThis as Record<symbol, unknown>)[CLOUDFLARE_CONTEXT_SYMBOL] as
+    | { env?: CloudflareMultiplayerEnv }
+    | undefined;
+  if (ctx?.env?.HOOPS_ROOM) {
+    return ctx.env;
+  }
+  return null;
+}
+
 export async function GET(req: NextRequest) {
   try {
+    const cfEnv = getActiveCloudflareEnv();
+    if (cfEnv) {
+      const cfRes = await handleCloudflareMultiplayerRequest(req, cfEnv);
+      if (cfRes) return cfRes;
+    }
+
     const { searchParams } = new URL(req.url);
     const action = searchParams.get("action") || "room";
     if (action === "list") {
-      return NextResponse.json({ ok: true, rooms: listPublicRooms() });
+      return NextResponse.json({ ok: true, rooms: listPublicRooms(), transport: "http" });
     }
     const roomCode = searchParams.get("room") || "PUBLIC-COURT";
     const room = getRoom(roomCode);
@@ -31,6 +53,12 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const cfEnv = getActiveCloudflareEnv();
+    if (cfEnv) {
+      const cfRes = await handleCloudflareMultiplayerRequest(req, cfEnv);
+      if (cfRes) return cfRes;
+    }
+
     const body = (await req.json()) as any;
     const action = String(body?.action || "");
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Globe,
@@ -16,6 +16,11 @@ import {
   FastForward,
   RotateCw,
   Medal,
+  Sun,
+  Moon,
+  Sunrise,
+  Sunset,
+  Clock,
 } from "lucide-react";
 import {
   GLOBAL_TOURNAMENTS,
@@ -24,10 +29,12 @@ import {
   WorldCity,
   WorldTourTournamentState,
   createTournamentBracket,
+  getCityAtmosphere,
   getCityById,
   simulateRemainingTournamentRound,
 } from "@/lib/worldTour";
 import type { ProLeagueDivision } from "@/lib/leagueData";
+import type { NightGameMode } from "@/lib/customization";
 
 interface WorldTourMenuProps {
   isOpen: boolean;
@@ -40,6 +47,8 @@ interface WorldTourMenuProps {
   onStartCupMatch?: (homeCity: WorldCity, awayCity: WorldCity, matchId: string) => void;
   activeDivision?: ProLeagueDivision;
   onChangeDivision?: (division: ProLeagueDivision) => void;
+  nightGameMode?: NightGameMode;
+  onChangeNightGameMode?: (mode: NightGameMode) => void;
 }
 
 export default function WorldTourMenu({
@@ -53,6 +62,8 @@ export default function WorldTourMenu({
   onStartCupMatch,
   activeDivision = "mens",
   onChangeDivision,
+  nightGameMode = "auto",
+  onChangeNightGameMode,
 }: WorldTourMenuProps) {
   const countries = useMemo(() => {
     const map = new Map<string, { country: string; flag: string; cities: WorldCity[] }>();
@@ -68,6 +79,24 @@ export default function WorldTourMenu({
   const [selectedCountryName, setSelectedCountryName] = useState<string>(selectedCity.country);
   const [previewCity, setPreviewCity] = useState<WorldCity>(selectedCity);
   const [viewMode, setViewMode] = useState<"selector" | "tournaments" | "nations">("selector");
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  const [hourOverride, setHourOverride] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const initTimer = setTimeout(() => setNowMs(Date.now()), 0);
+    const timer = setInterval(() => setNowMs(Date.now()), 15_000);
+    return () => {
+      clearTimeout(initTimer);
+      clearInterval(timer);
+    };
+  }, [isOpen]);
+
+  const activeSkyCity = viewMode === "selector" ? previewCity : selectedCity;
+  const cityAtmosphere = useMemo(
+    () => getCityAtmosphere(activeSkyCity, nowMs, hourOverride),
+    [activeSkyCity, nowMs, hourOverride]
+  );
   const [localFallbackCup, setLocalFallbackCup] = useState<WorldTourTournamentState>(() =>
     createTournamentBracket(
       activeDivision === "womens" ? "cup_womens_world_16" : "cup_global_nations",
@@ -140,18 +169,52 @@ export default function WorldTourMenu({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-black/95 backdrop-blur-2xl z-[170] flex items-center justify-center p-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-6 overflow-y-auto"
+          style={{ background: cityAtmosphere.skyGradientCss }}
+          className="fixed inset-0 backdrop-blur-2xl z-[170] flex items-center justify-center p-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-6 overflow-y-auto transition-all duration-700"
           onClick={onClose}
         >
+          {/* Ambient Sky Stars & Horizon Sun/Moon Backdrop */}
+          <div className="pointer-events-none fixed inset-0 overflow-hidden" aria-hidden="true">
+            <div
+              className="absolute inset-0 transition-opacity duration-700"
+              style={{
+                background: cityAtmosphere.horizonGlowCss,
+              }}
+            />
+            <div
+              className="absolute inset-0 transition-opacity duration-700"
+              style={{
+                opacity: cityAtmosphere.starOpacity,
+                backgroundImage:
+                  "radial-gradient(1.5px 1.5px at 14% 18%, #fff, transparent), radial-gradient(1.5px 1.5px at 28% 34%, #e0f2fe, transparent), radial-gradient(2px 2px at 44% 12%, #fff, transparent), radial-gradient(1.5px 1.5px at 66% 24%, #bae6fd, transparent), radial-gradient(2px 2px at 82% 16%, #fff, transparent), radial-gradient(1.5px 1.5px at 91% 39%, #e0f2fe, transparent), radial-gradient(1px 1px at 8% 48%, #fff, transparent), radial-gradient(1.5px 1.5px at 74% 46%, #fff, transparent)",
+              }}
+            />
+            <div
+              className="absolute w-32 h-32 rounded-full blur-xl transition-all duration-700"
+              style={{
+                left: `${12 + cityAtmosphere.celestialProgress * 76}%`,
+                top: `${Math.max(6, 52 - Math.sin(cityAtmosphere.celestialProgress * Math.PI) * 38)}%`,
+                background: cityAtmosphere.isDaytime
+                  ? "radial-gradient(circle, rgba(254,240,138,0.85) 0%, rgba(251,146,60,0.35) 55%, transparent 75%)"
+                  : "radial-gradient(circle, rgba(226,232,240,0.75) 0%, rgba(56,189,248,0.22) 55%, transparent 75%)",
+              }}
+            />
+          </div>
+
           <motion.div
             initial={{ scale: 0.95, y: 20 }}
             animate={{ scale: 1, y: 0 }}
             exit={{ scale: 0.95, y: 20 }}
             onClick={(e) => e.stopPropagation()}
-            className="relative w-full max-w-5xl bg-neutral-950 border border-cyan-500/30 rounded-3xl shadow-[0_0_90px_rgba(6,182,212,0.2)] overflow-hidden text-white flex flex-col max-h-[92dvh] my-auto"
+            className="relative w-full max-w-5xl bg-neutral-950/88 backdrop-blur-xl border border-cyan-500/30 rounded-3xl shadow-[0_0_90px_rgba(6,182,212,0.25)] overflow-hidden text-white flex flex-col max-h-[92dvh] my-auto"
           >
             {/* Header */}
-            <div className="relative px-6 py-4 bg-gradient-to-r from-amber-950/80 via-neutral-900 to-cyan-950/80 border-b border-amber-500/30 flex flex-wrap items-center justify-between gap-4">
+            <div
+              className="relative px-6 py-4 border-b border-white/15 flex flex-wrap items-center justify-between gap-4 transition-all duration-700"
+              style={{
+                background: `${cityAtmosphere.horizonGlowCss}, linear-gradient(90deg, rgba(10,12,20,0.88), rgba(15,23,42,0.78))`,
+              }}
+            >
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-400 via-yellow-500 to-amber-600 flex items-center justify-center text-black font-black text-lg shadow-lg shadow-amber-500/30 border border-yellow-200">
                   WT
@@ -165,13 +228,39 @@ export default function WorldTourMenu({
                       16 NATIONS · {WORLD_CITIES.length} CITIES
                     </span>
                   </div>
-                  <p className="text-xs text-white/60 font-semibold tracking-wide">
-                    Men&apos;s &amp; Women&apos;s national teams, custom country basketballs, unique stadiums &amp; World Championships
+                  <p className="text-xs text-white/70 font-semibold tracking-wide flex flex-wrap items-center gap-2">
+                    <span>{activeSkyCity.flag} {activeSkyCity.name} Local Time:</span>
+                    <span className="text-amber-300 font-black tabular-nums">{cityAtmosphere.localTimeText}</span>
+                    <span>· {cityAtmosphere.phaseLabel}</span>
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {onChangeNightGameMode && (
+                  <div className="flex items-center bg-black/60 p-1 rounded-xl border border-white/15">
+                    {(
+                      [
+                        { id: "auto", label: "Auto" },
+                        { id: "night", label: "Night" },
+                        { id: "day", label: "Day" },
+                      ] as const
+                    ).map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => onChangeNightGameMode(m.id)}
+                        className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase cursor-pointer transition-colors ${
+                          nightGameMode === m.id
+                            ? "bg-cyan-400 text-black"
+                            : "text-white/65 hover:text-white"
+                        }`}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {onChangeDivision && (
                   <div className="flex items-center bg-black/60 p-1 rounded-xl border border-white/15">
                     {(["mens", "womens"] as const).map((div) => (
@@ -603,22 +692,97 @@ export default function WorldTourMenu({
                 </div>
 
                 {/* Right Column: Dynamic Destination Preview */}
-                <div className="lg:col-span-7 bg-white/5 border border-white/10 rounded-3xl p-5 sm:p-6 flex flex-col justify-between space-y-4">
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between pb-4 border-b border-white/10">
+                <div
+                  className="lg:col-span-7 border border-white/15 rounded-3xl p-5 sm:p-6 flex flex-col justify-between space-y-4 relative overflow-hidden transition-all duration-700"
+                  style={{
+                    background: `${cityAtmosphere.skyGradientCss}`,
+                  }}
+                >
+                  <div
+                    className="pointer-events-none absolute inset-0 bg-neutral-950/55"
+                    aria-hidden="true"
+                  />
+                  <div
+                    className="pointer-events-none absolute inset-0 transition-opacity duration-700"
+                    style={{
+                      opacity: cityAtmosphere.starOpacity,
+                      backgroundImage:
+                        "radial-gradient(1.5px 1.5px at 18% 22%, #fff, transparent), radial-gradient(1.5px 1.5px at 52% 14%, #bae6fd, transparent), radial-gradient(2px 2px at 84% 26%, #fff, transparent)",
+                    }}
+                    aria-hidden="true"
+                  />
+
+                  <div className="relative z-10 space-y-4">
+                    <div className="flex items-center justify-between pb-4 border-b border-white/15">
                       <div className="flex items-center gap-3">
                         <span className="text-4xl">{previewCity.flag}</span>
                         <div>
                           <h3 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-white">
                             {previewCity.name}, {previewCity.country}
                           </h3>
-                          <div className="text-xs text-cyan-400 font-bold">{previewCity.arenaName}</div>
+                          <div className="text-xs text-cyan-300 font-bold">{previewCity.arenaName}</div>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-full bg-cyan-500/20 border border-cyan-400/40 text-cyan-300">
-                          {previewCity.teamName}
-                        </span>
+                      <div className="text-right space-y-1">
+                        <div className="text-xs font-black uppercase tracking-wider text-amber-300 flex items-center justify-end gap-1.5 tabular-nums">
+                          {cityAtmosphere.phase === "dawn" ? (
+                            <Sunrise className="w-4 h-4 text-amber-300" />
+                          ) : cityAtmosphere.phase === "golden_hour" || cityAtmosphere.phase === "dusk" ? (
+                            <Sunset className="w-4 h-4 text-orange-300" />
+                          ) : cityAtmosphere.isDaytime ? (
+                            <Sun className="w-4 h-4 text-yellow-300" />
+                          ) : (
+                            <Moon className="w-4 h-4 text-cyan-300" />
+                          )}
+                          <span>{cityAtmosphere.localTimeText}</span>
+                        </div>
+                        <div className="text-[10px] font-bold uppercase text-white/75">
+                          {cityAtmosphere.phaseLabel} · {previewCity.teamName}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Dynamic Local-Time Environment & Lighting Controls */}
+                    <div className="p-3.5 rounded-2xl bg-black/55 backdrop-blur-md border border-white/15 flex flex-wrap items-center justify-between gap-2.5">
+                      <div className="flex items-center gap-2 text-xs">
+                        <Clock className="w-4 h-4 text-cyan-300 shrink-0" />
+                        <div>
+                          <div className="font-black uppercase tracking-wider text-white">
+                            Dynamic Day-Night Lighting
+                          </div>
+                          <div className="text-[11px] text-white/65">
+                            {hourOverride === null
+                              ? `Synced live to ${previewCity.name} (${cityAtmosphere.timeZone})`
+                              : `Previewing ${cityAtmosphere.localTimeText} sky & arena mood`}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {(
+                          [
+                            { label: "Live", value: null },
+                            { label: "Dawn", value: 6.2 },
+                            { label: "Day", value: 13.5 },
+                            { label: "Sunset", value: 17.7 },
+                            { label: "Night", value: 22.0 },
+                          ] as const
+                        ).map((opt) => {
+                          const active = hourOverride === opt.value;
+                          return (
+                            <button
+                              key={opt.label}
+                              type="button"
+                              onClick={() => setHourOverride(opt.value)}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase border cursor-pointer transition-colors ${
+                                active
+                                  ? "bg-amber-400 text-black border-amber-200"
+                                  : "bg-white/10 text-white/80 border-white/15 hover:bg-white/20"
+                              }`}
+                            >
+                              {opt.label}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
 
@@ -670,7 +834,7 @@ export default function WorldTourMenu({
                   </div>
 
                   {/* Confirm & Back Buttons */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                  <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                     <button
                       type="button"
                       onClick={onClose}
